@@ -1,0 +1,35 @@
+/*
+ * Visual panel styling for `Modal` — `@zanix/space-ui`'s own `Modal` deliberately supplies ONLY
+ * `position`/`z-index` inline (real centering math, unavoidably per-instance) and leaves color,
+ * shadow, padding, border-radius, and width entirely to the consumer's own `className`.
+ *
+ * Plain literal values, NOT `--space-*` semantic tokens (unlike `@zanix/console`'s own identical
+ * stylesheet, which references its project's already-established `theme/tokens.css`) — this project
+ * has no theme/token system of its own yet (every other `@zanix/space-ui` component already in use
+ * here — `Button`/`Field`/`Input` on the login/OTP/TOTP/recovery pages — renders with zero custom
+ * styling today). Introducing a token dependency for just this one stylesheet, with nothing else in
+ * the project to resolve it against, would be a real, isolated new convention rather than following
+ * an existing one; switch this to semantic tokens once this project adopts a real theme file, the
+ * same "narrowest scope that actually needs it" judgment `space-styling-and-theming` already asks
+ * for.
+ *
+ * A PLAIN stylesheet (not `.module.css`), wired through `defineSpaceApp({ globalCss })`
+ * (`space.app.ts`) rather than imported straight into the comet as a CSS Module or scoped to a
+ * single page's own `static styles` — see `[lang]/layout.tsx`'s own doc for why this needs to be a
+ * GLOBAL stylesheet: this modal is composed once, in the root layout, and shows on every page, not
+ * one page the way `@zanix/console`'s own reference scopes its identical dialog. `globalCss` is
+ * resolved through the same "no build, no dev-mode flash" mechanism a page's own `static styles`
+ * uses (`resolveCssHrefs`, `@zanix/space`'s own `css-manifest.ts`) — never `getCometCssHrefs`, which
+ * only resolves a real `<link>` in a PRODUCTION build, leaving a confirmed dev-only unstyled flash
+ * for anything scoped to a Comet's own `*.module.css` import instead (the exact bug
+ * `@zanix/console`'s own `login/page.tsx` documents fixing for its narrower, page-scoped case).
+ */
+
+.cookie-consent-dialog {
+  width: min(90vw, 28rem);
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1a1a1a;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}

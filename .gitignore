@@ -1,0 +1,55 @@
+# Deno dependencies and caches
+/vendor/
+
+# Editor & system files
+.DS_Store
+.vscode/
+Thumbs.db
+
+# Logs & debugging files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+/dist/
+/.dist/
+/out/
+
+# Vite dev/build artifacts (relevant for `space`/`space-server` projects)
+.vite/
+**/.vite/
+dist-ssr/
+# Generated next to each *.module.css source file (cssPlugin's own typed-codegen, dev and build
+# alike) — regenerated automatically whenever `zanix space dev`/`zanix space build` runs, never
+# meant to be committed.
+**/*.module.css.d.ts
+# A real, temporary sibling `@zanix/cli`'s `importProjectModule` writes next to a project file
+# whose own bare specifiers it's rewriting (`space.app.ts`, a discovered page/layout, ...) —
+# deleted the instant the import that created it resolves. Only ever survives on disk at all if
+# the process was killed mid-import; carries its own "safe to delete" header when it does.
+**/.zanix-import-*.js
+
+# Environment & config files
+.env
+.env.local
+
+# Temporary files and folders
+__tmp__/
+*.tmp
+*.log
+/.logs/
+
+# Compiled JavaScript files
+tsconfig.tsbuildinfo
+
+# Miscellaneous
+# If using third-party tools that install node_modules
+node_modules  
+
+# Local databases
+.sqlite
+
+# Test coverage reports
+/coverage/
+coverage.lcov

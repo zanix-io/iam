@@ -1,0 +1,102 @@
+{
+  "name": "zanix-iam",
+  "version": "0.1.0",
+  "zanix": {
+    "project": "space-server"
+  },
+  "tasks": {
+    "check-cycles": "deno run -A jsr:@zanix/cli check-cycles",
+    "check-duplicates": "deno run -A jsr:@zanix/cli check-duplicates",
+    "dev": "deno install && zanix space dev",
+    "build": "zanix space build",
+    "start": "deno run --env-file=.env --allow-net --allow-env --allow-read --allow-sys --allow-write --allow-ffi --allow-run=ffmpeg,ffprobe --no-prompt mod.ts",
+    "worker": "deno run --env-file=.env --allow-net --allow-env --allow-read --allow-sys --allow-write --allow-ffi --allow-run=ffmpeg,ffprobe --no-prompt worker.ts"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "types": [
+      "./src/typings/index.d.ts"
+    ],
+    "lib": [
+      "deno.window",
+      "deno.ns"
+    ]
+  },
+  "lint": {
+    "rules": {
+      "tags": [
+        "recommended",
+        "jsr",
+        "react",
+        "jsx"
+      ],
+      "include": [
+        "eqeqeq",
+        "default-param-last",
+        "camelcase",
+        "no-await-in-loop",
+        "no-const-assign",
+        "no-eval",
+        "no-non-null-asserted-optional-chain",
+        "no-non-null-assertion",
+        "no-self-compare",
+        "no-sync-fn-in-async-fn",
+        "no-throw-literal",
+        "no-useless-rename"
+      ]
+    },
+    "exclude": [
+      ".dist"
+    ],
+    "plugins": [
+      "jsr:@zanix/utils@^4.4.0/linter/deno-zanix-plugin"
+    ],
+    "report": "pretty"
+  },
+  "fmt": {
+    "exclude": [
+      ".dist"
+    ],
+    "proseWrap": "always",
+    "indentWidth": 2,
+    "singleQuote": true,
+    "lineWidth": 100,
+    "useTabs": false,
+    "semiColons": false
+  },
+  "imports": {
+    "shared/": "./src/shared/",
+    "typings/": "./src/typings/",
+    "utils/": "./src/utils/",
+    "space/": "./src/space/",
+    "server/": "./src/server/",
+    "@zanix/app": "jsr:@zanix/app@^1.0.2",
+    "@zanix/app/runtime": "jsr:@zanix/app@^1.0.2/runtime",
+    "@zanix/auth": "jsr:@zanix/auth@^1.2.1",
+    "@zanix/auth/core": "jsr:@zanix/auth@^1.2.1/core",
+    "@zanix/space": "jsr:@zanix/space@^1.6.0",
+    "@zanix/server": "jsr:@zanix/server@^4.2.3",
+    "@zanix/notifications": "jsr:@zanix/notifications@^1.2.3",
+    "@zanix/datamaster": "jsr:@zanix/datamaster@^1.9.1",
+    "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.8.0",
+    "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.8.0/jobs",
+    "@zanix/validator": "jsr:@zanix/utils@^4.4.0/validator",
+    "@zanix/errors": "jsr:@zanix/utils@^4.4.0/errors",
+    "@zanix/helpers": "jsr:@zanix/utils@^4.4.0/helpers",
+    "@zanix/core": "jsr:@zanix/core@^3.1.1",
+    "react": "npm:react@^19.2.8",
+    "babel-plugin-react-compiler": "npm:babel-plugin-react-compiler@^1.0.0",
+    "qrcode-generator": "npm:qrcode-generator@^1.5.2",
+    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.0.0"
+  },
+  "exports": {},
+  "nodeModulesDir": "auto",
+  "test": {
+    "include": [
+      "src/@tests/**/*.test.ts"
+    ]
+  }
+}
