@@ -21,9 +21,10 @@ Deno.test('auth.app.ts: manifest shape — no HTTP surface, only the declared sl
   assertEquals(def.name, 'auth')
   assertEquals(def.routesPrefix, null)
   assertEquals(Object.keys(def.dependencies).sort(), ['captcha', 'githubOAuth2', 'googleOAuth2'])
-  // `totpToleranceSteps`/`selfRegistrationViaOAuth` moved from `behaviors` to `config` — both are
-  // plain values with no override-time logic of their own, per the Configuration/Extension/
-  // Override table (`app-behaviors-and-overrides`) — leaving only the two real strategy functions.
+  // `totpToleranceSteps`/`selfRegistrationViaOAuth`/`selfRegistrationViaOTP` moved from
+  // `behaviors` to `config` — all three are plain values with no override-time logic of their own,
+  // per the Configuration/Extension/Override table (`app-behaviors-and-overrides`) — leaving only
+  // the two real strategy functions.
   assertEquals(
     Object.keys(def.behaviors).sort(),
     ['passwordPolicy', 'resolveEffectivePermissions', 'totpProvisioningLabel'],
@@ -36,12 +37,14 @@ Deno.test('auth.app.ts: manifest shape — no HTTP surface, only the declared sl
       'ipAllowlist',
       'otpRequired',
       'selfRegistrationViaOAuth',
+      'selfRegistrationViaOTP',
       'totpRequired',
       'totpToleranceSteps',
     ],
   )
   assertEquals(def.config.totpToleranceSteps.default, 1)
   assertEquals(def.config.selfRegistrationViaOAuth.default, true)
+  assertEquals(def.config.selfRegistrationViaOTP.default, true)
 })
 
 Deno.test('auth.app.ts: registers real resource-type factories for both OAuth2 providers', () => {

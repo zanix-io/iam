@@ -17,6 +17,7 @@ import {
   resolveCaptchaProvider,
 } from '@zanix/auth'
 import { TemplatesAdminRepository } from '@zanix/notifications'
+import { SERVICE_ID } from 'utils/constants.ts'
 import { resolveEffectivePermissions } from 'utils/rbac.ts'
 
 /**
@@ -69,7 +70,7 @@ registerResourceType('captcha-provider', () => {
  */
 const TOTP_ENABLED_TEMPLATE_HBS = `
 <h1>Two-factor authentication enabled</h1>
-<p>Two-factor authentication (authenticator app) has been enabled on your zanix-iam account.</p>
+<p>Two-factor authentication (authenticator app) has been enabled on your ${SERVICE_ID} account.</p>
 <p>If you did not perform this action, please contact support immediately.</p>
 `.trim()
 
@@ -162,6 +163,23 @@ const authApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
      * registration path.
      */
     selfRegistrationViaOAuth: { type: 'boolean', default: true },
+    /**
+     * Whether a first-time OTP-login request for an unrecognized email (`GET /login/otp/:email`
+     * with no matching `auth` record) may auto-provision a new account, versus requiring one to
+     * already exist. Same shape/reasoning as {@link selfRegistrationViaOAuth} above, read via
+     * `resolveConfig('auth', 'selfRegistrationViaOTP')` from `PasswordService.recovery`/
+     * `AuthService.loginWithOTPCallback`. **Deliberately scoped to the OTP-as-*login* path
+     * only** — a genuine password-recovery request for an unrecognized email is never affected by
+     * this flag (see `PasswordService.recovery`'s own doc for why: silently creating an account
+     * from an arbitrary "forgot password" email would be a real, unverified account-creation
+     * vector, an entirely different risk from a login-time OTP request). Unlike the OAuth2 case,
+     * the new account isn't actually created until the code is verified (`loginWithOTPCallback`)
+     * — the dispatch step alone never writes a new `auth`/`users` record, only generates a code
+     * against the plain `email` as its cache target. Override to `false` to make OTP login
+     * exclusively an authentication method for accounts an admin already created, never a
+     * registration path.
+     */
+    selfRegistrationViaOTP: { type: 'boolean', default: true },
   },
   behaviors: {
     passwordPolicy: {

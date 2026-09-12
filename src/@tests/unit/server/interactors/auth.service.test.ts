@@ -80,6 +80,7 @@ const defaultAuthProvider = () => ({
     authenticate: fn((..._args: unknown[]) => ({ accessToken: 'access', refreshToken: 'refresh' })),
   },
   otp: {
+    verify: fn((..._args: unknown[]) => true),
     authenticate: fn((..._args: unknown[]) => ({ accessToken: 'access', refreshToken: 'refresh' })),
   },
 })
@@ -321,6 +322,72 @@ Deno.test('loginWithOTPCallback: passes refreshExpiration when REFRESH_TOKEN_EXP
     assertEquals(options.refreshExpiration, '30d')
     assertEquals('accessExpiration' in options, false)
   })
+})
+
+Deno.test('loginWithOTPCallback: no existing account self-provisions via a verified email-keyed code, then mints a real session', async () => {
+  // Unset on the FIRST lookup (no account yet), then re-fetched as the just-created record on the
+  // SECOND — same reasoning as `loginWithOauthCallback`'s own identical re-fetch.
+  let lookups = 0
+  const { service, authRepo, authProvider, usersRepo, notifier } = buildService({
+    authRepo: {
+      findByEmail: fn((..._args: unknown[]): unknown =>
+        lookups++ === 0 ? undefined : baseAuth({ id: 'auth-new', userId: 'user-1' })
+      ),
+    },
+  })
+
+  const result = await service.loginWithOTPCallback(
+    'new@example.com',
+    '123456',
+  ) as Record<string, unknown>
+
+  // Verified against the SAME email-keyed target `PasswordService.recovery`'s own
+  // self-registration dispatch generated the code against — never `.authenticate`, which would
+  // mint a session with the email itself as `subject`.
+  assertEquals(authProvider.otp.verify.calls[0], ['new@example.com', '123456'])
+  assertEquals(authProvider.otp.authenticate.calls.length, 0)
+
+  assertEquals(usersRepo.registerUser.calls[0], [{}])
+  const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
+  assertEquals(registered.email, 'new@example.com')
+  assertEquals(registered.userId, 'user-1')
+  assertEquals('password' in registered, false)
+  assertEquals('oauthProvider' in registered, false)
+  assertEquals(notifier.email.calls[0]?.[0], {
+    to: 'new@example.com',
+    subject: 'Welcome to zanix-iam',
+    zanixTemplate: 'welcome',
+    data: {},
+  })
+
+  // A real session for the just-created account's own id — never the plain email.
+  assertEquals(authProvider.session.generateTokens.calls[0]?.[0], {
+    subject: 'auth-new',
+    permissions: [],
+  })
+  assertEquals(authRepo.findByEmail.calls.length, 2)
+  assertEquals(result.accessToken, 'access')
+})
+
+Deno.test('loginWithOTPCallback: no existing account, invalid code, never provisions anything', async () => {
+  const { service, authProvider, usersRepo, authRepo } = buildService({
+    authRepo: { findByEmail: fn((..._args: unknown[]): unknown => undefined) },
+    authProvider: {
+      otp: {
+        verify: fn(() => false),
+        authenticate: fn(() => ({ accessToken: '', refreshToken: '' })),
+      },
+    },
+  })
+
+  await assertRejects(
+    () => service.loginWithOTPCallback('new@example.com', '000000'),
+    HttpError,
+    'Invalid email or code',
+  )
+  assertEquals(usersRepo.registerUser.calls.length, 0)
+  assertEquals(authRepo.registerAuth.calls.length, 0)
+  assertEquals(authProvider.otp.authenticate.calls.length, 0)
 })
 
 Deno.test('loginWithTOTPCallback: embeds the resolved role permissions', async () => {
@@ -727,4 +794,50 @@ Deno.test('revokeToken: revokes the session token via @zanix/auth, no separate l
   // No `AuthRepository` write of any kind on revoke anymore — the only state a refresh token
   // ever lives in is `@zanix/auth`'s own JWT + blocklist mechanism.
   assertEquals(authRepo.updateAuth.calls.length, 0)
+})
+
+Deno.test('issueSessionForSubject: mints tokens directly, with no 2FA branch of any kind', async () => {
+  const { service, authProvider, authRepo } = buildService({
+    authRepo: {
+      findById: fn(() =>
+        baseAuth({ id: 'auth-1', twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] } })
+      ),
+    },
+  })
+  const result = await service.issueSessionForSubject('auth-1') as Record<string, unknown>
+  assertEquals(result.accessToken, 'access')
+  assertEquals(authProvider.session.generateTokens.calls[0][0], {
+    subject: 'auth-1',
+    permissions: [],
+  })
+  assert(authRepo.updateAuth.calls.length === 1)
+  const update = authRepo.updateAuth.calls[0]?.[0] as Record<string, unknown>
+  assert(update.lastLoginAt instanceof Date)
+})
+
+Deno.test('issueSessionForSubject: throws FORBIDDEN when no auth record exists for the subject', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => undefined) },
+  })
+  await assertRejects(
+    () => service.issueSessionForSubject('missing'),
+    HttpError,
+    'Account not found.',
+  )
+})
+
+Deno.test('issueSessionForSubject: throws when the linked users profile is deactivated/deleted', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ id: 'auth-1' })) },
+    usersRepo: {
+      assertActive: fn(() => {
+        throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
+      }),
+    },
+  })
+  await assertRejects(
+    () => service.issueSessionForSubject('auth-1'),
+    HttpError,
+    'no longer exists',
+  )
 })

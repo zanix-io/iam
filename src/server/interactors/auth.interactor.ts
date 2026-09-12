@@ -17,6 +17,7 @@ import {
   type NOTIFIERS,
   resolveConfiguredAccessExpiration,
   resolveConfiguredRefreshExpiration,
+  SERVICE_ID,
   TOKEN_EXPIRATION,
 } from 'utils/constants.ts'
 import { resolveEffectivePermissions as defaultResolveEffectivePermissions } from 'utils/rbac.ts'
@@ -87,18 +88,29 @@ export class AuthService extends ZanixInteractor {
    * Verifies the OTP `code` sent to `email` and, on success, issues session tokens — the same
    * configured `accessExpiration`/`refreshExpiration` as `finishLogin` (see its own doc for why).
    *
-   * @throws {HttpError} `FORBIDDEN` when no account exists for `email`, or when `code` is
-   *   invalid/expired (`ZanixAuthProvider.otp.authenticate`), or when the linked `users` profile
-   *   is deactivated/deleted (`UsersRepository.assertActive`).
+   * **No existing `auth` record for `email`** is not automatically a rejection: when
+   * `PasswordService.recovery`'s own self-registration dispatch generated this code (`target:
+   * email`, no account created yet — see that method's own doc), this is this project's real
+   * passwordless-signup completion step. `code` is verified first, against that SAME `email`
+   * target, via `otp.verify` — deliberately never `.authenticate`, which would mint a session with
+   * `email` itself as `subject` rather than a real account id. Only once verification succeeds is
+   * the account actually created (same shape as `loginWithOauthCallback`'s own auto-provisioning),
+   * so an unrecognized email that never completes the code leaves no `auth`/`users` row behind —
+   * account creation waits for a verified identity, not an unverified dispatch request.
+   * `selfRegistrationViaOTP` (`auth.app.ts`) still gates whether this is allowed at all; disabled,
+   * an unrecognized email's code is never treated as valid here even if it happens to match
+   * (`recovery` wouldn't have dispatched one in the first place with the flag off, but this method
+   * doesn't trust that invariant blindly).
+   *
+   * @throws {HttpError} `FORBIDDEN` when no account exists for `email` and self-registration is
+   *   disabled or `code` doesn't verify against the email-keyed target; when an account DOES
+   *   exist, `FORBIDDEN` when `code` is invalid/expired (`ZanixAuthProvider.otp.authenticate`) or
+   *   the linked `users` profile is deactivated/deleted (`UsersRepository.assertActive`).
    */
   public async loginWithOTPCallback(email: string, code: string) {
-    const auth = await this.providers.get(AuthRepository).findByEmail(
+    let auth = await this.providers.get(AuthRepository).findByEmail(
       email,
     ) as unknown as HydratedAuth
-    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Invalid email or code.' })
-    await this.providers.get(UsersRepository).assertActive(auth.userId)
-
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
     // Same cast as `finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
       | AuthSessionOptions['accessExpiration']
@@ -106,6 +118,43 @@ export class AuthService extends ZanixInteractor {
     const refreshExpiration = resolveConfiguredRefreshExpiration() as
       | AuthSessionOptions['refreshExpiration']
       | undefined
+
+    if (!auth) {
+      const allowSelfRegistration = resolveConfig<boolean>('auth', 'selfRegistrationViaOTP') ?? true
+      const isValid = allowSelfRegistration &&
+        await this.providers.get(ZanixAuthProvider).otp.verify(email, code)
+      if (!isValid) throw new HttpError('FORBIDDEN', { message: 'Invalid email or code.' })
+
+      // No first/last name populated from an OTP code — there's no provider profile response to
+      // draw one from at all here, same as `loginWithOauthCallback`'s own reasoning for GitHub.
+      const profile = await this.providers.get(UsersRepository).registerUser({})
+      await this.providers.get(AuthRepository).registerAuth({ email, userId: profile.id })
+      // Re-fetched rather than trusting the just-created document — same reasoning as
+      // `loginWithOauthCallback`'s own identical re-fetch.
+      auth = await this.providers.get(AuthRepository).findByEmail(
+        email,
+      ) as unknown as HydratedAuth
+      await this.providers.get(NotifierProvider).email({
+        to: email,
+        subject: `Welcome to ${SERVICE_ID}`,
+        zanixTemplate: 'welcome',
+        data: {},
+      }, { useWorker: 'one-time' })
+
+      await this.providers.get(UsersRepository).assertActive(auth.userId)
+      const permissions = await this.resolveSessionPermissions(auth.roleId)
+      const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
+        subject: auth.id,
+        permissions,
+        ...(accessExpiration !== undefined ? { accessExpiration } : {}),
+        ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
+      })
+      await this.persistSession(auth.id)
+      return { ...tokens, expiresAt: TOKEN_EXPIRATION }
+    }
+
+    await this.providers.get(UsersRepository).assertActive(auth.userId)
+    const permissions = await this.resolveSessionPermissions(auth.roleId)
     const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
       subject: auth.id,
       permissions,
@@ -132,7 +181,7 @@ export class AuthService extends ZanixInteractor {
     const label =
       resolveBehavior<(email: string) => string>('auth', 'totpProvisioningLabel')?.(subject) ??
         subject
-    const uri = totp.getProvisioningUri(secret, label, { issuer: 'zanix-iam' })
+    const uri = totp.getProvisioningUri(secret, label, { issuer: SERVICE_ID })
 
     return { secret, uri }
   }
@@ -321,7 +370,7 @@ export class AuthService extends ZanixInteractor {
       auth = await this.providers.get(AuthRepository).findByEmail(email) as unknown as HydratedAuth
       await this.providers.get(NotifierProvider).email({
         to: email,
-        subject: 'Welcome to zanix-iam',
+        subject: `Welcome to ${SERVICE_ID}`,
         zanixTemplate: 'welcome',
         data: {},
       }, { useWorker: 'one-time' })
@@ -343,6 +392,49 @@ export class AuthService extends ZanixInteractor {
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     return this.finishLogin(auth, 'login', { oauthProvider: provider })
+  }
+
+  /**
+   * Mints a fresh session for `authId` directly — the tail of `finishLogin` (permission resolution,
+   * token issuance, `lastLoginAt`) without its own 2FA branch. For a caller that already knows this
+   * `auth` record passed real authentication (2FA included, when configured) through some OTHER
+   * means, and only needs the actual session tokens minted: `oauth-provider.interactor.ts`'s own
+   * `OAuthProviderService.exchangeCode` is the one real caller — an authorization code is only ever
+   * minted for a request that already carried a valid, currently authenticated iam session
+   * (`OAuthProviderService.authorize`), so exchanging it for a session here re-running a 2FA
+   * challenge would ask the same human to prove the same thing twice.
+   *
+   * @throws {HttpError} `FORBIDDEN` when no `auth` record exists for `authId`, or its linked
+   *   `users` profile is deactivated/deleted (`UsersRepository.assertActive`).
+   */
+  public async issueSessionForSubject(authId: string) {
+    const auth = await this.providers.get(AuthRepository).findById(authId) as
+      | HydratedAuth
+      | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    await this.providers.get(UsersRepository).assertActive(auth.userId)
+
+    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    // Same cast as `finishLogin` — see its own doc for why.
+    const accessExpiration = resolveConfiguredAccessExpiration() as
+      | AuthSessionOptions['accessExpiration']
+      | undefined
+    const refreshExpiration = resolveConfiguredRefreshExpiration() as
+      | AuthSessionOptions['refreshExpiration']
+      | undefined
+    const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
+      subject: auth.id,
+      permissions,
+      ...(accessExpiration !== undefined ? { accessExpiration } : {}),
+      ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
+    })
+
+    await this.providers.get(AuthRepository).updateAuth({
+      id: auth.id,
+      lastLoginAt: new Date(),
+    }, { applyProtection: true })
+
+    return { ...tokens, expiresAt: TOKEN_EXPIRATION }
   }
 
   /**

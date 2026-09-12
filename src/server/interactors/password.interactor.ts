@@ -6,7 +6,7 @@ import { Interactor, ZanixInteractor } from '@zanix/server'
 import { HttpError } from '@zanix/errors'
 import { ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
-import { resolveBehavior } from '@zanix/app/runtime'
+import { resolveBehavior, resolveConfig } from '@zanix/app/runtime'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
 import { RolesRepository } from '../repositories/roles/entity.provider.ts'
@@ -80,8 +80,23 @@ export class PasswordService extends ZanixInteractor {
    * (`AuthService.loginWithOTP`) and a direct password-recovery request — only the delivered
    * template differs (`isLogin`), the underlying OTP generation is identical.
    *
-   * @throws {HttpError} `FORBIDDEN` when no account exists for `email`; `BAD_REQUEST` when
-   *   `notifier` is `'sms'`/`'whatsapp'` and the account has no `phone` on file.
+   * `isLogin: true` with no existing `auth` record for `email`, `notifier` resolving to `'email'`,
+   * and `selfRegistrationViaOTP` allowed (`auth.app.ts`'s own doc — same shape/reasoning as
+   * `selfRegistrationViaOAuth`) generates the code against `target: email` instead of an `auth`
+   * id, so a first-time OTP-login request from an unrecognized email is this project's real
+   * passwordless-signup entry point rather than a dead end. **No `auth`/`users` record is created
+   * here** — this only reserves a code the recipient can later prove receipt of;
+   * `AuthService.loginWithOTPCallback` is what actually provisions the account, and only once that
+   * code verifies (see its own doc for why account creation waits for a verified identity rather
+   * than happening at dispatch time). **Gated on `isLogin` alone** — a genuine password-recovery
+   * request (`isLogin` unset/false) for an unrecognized email still falls straight through to the
+   * `FORBIDDEN` below, exactly as before. Recovery's own caller is expected to mask that rejection
+   * into the same generic "if an account exists…" response regardless of outcome (real
+   * account-enumeration prevention lives there, not here) — this flag never touches that path.
+   *
+   * @throws {HttpError} `FORBIDDEN` when no account exists for `email` and this isn't an
+   *   eligible self-registration dispatch; `BAD_REQUEST` when `notifier` is `'sms'`/`'whatsapp'`
+   *   and the account has no `phone` on file.
    * @returns A generic dispatch confirmation, never the OTP code itself.
    */
   public async recovery(
@@ -93,16 +108,26 @@ export class PasswordService extends ZanixInteractor {
     const auth = await this.providers.get(AuthRepository).findByEmail(
       email,
     ) as unknown as HydratedAuth
-    if (!auth) throw new HttpError('FORBIDDEN', { message: 'No account for this email.' })
-    await this.providers.get(UsersRepository).assertActive(auth.userId)
+    const selfRegistrationDispatch = !auth && isLogin && notifier === 'email' &&
+      (resolveConfig<boolean>('auth', 'selfRegistrationViaOTP') ?? true)
+    if (!auth && !selfRegistrationDispatch) {
+      throw new HttpError('FORBIDDEN', { message: 'No account for this email.' })
+    }
+    if (auth) await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     const ttl = 300
     const code = await this.providers.get(ZanixAuthProvider).otp.generate({
-      target: auth.id,
+      // Unrecognized-but-eligible email: the OTP cache has no `auth.id` to key against yet, so
+      // the plain email itself is the target — `AuthService.loginWithOTPCallback` verifies
+      // against this exact same target when it doesn't find an `auth` record either.
+      target: auth ? auth.id : email,
       exp: ttl,
     })
 
-    const to = notifier === 'email' ? email : auth.phone?.unmask()
+    // `auth` is only possibly `undefined` on the `selfRegistrationDispatch` path, which requires
+    // `notifier === 'email'` above — so the `auth.phone` branch below only ever evaluates with a
+    // real `auth`, the `?.` is defensive typing, not a reachable runtime case.
+    const to = notifier === 'email' ? email : auth?.phone?.unmask()
     if (!to) {
       throw new HttpError('BAD_REQUEST', {
         message: `No ${notifier} destination on file for this account.`,

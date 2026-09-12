@@ -131,6 +131,42 @@ Deno.test('recovery: throws FORBIDDEN when no account exists for the email', asy
   await assertRejects(() => service.recovery('nobody@example.com'), HttpError, 'No account')
 })
 
+Deno.test('recovery: no account, isLogin set, self-registration dispatch generates against the email itself and never checks the account active', async () => {
+  const { service, authProvider, notifier, usersRepo } = buildService({
+    authRepo: { findByEmail: fn(() => undefined) },
+  })
+  const result = await service.recovery('newcomer@example.com', { isLogin: true })
+  assertEquals(result, { response: 'notification sent' })
+  assertEquals(authProvider.otp.generate.calls[0]?.[0], {
+    target: 'newcomer@example.com',
+    exp: 300,
+  })
+  // No account exists yet — nothing to assert active, and definitely no row written here (account
+  // creation itself is `AuthService.loginWithOTPCallback`'s job, only once the code verifies).
+  assertEquals(usersRepo.assertActive.calls.length, 0)
+  const message = notifier.sendMessage.calls[0]?.[1] as { zanixTemplate: string; to: string }
+  assertEquals(message.zanixTemplate, 'login-otp')
+  assertEquals(message.to, 'newcomer@example.com')
+})
+
+Deno.test('recovery: no account, isLogin unset (real password recovery), still FORBIDDEN — self-registration never applies here', async () => {
+  const { service } = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
+  await assertRejects(
+    () => service.recovery('nobody@example.com'),
+    HttpError,
+    'No account',
+  )
+})
+
+Deno.test('recovery: no account, isLogin set but notifier is sms — no phone to target, still FORBIDDEN', async () => {
+  const { service } = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
+  await assertRejects(
+    () => service.recovery('newcomer@example.com', { isLogin: true, notifier: 'sms' }),
+    HttpError,
+    'No account',
+  )
+})
+
 Deno.test('recovery: dispatches the login-otp email template when isLogin is set', async () => {
   const { service, notifier } = buildService()
   const result = await service.recovery('jane@example.com', { isLogin: true })
