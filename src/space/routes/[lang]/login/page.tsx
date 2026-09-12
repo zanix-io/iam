@@ -4,27 +4,20 @@ import { Guard } from '@zanix/server'
 import { csrfGuard, Page, SpacePageController } from '@zanix/space'
 import { HttpError } from '@zanix/errors'
 import { GITHUB_OAUTH2_CLIENT_ID_ENV, GOOGLE_OAUTH2_CLIENT_ID_ENV } from '@zanix/auth'
-import { Button, Field, Input } from '@zanix/space-ui'
-// A NAMED import — `@zanix/space/comet/react` carries more than one ready-made Comet, so (unlike
-// this project's own former `submit-guard.comet.tsx`) there's no single default. `ManagedForm`
-// composes `FormDraftPersistence`/`SubmitGuard`/`UnsavedChangesGuard` under one `formId` — this
-// page enables the first two (see {@linkcode DRAFT_STORAGE_KEY}'s own doc for why draft persistence
-// is worth it here), never `unsavedChanges`: this form's own real in-app link (the OAuth2 "Continue
-// with..." list) is a same-origin `<a>` Orbit intercepts client-side, with no exposed "confirm
-// before navigating" hook (`ManagedForm`'s own known gap) — a native `beforeunload` prompt would
-// therefore only ever fire on an actual tab close, not the one navigation a signed-in-in-progress
-// operator is actually likely to take.
-import { ManagedForm } from '@zanix/space/comet/react'
-import { AuthService } from '../../../../server/interactors/auth.interactor.ts'
-import { LoginRTO } from '../../../../server/handlers/rtos/login.ts'
-import { OAUTH_PROVIDERS, TERMS_AND_CONDITIONS_URL_ENV } from '../../../../utils/constants.ts'
+import { LoginView } from 'ui/pages/login/index.ts'
+import type { LoginViewProps } from 'ui/pages/login/index.ts'
+import { AuthService } from 'server/interactors/auth.interactor.ts'
+import { LoginRTO } from 'server/handlers/rtos/login.ts'
+import {
+  OAUTH_PROVIDERS,
+  postLoginRedirectUrl,
+  PRIVACY_NOTICE_URL_ENV,
+  resolvePostLoginRedirect,
+  TERMS_AND_CONDITIONS_URL_ENV,
+  withRedirectToParam,
+} from 'utils/constants.ts'
 import { hasSessionCookie } from '../../../session-cookie.ts'
-// A RELATIVE path, deliberately — `zanix space dev`'s own route-discovery step resolves a file
-// under `routesDir` against `@zanix/cli`'s OWN configuration, never this project's, so a bare
-// `shared/`-aliased import here would silently resolve to `@zanix/cli`'s own, differently targeted
-// internal `shared/` directory instead (confirmed real, see `redirect-response.ts`'s own doc and
-// `console`'s identical precedent). No import-map entry needed for a relative path.
-import { redirectResponse } from '../../../../shared/redirect-response.ts'
+import { redirectResponse } from 'shared/redirect-response.ts'
 
 type LoginParams = { lang: string }
 
@@ -32,24 +25,25 @@ type LoginParams = { lang: string }
  * below, surfaced by `LoginView` as a plain, static error message. Not a flash/session mechanism: a
  * real, stateless PRG (post-redirect-get) query param. */
 const INVALID_CREDENTIALS_ERROR = 'invalid_credentials'
-
-/** `Field` ids for the two real inputs below — plain identity/label wiring only. */
-const EMAIL_FIELD_ID = 'login-email'
-const PASSWORD_FIELD_ID = 'login-password'
-
-/** This page's own `<form>` id — `ManagedForm`'s own `formId` target. */
-const FORM_ID = 'login-form'
-
-/**
- * `FormDraftPersistence`'s own `storageKey` for this form — a plain, `[lang]`-independent literal
- * (never derived from `location.pathname`, see that Comet's own doc for why: this project's
- * `[lang]`-segment routing renders this SAME logical form at a different pathname per language,
- * which a pathname-derived key would fragment an operator's own in-progress draft across). Recovers
- * a typed `email` after an accidental refresh or navigate-away-and-back; `password` is excluded
- * automatically (every `type="password"` field always is), so nothing sensitive round-trips through
- * `sessionStorage` here.
- */
-const DRAFT_STORAGE_KEY = 'login'
+/** Query param this page's own `action` WOULD redirect back with on a rate-limited attempt — kept
+ * for parity with a Tier-2 consumer (`docs/consuming-iam.md`) calling this SAME `LoginView` after
+ * catching a real `429` from `POST /login/login` over HTTP. This page's own `action` calls
+ * `AuthService.loginWithPassword` directly (an in-process interactor call, never an HTTP round
+ * trip through this project's own REST layer), which never runs `freeRateLimit`'s own
+ * `@RateLimitGuard` at all — that's HTTP-request middleware, not something a direct method call
+ * passes through — so this branch is currently unreachable from here in practice. Wired anyway so
+ * `loader` can supply the (now required) `LoginViewProps.rateLimited` the same principled way
+ * `invalidCredentials` already is, rather than a hardcoded `false` that would silently stop being
+ * true the moment this action's own call path ever changes. */
+const RATE_LIMITED_ERROR = 'rate_limited'
+/** Same parity reasoning as {@link RATE_LIMITED_ERROR}'s own doc: this page's own `action` never
+ * actually redirects with this (its `catch` below only ever distinguishes `FORBIDDEN`, `throw`ing
+ * anything else unchanged rather than disguising a real interactor fault as a generic message) —
+ * wired anyway so `loader` can supply the (now required) `LoginViewProps.unexpectedError` the same
+ * principled way, for a Tier-2 consumer calling this SAME `LoginView` after catching a real
+ * non-`403`/`429` upstream failure over HTTP (see `docs/consuming-iam.md`'s own `login/page.tsx`
+ * reference for that consumer-side shape). */
+const UNEXPECTED_ERROR = 'unexpected_error'
 
 /**
  * Maps each of `OAUTH_PROVIDERS` (every provider this project's CODE knows how to speak to) to the
@@ -67,88 +61,6 @@ const OAUTH_PROVIDER_ENV: Record<typeof OAUTH_PROVIDERS[number], string> = {
  * `OAUTH_PROVIDER_ENV`'s own doc. */
 function configuredOauthProviders(): typeof OAUTH_PROVIDERS[number][] {
   return OAUTH_PROVIDERS.filter((provider) => Deno.env.has(OAUTH_PROVIDER_ENV[provider]))
-}
-
-type LoginViewProps = {
-  lang: string
-  csrfToken?: string
-  fieldErrors?: Record<string, unknown>
-  submitted?: Record<string, string>
-  invalidCredentials: boolean
-  /** Which OAuth2 providers this host actually has configured (`auth.app.ts`'s own `resources`) —
-   * never hardcoded, so a deployment configuring only Google (or neither) doesn't render a dead
-   * "Continue with GitHub" link. Resolved server-side in `loader` (see that method's own doc). */
-  oauthProviders: readonly string[]
-  /** This host's own Terms and Conditions URL — presence-gated, the same convention
-   * {@linkcode OAUTH_PROVIDER_ENV} already applies per OAuth2 provider (see
-   * `TERMS_AND_CONDITIONS_URL_ENV`'s own doc). `undefined` when unset, in which case no link
-   * renders at all — purely informational, never a submit-blocking requirement. */
-  termsUrl?: string
-}
-
-/** Extracts a single field's already-resolved error message(s) out of `PageFieldErrors`.
- * `undefined` (not `[]`) when the field has no error, so `Field`'s own "was an error given at all"
- * branch stays accurate. */
-function fieldMessage(
-  property: string,
-  fieldErrors: LoginViewProps['fieldErrors'],
-): string[] | undefined {
-  const entries = fieldErrors?.[property] as { constraints?: string[] }[] | undefined
-  const messages = entries?.flatMap((entry) => entry.constraints ?? [])
-  return messages?.length ? messages : undefined
-}
-
-function LoginView(
-  { lang, csrfToken, fieldErrors, submitted, invalidCredentials, oauthProviders, termsUrl }:
-    LoginViewProps,
-) {
-  return (
-    <main>
-      <h1>Sign in</h1>
-      {invalidCredentials && <p role='alert'>Invalid email or password.</p>}
-      <ManagedForm
-        formId={FORM_ID}
-        draft={{ storageKey: DRAFT_STORAGE_KEY, hasServerValues: submitted !== undefined }}
-        submitGuard
-      />
-      <form method='post' id={FORM_ID}>
-        <input type='hidden' name='_csrf' value={csrfToken ?? ''} />
-        <Field id={EMAIL_FIELD_ID} label='Email' error={fieldMessage('email', fieldErrors)}>
-          {(fieldProps) => (
-            <Input
-              {...fieldProps}
-              name='email'
-              type='email'
-              defaultValue={submitted?.email ?? ''}
-              required
-            />
-          )}
-        </Field>
-        <Field
-          id={PASSWORD_FIELD_ID}
-          label='Password'
-          error={fieldMessage('password', fieldErrors)}
-        >
-          {(fieldProps) => <Input {...fieldProps} name='password' type='password' required />}
-        </Field>
-        <Button type='submit'>Sign in</Button>
-      </form>
-      {termsUrl && (
-        <p>
-          <a href={termsUrl}>Terms and Conditions</a>
-        </p>
-      )}
-      {oauthProviders.length > 0 && (
-        <ul>
-          {oauthProviders.map((provider) => (
-            <li key={provider}>
-              <a href={`/${lang}/login/${provider}`}>Continue with {provider}</a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
-  )
 }
 
 /**
@@ -191,7 +103,7 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
    * later logout.
    */
   public static override redirect = {
-    to: '/',
+    to: postLoginRedirectUrl(),
     code: 302 as const,
     condition: (ctx: PageContext<unknown>) => hasSessionCookie(ctx.request),
   }
@@ -204,8 +116,11 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
     fieldErrors: ctx.fieldErrors,
     submitted: ctx.submitted,
     invalidCredentials: ctx.url.searchParams.get('error') === INVALID_CREDENTIALS_ERROR,
+    rateLimited: ctx.url.searchParams.get('error') === RATE_LIMITED_ERROR,
+    unexpectedError: ctx.url.searchParams.get('error') === UNEXPECTED_ERROR,
     oauthProviders: configuredOauthProviders(),
     termsUrl: Deno.env.get(TERMS_AND_CONDITIONS_URL_ENV),
+    privacyUrl: Deno.env.get(PRIVACY_NOTICE_URL_ENV),
   })
 
   public override action = async (
@@ -226,7 +141,9 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
       // `AuthService`'s own doc for why both collapse to the same status/redirect here. Anything
       // else is a real server-side fault and propagates unchanged.
       if (e instanceof HttpError && e.status.code === 'FORBIDDEN') {
-        return redirectResponse(`/${lang}/login?error=${INVALID_CREDENTIALS_ERROR}`)
+        return redirectResponse(
+          withRedirectToParam(`/${lang}/login?error=${INVALID_CREDENTIALS_ERROR}`, ctx.url),
+        )
       }
       throw e
     }
@@ -235,7 +152,7 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
     // returns only `{ message }` instead, with no other field in common. `'accessToken' in result`
     // is therefore a safe, structural discriminator between the two shapes.
     if ('accessToken' in result) {
-      return redirectResponse('/')
+      return redirectResponse(resolvePostLoginRedirect(ctx.url))
     }
 
     // 2FA required. `finishLogin`'s two challenge branches return the SAME `{ message }` shape
@@ -248,6 +165,11 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
     const challengePath = 'message' in result && result.message.includes('authenticator')
       ? 'totp'
       : 'otp'
-    return redirectResponse(`/${lang}/login/${challengePath}/${encodeURIComponent(body.email)}`)
+    return redirectResponse(
+      withRedirectToParam(
+        `/${lang}/login/${challengePath}/${encodeURIComponent(body.email)}`,
+        ctx.url,
+      ),
+    )
   }
 }

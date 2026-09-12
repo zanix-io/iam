@@ -27,9 +27,11 @@ named apps from one process (`mod.ts`): the project's own REST controllers (auto
 project root, covering both the `auth` and `grant-access` domain slices), the `auth` and
 `grant-access` Zanix Apps themselves (configuration/resources/overridable-behaviors composition only
 — `routes: false` on both, no HTTP surface of their own), and the `@zanix/space` frontend serving
-the real login/2FA/password-recovery UI. Not published as a library — this is a deployable
-application, run directly from source (`deno task dev`/`deno task start`) or built for production
-(`zanix space build`).
+the real login/2FA/password-recovery UI. Primarily a deployable application, run directly from
+source (`deno task dev`/`deno task start`) or built for production (`zanix space build`) — but its
+`auth-app`/`grant-access-app` manifests and its `ui/` login pages/components/SDK are also consumable
+by another system directly. See [`Consuming iam`](./docs/consuming-iam.md) for the three integration
+levels.
 
 ## Features
 
@@ -100,8 +102,9 @@ application, run directly from source (`deno task dev`/`deno task start`) or bui
 
 ## Installation
 
-This is a deployable application, not a published library — there is no `import` to install. Clone
-the repository and install its dependencies:
+To run this project itself, clone the repository and install its dependencies (to consume it FROM
+another system instead — its `auth-app`/`grant-access-app` manifests, or its `ui/` login
+pages/components/SDK — see [`Consuming iam`](./docs/consuming-iam.md), no clone needed):
 
 ```bash
 git clone https://github.com/zanix-io/iam.git
@@ -174,6 +177,10 @@ For additional information, see:
 
 - [`See more`](./docs/see-more.md) — deeper implementation notes and links into the source's own doc
   comments, organized by domain slice.
+- [`Consuming iam`](./docs/consuming-iam.md) — the three ways another system can integrate with this
+  service (a zero-code hosted login redirect, importing the real login pages/components directly in
+  React or Preact, or a headless SDK for any framework), plus backend-only auth/grant-access
+  composition.
 
 ## Contributing
 

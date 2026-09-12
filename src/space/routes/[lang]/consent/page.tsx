@@ -1,9 +1,10 @@
 import type { PageActionContext } from '@zanix/space'
 
 import { Page, SpacePageController } from '@zanix/space'
+import { ConsentView } from 'ui/pages/consent/index.ts'
 import { SESSION_COOKIE_ATTRIBUTES } from '@zanix/helpers'
-import { ConsentRTO } from '../../../../server/handlers/rtos/consent.ts'
-import { COOKIES_ACCEPTED_COOKIE } from '../../../../utils/cookie-consent.ts'
+import { ConsentRTO } from 'server/handlers/rtos/consent.ts'
+import { COOKIES_ACCEPTED_COOKIE } from 'utils/cookie-consent.ts'
 
 type ConsentParams = { lang: string }
 
@@ -15,21 +16,6 @@ type ConsentParams = { lang: string }
  * still-alive session the way that function's own doc warns against for the OPPOSITE direction.
  */
 const CONSENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
-
-/**
- * A minimal fallback view — this page exists purely for its own `action`; the consent modal's own
- * `fetch()` call (never a real browser navigation) is the only real caller. A page's `GET` is
- * still always a real, spec-valid document (see `@zanix/space`'s own `typings/page.ts` note on why
- * there is deliberately no `kind: 'endpoint'` escape hatch for this), so this renders something
- * real rather than nothing, on the rare chance someone loads this URL directly.
- */
-function ConsentView() {
-  return (
-    <main>
-      <h1>Cookie consent</h1>
-    </main>
-  )
-}
 
 /**
  * The one endpoint this project's cookie-consent gate needs — see

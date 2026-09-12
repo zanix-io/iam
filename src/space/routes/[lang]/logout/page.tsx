@@ -1,29 +1,11 @@
 import type { PageActionContext } from '@zanix/space'
 
 import { Page, SpacePageController } from '@zanix/space'
-import { Button } from '@zanix/space-ui'
-// A NAMED import — see `../login/[oauth]/page.tsx`'s own identical doc. No draft persistence: this
-// form has no field at all, just a confirm button.
-import { SubmitGuard } from '@zanix/space/comet/react'
-import { AuthService } from '../../../../server/interactors/auth.interactor.ts'
-import { redirectResponse } from '../../../../shared/redirect-response.ts'
+import { LogoutView } from 'ui/pages/logout/index.ts'
+import { AuthService } from 'server/interactors/auth.interactor.ts'
+import { redirectResponse } from 'shared/redirect-response.ts'
 
 type LogoutParams = { lang: string }
-
-/** This page's own `<form>` id — `SubmitGuard`'s own `formId` target. */
-const FORM_ID = 'logout-form'
-
-function LogoutView() {
-  return (
-    <main>
-      <h1>Sign out</h1>
-      <SubmitGuard formId={FORM_ID} />
-      <form method='post' id={FORM_ID}>
-        <Button type='submit'>Sign out</Button>
-      </form>
-    </main>
-  )
-}
 
 /**
  * Ends the current session. This project OWNS a real, already-tested `AuthService.revokeToken`
@@ -51,6 +33,9 @@ function LogoutView() {
  * `@zanix/auth`'s session cookies default to `SameSite=Strict` already, which a cross-site form
  * POST can't attach at all — `csrfGuard` would be defense-in-depth this page doesn't need any more
  * than that reference does.
+ *
+ * Rendering now delegates to `@zanix/iam/ui/pages/logout`'s own factory-built view
+ * (`createElement`-based, never JSX) — the `action` below is unchanged.
  */
 @Page({ Interactor: AuthService })
 export default class LogoutPage extends SpacePageController<LogoutParams, AuthService> {

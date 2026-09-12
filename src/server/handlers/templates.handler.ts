@@ -1,5 +1,6 @@
 import { createTemplatesController } from '@zanix/notifications/templates-api'
 import { jwtValidationGuard } from '@zanix/auth'
+import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
 /**
  * This project's local `/templates` CRUD API — `@zanix/notifications`'s own
@@ -16,7 +17,12 @@ import { jwtValidationGuard } from '@zanix/auth'
  */
 const templatesController: ReturnType<typeof createTemplatesController> = createTemplatesController(
   {
-    guards: [jwtValidationGuard({ permissions: ['iam:templates'], type: ['user', 'api'] })],
+    guards: [
+      jwtValidationGuard({
+        permissions: [RBAC_PERMISSIONS.templatesAccess],
+        type: ['user', 'api'],
+      }),
+    ],
   },
 )
 

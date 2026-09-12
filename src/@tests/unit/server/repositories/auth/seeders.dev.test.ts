@@ -1,10 +1,13 @@
 import { assertEquals } from 'jsr:@std/assert@0.224'
 
 import seedersDev, {
+  DEV_AUTH_EMAIL,
   DEV_AUTH_ID,
   DEV_AUTH_PASSWORD,
 } from 'server/repositories/auth/seeders/seeders.dev.ts'
 import { SUPERADMIN_ROLE_ID } from 'server/repositories/roles/seeders/seeders.prod.ts'
+import { computeEmailKeyId } from 'server/repositories/auth/email-key.ts'
+import { SERVICE_ID } from 'utils/constants.ts'
 
 /**
  * `seedManyByIdIfMissing`'s own returned closure never exposes its seed data directly — the only
@@ -37,7 +40,12 @@ Deno.test('seeders.dev: seeds the dev auth account with the superadmin roleId', 
 
   assertEquals(capturedData?.length, 1)
   assertEquals(capturedData?.[0].id, DEV_AUTH_ID)
-  assertEquals(capturedData?.[0].email, 'dev@zanix-iam.local')
+  // `DEV_AUTH_EMAIL` is derived from `SERVICE_ID` (defaults to `'zanix-iam'`), so this is
+  // `'dev@zanix-iam.local'` in this test process — never a stale literal that would silently stop
+  // matching `DEV_AUTH_EMAIL` if `SERVICE_ID` were ever overridden.
+  assertEquals(capturedData?.[0].email, DEV_AUTH_EMAIL)
+  assertEquals(DEV_AUTH_EMAIL, `dev@${SERVICE_ID}.local`)
+  assertEquals(capturedData?.[0].emailKeyId, await computeEmailKeyId(DEV_AUTH_EMAIL))
   assertEquals(capturedData?.[0].password, DEV_AUTH_PASSWORD)
   assertEquals(capturedData?.[0].roleId, SUPERADMIN_ROLE_ID)
   // No 2FA state on this seed — must stay password-only, see `seeders.dev.ts`'s own doc.

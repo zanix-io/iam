@@ -1,9 +1,26 @@
-import { assertEquals } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import { mockHandlerContext, mockPageContext } from '@zanix/space/testing'
 
 import TotpEnrollPage from 'space/routes/[lang]/totp/enroll/page.tsx'
 import { renderQrCodeSvg } from 'utils/qr-code.ts'
 import { fn, mockAccessor } from '../../helpers/mock.ts'
+import { renderComponentWithIntl } from '../../helpers/space-context.ts'
+
+/** Mirrors `en/index.json`'s own real keys `TotpEnrollView` formats. */
+const TEST_MESSAGES = {
+  'totp/enroll/heading': 'Set up an authenticator app',
+  'totp/enroll/invalid-code': 'Invalid authenticator code — scan the new code below.',
+  'totp/enroll/scan-aria-label': 'Scan this QR code with your authenticator app',
+  'totp/enroll/scan-instructions':
+    'Scan this in your authenticator app, or enter the key manually:',
+  'totp/enroll/code-label': 'Authenticator code',
+  'totp/enroll/submit': 'Confirm',
+}
+
+function renderEnrollView(props: Parameters<InstanceType<typeof TotpEnrollPage>['component']>[0]) {
+  const page = new TotpEnrollPage(mockHandlerContext())
+  return renderComponentWithIntl(page.component, props, TEST_MESSAGES)
+}
 
 type EnrollParams = { lang: string }
 
@@ -41,46 +58,28 @@ Deno.test('TotpEnrollPage.loader: renders a QR code encoding the SAME uri, not a
   assertEquals(data.qrCodeSvg, renderQrCodeSvg(uri))
 })
 
-// deno-lint-ignore no-explicit-any
-type Node = any
-
-/** Depth-first search over a plain (unrendered) React element tree for the first node matching
- * `predicate` — resilient to JSX comment-only expression containers being omitted from
- * `props.children` by the compiler, unlike a fixed positional index. */
-function findNode(node: Node, predicate: (node: Node) => boolean): Node | undefined {
-  if (!node || typeof node !== 'object') return undefined
-  if (predicate(node)) return node
-  const children = node.props?.children
-  for (const child of Array.isArray(children) ? children : [children]) {
-    const found = findNode(child, predicate)
-    if (found) return found
-  }
-  return undefined
-}
-
 Deno.test('TotpEnrollPage.component: renders the secret and QR markup passed in from the loader', () => {
-  const page = new TotpEnrollPage(mockHandlerContext())
-  const element = page.component({
+  const html = renderEnrollView({
     lang: 'en',
     secret: 'SECRET123',
     uri: 'otpauth://totp/zanix-iam:jane',
     qrCodeSvg: '<svg>qr</svg>',
     invalidCode: true,
   })
-  const alert = findNode(element, (node) => node.props?.role === 'alert')
-  assertEquals(alert?.props.children, 'Invalid authenticator code — scan the new code below.')
-  const qrDiv = findNode(element, (node) => node.props?.role === 'img')
-  assertEquals(qrDiv?.props.dangerouslySetInnerHTML.__html, '<svg>qr</svg>')
+  assertStringIncludes(html, 'Invalid authenticator code — scan the new code below.')
+  // `dangerouslySetInnerHTML` renders its raw markup directly into the output — the SVG string
+  // shows up verbatim, not re-escaped.
+  assertStringIncludes(html, '<svg>qr</svg>')
+  assertStringIncludes(html, 'SECRET123')
 })
 
 Deno.test('TotpEnrollPage.component: renders no invalid-code alert when the code was accepted', () => {
-  const page = new TotpEnrollPage(mockHandlerContext())
-  const element = page.component({
+  const html = renderEnrollView({
     lang: 'en',
     secret: 'SECRET123',
     uri: 'otpauth://totp/zanix-iam:jane',
     qrCodeSvg: '<svg>qr</svg>',
     invalidCode: false,
   })
-  assertEquals(findNode(element, (node) => node.props?.role === 'alert'), undefined)
+  assertEquals(html.includes('role="alert"'), false)
 })

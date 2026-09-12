@@ -1,6 +1,8 @@
 import { seedManyByIdIfMissing } from '@zanix/datamaster'
 import { DEV_USER_ID } from '../../users/seeders/seeders.dev.ts'
 import { SUPERADMIN_ROLE_ID } from '../../roles/seeders/seeders.prod.ts'
+import { computeEmailKeyId } from '../email-key.ts'
+import { SERVICE_ID } from 'utils/constants.ts'
 
 /**
  * Local-dev-only account id, referenced by any future slice's own dev seeders. Must be a real
@@ -14,14 +16,19 @@ export const DEV_AUTH_ID = '693000000000000000000002'
 /** Local-dev-only password for `DEV_AUTH_ID` — hashed automatically on insert. No 2FA configured. */
 export const DEV_AUTH_PASSWORD = 'DevPass123!'
 
+/** This project's dev-only bootstrap account's email — derived from {@linkcode SERVICE_ID} so a
+ * self-hosted instance's dev environment doesn't seed a `zanix-iam`-branded address either. */
+export const DEV_AUTH_EMAIL = `dev@${SERVICE_ID}.local`
+
 const data = [{
   id: DEV_AUTH_ID,
-  email: 'dev@zanix-iam.local',
-  // Precomputed via `computeEmailKeyId('dev@zanix-iam.local')` — `seedManyByIdIfMissing`'s own
-  // bulk upsert path never runs a `pre('save')` hook, and `emailKeyId` is a plain, unprotected
-  // field `useDataPolicies` has no policy to auto-populate for (see `entity.provider.ts`'s own
-  // doc), so it has to be a real, precomputed literal here rather than derived at seed time.
-  emailKeyId: 'z/g1KkUpQzbJvd7ZgJDBmzUAnIQ=',
+  email: DEV_AUTH_EMAIL,
+  // `seedManyByIdIfMissing`'s own bulk upsert path never runs a `pre('save')` hook, and
+  // `emailKeyId` is a plain, unprotected field `useDataPolicies` has no policy to auto-populate
+  // for (see `entity.provider.ts`'s own doc) — so it's computed here, via a top-level `await` of
+  // `computeEmailKeyId(DEV_AUTH_EMAIL)`, rather than a stale hardcoded literal that would silently
+  // stop matching `DEV_AUTH_EMAIL` the moment `SERVICE_ID` is overridden.
+  emailKeyId: await computeEmailKeyId(DEV_AUTH_EMAIL),
   // Hashed automatically on insert (useDataPolicies: true) — verified at login via
   // `auth.password.verify(password)` (see `AuthService.loginWithPassword`).
   password: DEV_AUTH_PASSWORD,

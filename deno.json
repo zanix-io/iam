@@ -1,6 +1,7 @@
 {
-  "name": "zanix-iam",
+  "name": "@zanix/iam",
   "version": "0.1.0",
+  "minimumDependencyAge": 0,
   "zanix": {
     "project": "space-server"
   },
@@ -22,7 +23,9 @@
     ],
     "lib": [
       "deno.window",
-      "deno.ns"
+      "deno.ns",
+      "dom",
+      "dom.iterable"
     ]
   },
   "lint": {
@@ -52,7 +55,7 @@
       ".dist"
     ],
     "plugins": [
-      "jsr:@zanix/utils@^4.4.0/linter/deno-zanix-plugin"
+      "jsr:@zanix/utils@^4.5.0/linter/deno-zanix-plugin"
     ],
     "report": "pretty"
   },
@@ -75,28 +78,88 @@
     "server/": "./src/server/",
     "@zanix/app": "jsr:@zanix/app@^1.0.2",
     "@zanix/app/runtime": "jsr:@zanix/app@^1.0.2/runtime",
-    "@zanix/auth": "jsr:@zanix/auth@^1.2.1",
-    "@zanix/auth/core": "jsr:@zanix/auth@^1.2.1/core",
-    "@zanix/space": "jsr:@zanix/space@^1.6.0",
-    "@zanix/server": "jsr:@zanix/server@^4.2.3",
+    "@zanix/auth": "jsr:@zanix/auth@^1.4.1",
+    "@zanix/auth/core": "jsr:@zanix/auth@^1.4.1/core",
+    "@zanix/space": "jsr:@zanix/space@^1.11.3",
+    "@zanix/space/react": "jsr:@zanix/space@^1.11.3/react",
+    "@zanix/space/preact": "jsr:@zanix/space@^1.11.3/preact",
+    "@zanix/space/comet": "jsr:@zanix/space@^1.11.3/comet",
+    "@zanix/space/comet/react": "jsr:@zanix/space@^1.11.3/comet/react",
+    "@zanix/space/comet/preact": "jsr:@zanix/space@^1.11.3/comet/preact",
+    "@zanix/space/testing": "jsr:@zanix/space@^1.11.3/testing",
+    "@zanix/server": "jsr:@zanix/server@^4.3.0",
     "@zanix/notifications": "jsr:@zanix/notifications@^1.2.3",
-    "@zanix/datamaster": "jsr:@zanix/datamaster@^1.9.1",
+    "@zanix/datamaster": "jsr:@zanix/datamaster@^1.10.0",
     "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.8.0",
     "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.8.0/jobs",
-    "@zanix/validator": "jsr:@zanix/utils@^4.4.0/validator",
-    "@zanix/errors": "jsr:@zanix/utils@^4.4.0/errors",
-    "@zanix/helpers": "jsr:@zanix/utils@^4.4.0/helpers",
-    "@zanix/core": "jsr:@zanix/core@^3.1.1",
+    "@zanix/validator": "jsr:@zanix/utils@^4.5.0/validator",
+    "@zanix/errors": "jsr:@zanix/utils@^4.5.0/errors",
+    "@zanix/helpers": "jsr:@zanix/utils@^4.5.0/helpers",
+    "@zanix/core": "jsr:@zanix/core@^3.1.2",
     "react": "npm:react@^19.2.8",
+    "react-dom": "npm:react-dom@^19.2.8",
     "babel-plugin-react-compiler": "npm:babel-plugin-react-compiler@^1.0.0",
     "qrcode-generator": "npm:qrcode-generator@^1.5.2",
-    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.0.0"
+    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.1.0-rc.4",
+    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.1.0-rc.4/preact",
+    "preact": "npm:preact@^10.29.0",
+    "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
+    "happy-dom": "npm:happy-dom@^20.11.2",
+    "ui/typings/": "./ui/typings/",
+    "ui/pages/": "./ui/pages/",
+    "ui/components/": "./ui/components/"
   },
-  "exports": {},
+  "exports": {
+    ".": "./mod.ts",
+    "./auth-app": "./src/server/apps/auth.app.ts",
+    "./grant-access-app": "./src/server/apps/grant-access.app.ts",
+    "./ui/pages/lang-layout": "./ui/pages/lang-layout/index.ts",
+    "./ui/pages/lang-layout/preact": "./ui/pages/lang-layout/index.preact.ts",
+    "./ui/pages/consent": "./ui/pages/consent/index.ts",
+    "./ui/pages/consent/preact": "./ui/pages/consent/index.preact.ts",
+    "./ui/pages/login": "./ui/pages/login/index.ts",
+    "./ui/pages/login/preact": "./ui/pages/login/index.preact.ts",
+    "./ui/pages/login-oauth-start": "./ui/pages/login-oauth-start/index.ts",
+    "./ui/pages/login-oauth-start/preact": "./ui/pages/login-oauth-start/index.preact.ts",
+    "./ui/pages/login-oauth-callback": "./ui/pages/login-oauth-callback/index.ts",
+    "./ui/pages/login-oauth-callback/preact": "./ui/pages/login-oauth-callback/index.preact.ts",
+    "./ui/pages/login-oauth-callback-error": "./ui/pages/login-oauth-callback-error/index.ts",
+    "./ui/pages/login-oauth-callback-error/preact": "./ui/pages/login-oauth-callback-error/index.preact.ts",
+    "./ui/pages/login-otp": "./ui/pages/login-otp/index.ts",
+    "./ui/pages/login-otp/preact": "./ui/pages/login-otp/index.preact.ts",
+    "./ui/pages/login-totp": "./ui/pages/login-totp/index.ts",
+    "./ui/pages/login-totp/preact": "./ui/pages/login-totp/index.preact.ts",
+    "./ui/pages/logout": "./ui/pages/logout/index.ts",
+    "./ui/pages/logout/preact": "./ui/pages/logout/index.preact.ts",
+    "./ui/pages/password-recovery-request": "./ui/pages/password-recovery-request/index.ts",
+    "./ui/pages/password-recovery-request/preact": "./ui/pages/password-recovery-request/index.preact.ts",
+    "./ui/pages/password-recovery-callback": "./ui/pages/password-recovery-callback/index.ts",
+    "./ui/pages/password-recovery-callback/preact": "./ui/pages/password-recovery-callback/index.preact.ts",
+    "./ui/pages/totp-confirm": "./ui/pages/totp-confirm/index.ts",
+    "./ui/pages/totp-confirm/preact": "./ui/pages/totp-confirm/index.preact.ts",
+    "./ui/pages/totp-enroll": "./ui/pages/totp-enroll/index.ts",
+    "./ui/pages/totp-enroll/preact": "./ui/pages/totp-enroll/index.preact.ts",
+    "./ui/components/cookie-consent-modal": "./ui/components/cookie-consent-modal/index.ts",
+    "./ui/components/cookie-consent-modal/preact": "./ui/components/cookie-consent-modal/index.preact.ts",
+    "./ui/sdk/login": "./ui/sdk/login.ts",
+    "./ui/sdk/otp": "./ui/sdk/otp.ts",
+    "./ui/sdk/totp": "./ui/sdk/totp.ts",
+    "./ui/sdk/password-recovery": "./ui/sdk/password-recovery.ts",
+    "./ui/sdk/validation": "./ui/sdk/validation.ts",
+    "./ui/sdk/messages": "./ui/sdk/messages.ts"
+  },
+  "publish": {
+    "exclude": [
+      ".github",
+      "src/@tests",
+      "ui/@tests"
+    ]
+  },
   "nodeModulesDir": "auto",
   "test": {
     "include": [
-      "src/@tests/**/*.test.ts"
+      "src/@tests/**/*.test.ts",
+      "ui/@tests/**/*.test.ts"
     ]
   }
 }

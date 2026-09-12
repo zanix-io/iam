@@ -46,7 +46,7 @@ const AUTO_TYPE_NUMBER = 0
  * @returns Inline, scalable SVG markup (`viewBox`-sized, no fixed `width`/`height`) encoding
  * `data`.
  * @example
- * const svg = renderQrCodeSvg('otpauth://totp/zanix-iam:jane?secret=ABC&issuer=zanix-iam')
+ * const svg = renderQrCodeSvg('otpauth://totp/my-service:jane?secret=ABC&issuer=my-service')
  * // '<svg version="1.1" ...>...</svg>'
  */
 export function renderQrCodeSvg(data: string): string {

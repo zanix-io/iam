@@ -2,32 +2,13 @@ import type { PageContext } from '@zanix/space'
 
 import { Guard } from '@zanix/server'
 import { Page, SpacePageController } from '@zanix/space'
+import { OauthCallbackView } from 'ui/pages/login-oauth-callback/index.ts'
 import { HttpError } from '@zanix/errors'
 import { oauthStateVerifyGuard } from '@zanix/auth'
-import { AuthService } from '../../../../../../server/interactors/auth.interactor.ts'
-import { OAUTH_PROVIDERS } from '../../../../../../utils/constants.ts'
+import { AuthService } from 'server/interactors/auth.interactor.ts'
+import { OAUTH_PROVIDERS } from 'utils/constants.ts'
 
 type CallbackParams = { lang: string; oauth: string }
-
-/**
- * A minimal "you're signed in" interstitial — the actual session cookie is already attached to
- * THIS SAME response by the time this renders (see this class's own doc for why), so all this view
- * needs to do is get the browser to its next real page. `<meta http-equiv="refresh">` works with
- * scripting disabled, unlike a `window.location` redirect; the `<a>` is the no-JS/no-meta-refresh
- * fallback. Redirects to the plain, unprefixed `/` — same interim landing target as `../page.tsx`'s
- * own doc explains (no dashboard/account page exists yet).
- */
-function OauthCallbackView() {
-  return (
-    <main>
-      <meta httpEquiv='refresh' content={`0;url=/`} />
-      <h1>Signed in</h1>
-      <p>
-        <a href='/'>Continue</a>
-      </p>
-    </main>
-  )
-}
 
 /**
  * Completes the OAuth2 flow for `:oauth`: the provider's own redirect delivers the authorization

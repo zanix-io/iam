@@ -3,38 +3,13 @@ import type { PageActionContext, PageContext } from '@zanix/space'
 import { Guard } from '@zanix/server'
 import { csrfGuard, Page, SpacePageController } from '@zanix/space'
 import { HttpError } from '@zanix/errors'
-import { Button } from '@zanix/space-ui'
+import { OauthStartView } from 'ui/pages/login-oauth-start/index.ts'
+import type { OauthStartViewProps } from 'ui/pages/login-oauth-start/index.ts'
 import { OAUTH_STATE_LOCALS_KEY, oauthStateIssueGuard } from '@zanix/auth'
-// A NAMED import — `@zanix/space/comet/react` carries more than one ready-made Comet, so (unlike
-// this project's own former `submit-guard.comet.tsx`) there's no single default. No draft
-// persistence here — this form carries no real field to recover, just a hidden CSRF token and a
-// single confirm button.
-import { SubmitGuard } from '@zanix/space/comet/react'
-import { AuthService } from '../../../../../server/interactors/auth.interactor.ts'
-import { OAUTH_PROVIDERS } from '../../../../../utils/constants.ts'
+import { AuthService } from 'server/interactors/auth.interactor.ts'
+import { OAUTH_PROVIDERS } from 'utils/constants.ts'
 
 type OauthParams = { lang: string; oauth: string }
-
-type OauthViewProps = { lang: string; oauth: string; csrfToken?: string }
-
-/** This page's own `<form>` id — `SubmitGuard`'s own `formId` target. */
-const FORM_ID = 'login-oauth-form'
-
-function OauthStartView({ lang, oauth, csrfToken }: OauthViewProps) {
-  return (
-    <main>
-      <h1>Continue with {oauth}</h1>
-      <SubmitGuard formId={FORM_ID} />
-      <form method='post' id={FORM_ID}>
-        <input type='hidden' name='_csrf' value={csrfToken ?? ''} />
-        <Button type='submit'>Continue with {oauth}</Button>
-      </form>
-      <p>
-        <a href={`/${lang}/login`}>Back to sign in</a>
-      </p>
-    </main>
-  )
-}
 
 /**
  * Starts the OAuth2 flow for `:oauth` (e.g. `google`) — an intermediate confirmation screen, not an
@@ -60,7 +35,7 @@ export default class LoginOauthStartPage extends SpacePageController<OauthParams
 
   public override component = OauthStartView
 
-  public override loader = (ctx: PageContext<OauthParams>): OauthViewProps => {
+  public override loader = (ctx: PageContext<OauthParams>): OauthStartViewProps => {
     const { lang, oauth } = ctx.params
     if (!OAUTH_PROVIDERS.includes(oauth as OauthProviders)) {
       throw new HttpError('NOT_FOUND', { message: `Unknown OAuth2 provider "${oauth}".` })

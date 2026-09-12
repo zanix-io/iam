@@ -40,7 +40,20 @@ await Zanix.start({
   apps: {
     [spaceApp.definition.name]: {
       definition: spaceApp,
-      server: getBootstrapSpaceAppConfig().server,
+      // `rest.globalPrefix` anchored away from the default `'api'`: `defineSpaceApp` always
+      // registers its own `POST /api/log` REST route (see `getBootstrapSpaceAppConfig`'s own
+      // doc), which otherwise resolves to the exact same dispatch key ("api" on this app's own
+      // shared port) as `main`'s real `auth`/`grant-access` REST surface
+      // (`/api/login/*`/`/api/users/*`/etc.) registered below — a real, always-present collision
+      // this checkout never surfaced before pinning `@zanix/server@4.2.4`+, which made an
+      // unconfigured collision a loud boot-time error instead of a silent one-overwrites-the-
+      // other route-table bug. Only this space app's own prefix moves; `main`'s own routes
+      // (`/api/login/login` and everything else `web`'s own `IamServiceClient` calls) are
+      // untouched.
+      server: {
+        ...getBootstrapSpaceAppConfig().server,
+        rest: { ...getBootstrapSpaceAppConfig().server?.rest, globalPrefix: 'iam-space' },
+      },
     },
     [authApp.definition.name]: {
       definition: authApp,

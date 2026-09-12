@@ -4,28 +4,16 @@ import { Guard } from '@zanix/server'
 import { csrfGuard, Page, SpacePageController } from '@zanix/space'
 import { HttpError } from '@zanix/errors'
 import { pageSessionGuard } from '@zanix/auth'
-import { AuthService } from '../../../../../server/interactors/auth.interactor.ts'
-import { TotpConfirmRTO } from '../../../../../server/handlers/rtos/password.ts'
-import { redirectResponse } from '../../../../../shared/redirect-response.ts'
+import { TotpConfirmView } from 'ui/pages/totp-confirm/index.ts'
+import { AuthService } from 'server/interactors/auth.interactor.ts'
+import { TotpConfirmRTO } from 'server/handlers/rtos/password.ts'
+import { redirectResponse } from 'shared/redirect-response.ts'
+import { postLoginRedirectUrl, resolvePostLoginRedirect } from 'utils/constants.ts'
 
 type ConfirmParams = { lang: string }
 
 /** Query param this page's own `action` redirects back to `../enroll` with on a rejected code. */
 const INVALID_CODE_ERROR = 'invalid_code'
-
-/**
- * Never actually rendered — `TotpConfirmPage.redirect` (below) fires unconditionally on every
- * `GET`, before `component` ever runs (see `SpacePageController.handleGet`'s own doc). Still
- * required here: `SpacePageController.component` is `abstract`, the same reason `LogoutPage`'s own
- * `LogoutView` still exists in a page whose `action` is its only real path — see that file's doc.
- */
-function TotpConfirmView() {
-  return (
-    <main>
-      <h1>Confirm authenticator app</h1>
-    </main>
-  )
-}
 
 /**
  * Confirms a TOTP enrollment via `action` — the counterpart of `../enroll/page.tsx`'s own
@@ -69,7 +57,7 @@ export default class TotpConfirmPage extends SpacePageController<ConfirmParams, 
    * remains a real, distinct route (reachable via POST) that a `301` risks a client resolving away
    * from entirely on a future request.
    */
-  public static override redirect: RedirectConfig = { to: '/', code: 302 }
+  public static override redirect: RedirectConfig = { to: postLoginRedirectUrl(), code: 302 }
 
   public override component = TotpConfirmView
 
@@ -86,6 +74,6 @@ export default class TotpConfirmPage extends SpacePageController<ConfirmParams, 
       throw e
     }
 
-    return redirectResponse('/')
+    return redirectResponse(resolvePostLoginRedirect(ctx.url))
   }
 }

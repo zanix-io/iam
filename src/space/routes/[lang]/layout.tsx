@@ -1,11 +1,11 @@
 import type { LayoutProps, PageContext, SpaceChildren } from '@zanix/space'
+import type { IntlMessages } from '@zanix/space-ui'
+import type { ReactElement } from 'react'
 
-// A RELATIVE path, deliberately — every page/layout under `routesDir` needs this: `zanix space
-// dev`'s own route-discovery step resolves a file under `routesDir`'s bare specifiers against
-// `@zanix/cli`'s OWN configuration, never this project's (see `login/page.tsx`'s own identical doc
-// for the full, confirmed reasoning). No import-map entry needed for a relative path.
-import { hasCookieConsentDecision } from '../../../utils/cookie-consent.ts'
-import { isCookieConsentEnabled } from '../../../utils/constants.ts'
+import { loadMessages } from '@zanix/space'
+import { LangLayout as LangLayoutView } from 'ui/pages/lang-layout/index.ts'
+import { hasCookieConsentDecision } from 'utils/cookie-consent.ts'
+import { isCookieConsentEnabled, resolveMessageOverrides } from 'utils/constants.ts'
 import CookieConsentModal from '../../comets/cookie-consent-modal.comet.tsx'
 
 /** This segment's own `Params` shape — the one dynamic route param every page under it inherits. */
@@ -20,13 +20,22 @@ type LangLayoutData = LangParams & {
   cookiesDecided: boolean
   /** This request's own CSP nonce — see {@linkcode CookieConsentModal}'s own `cspNonce` prop doc. */
   cspNonce?: string
+  /** This request's own resolved message catalog — `loadMessages({ lang })` (`@zanix/space`)
+   * merged with {@linkcode resolveMessageOverrides}'s own `IAM_MESSAGES` override, resolved ONCE
+   * here so every page under this layout shares the same `<IntlProvider>`, rather than each page
+   * re-resolving (and re-merging) its own copy. */
+  messages: IntlMessages
 }
 
 /** Resolves this layout's own {@linkcode LangLayoutData} for every page under `[lang]/`. */
-export const loader = (ctx: PageContext<LangParams>): LangLayoutData => ({
+export const loader = async (ctx: PageContext<LangParams>): Promise<LangLayoutData> => ({
   lang: ctx.params.lang,
   cookiesDecided: hasCookieConsentDecision(ctx.request.headers.get('cookie')),
   cspNonce: ctx.cspNonce,
+  messages: {
+    ...await loadMessages({ lang: ctx.params.lang }),
+    ...resolveMessageOverrides(),
+  },
 })
 
 /**
@@ -69,23 +78,23 @@ export const loader = (ctx: PageContext<LangParams>): LangLayoutData => ({
  */
 export default function LangLayout(
   { children, data }: LayoutProps<SpaceChildren, LangLayoutData>,
-) {
-  return (
-    <html lang={data.lang}>
-      <head>
-        <meta charSet='utf-8' />
-        <meta name='viewport' content='width=device-width, initial-scale=1' />
-      </head>
-      <body>
-        {isCookieConsentEnabled() && (
-          <CookieConsentModal
-            lang={data.lang}
-            initialDecided={data.cookiesDecided}
-            cspNonce={data.cspNonce}
-          />
-        )}
-        {children}
-      </body>
-    </html>
-  )
+): ReactElement {
+  // Built HERE, never inside `ui/pages/lang-layout` itself — that package's own view
+  // stays free of any real Comet import (a Comet resolves by file path via `@zanix/space`'s own
+  // manifest, one file per app; there is no dual-renderer "the" cookie-consent Comet to inject the
+  // way `Button`/`IntlProvider` are). `null`, not `isCookieConsentEnabled() && (...)`'s own
+  // `false`, when disabled — `LangLayoutView`'s own slot prop treats both as equally "nothing to
+  // render," and `null` is the real value a disabled/not-yet-decided consent state is documented
+  // to carry (see `pages/lang-layout/types.ts`'s own `cookieConsentSlot` doc).
+  const cookieConsentSlot = isCookieConsentEnabled()
+    ? (
+      <CookieConsentModal
+        lang={data.lang}
+        initialDecided={data.cookiesDecided}
+        cspNonce={data.cspNonce}
+      />
+    )
+    : null
+
+  return LangLayoutView({ children, data: { ...data, cookieConsentSlot } })
 }

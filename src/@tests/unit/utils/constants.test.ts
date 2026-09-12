@@ -1,15 +1,27 @@
-import { assertEquals, assertMatch } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertMatch, assertThrows } from 'jsr:@std/assert@0.224'
 import {
   ACCESS_TOKEN_EXPIRATION_ENV,
   computeTokenExpiration,
   COOKIE_CONSENT_ENABLED_ENV,
   isCookieConsentEnabled,
+  MESSAGES_ENV,
   PERMISSION_REGEX,
+  POST_LOGIN_REDIRECT_URL_ENV,
+  postLoginRedirectUrl,
   RBAC_PERMISSIONS,
+  REDIRECT_TO_PARAM,
   REFRESH_TOKEN_EXPIRATION_ENV,
   resolveConfiguredAccessExpiration,
   resolveConfiguredRefreshExpiration,
+  resolveMessageOverrides,
+  resolvePostLoginRedirect,
+  resolveThemeOverrides,
+  SERVICE_ID,
+  SERVICE_ID_ENV,
+  THEME_ENV,
   TOKEN_EXPIRATION,
+  TRUSTED_REDIRECT_ORIGINS_ENV,
+  withRedirectToParam,
 } from 'utils/constants.ts'
 
 function withEnv(name: string, value: string | undefined, run: () => void) {
@@ -132,4 +144,200 @@ Deno.test('resolveConfiguredRefreshExpiration: a unit-suffixed value is passed t
   withEnv(REFRESH_TOKEN_EXPIRATION_ENV, '30d', () => {
     assertEquals(resolveConfiguredRefreshExpiration(), '30d')
   })
+})
+
+/**
+ * `SERVICE_ID`/`RBAC_PERMISSIONS`'s `PERMISSIONS_PREFIX` are computed once at module load (same
+ * limitation `TOKEN_EXPIRATION`'s own tests above already document) — this test process never sets
+ * `SERVICE_ID_ENV`, so what's exercised here is the real, current default path, not a simulated one.
+ */
+Deno.test("SERVICE_ID: defaults to 'zanix-iam' when unset", () => {
+  assertEquals(Deno.env.get(SERVICE_ID_ENV), undefined)
+  assertEquals(SERVICE_ID, 'zanix-iam')
+})
+
+Deno.test('SERVICE_ID: matches the same letters-and-hyphens charset PERMISSION_REGEX requires on each side of the colon', () => {
+  assertMatch(SERVICE_ID, /^[A-Za-z-]+$/)
+})
+
+Deno.test('RBAC_PERMISSIONS: every entry is built from the current SERVICE_ID, not a stale literal', () => {
+  for (const code of Object.values(RBAC_PERMISSIONS)) {
+    assertEquals(code.startsWith(`${SERVICE_ID}:`), true)
+  }
+})
+
+Deno.test('resolveThemeOverrides: undefined with nothing configured (the default)', () => {
+  withEnv(THEME_ENV, undefined, () => {
+    assertEquals(resolveThemeOverrides(), undefined)
+  })
+})
+
+Deno.test('resolveThemeOverrides: parses a configured JSON object of token overrides', () => {
+  withEnv(THEME_ENV, '{"--space-color-primary":"#16a34a"}', () => {
+    assertEquals(resolveThemeOverrides(), { '--space-color-primary': '#16a34a' })
+  })
+})
+
+Deno.test('resolveThemeOverrides: throws IAM_INVALID_THEME on malformed JSON, never applies a value halfway', () => {
+  withEnv(THEME_ENV, '{not valid json', () => {
+    assertThrows(() => resolveThemeOverrides(), Error, 'IAM_THEME must be valid JSON')
+  })
+})
+
+Deno.test('resolveMessageOverrides: undefined with nothing configured (the default)', () => {
+  withEnv(MESSAGES_ENV, undefined, () => {
+    assertEquals(resolveMessageOverrides(), undefined)
+  })
+})
+
+Deno.test('resolveMessageOverrides: parses a configured JSON object of catalog overrides', () => {
+  withEnv(MESSAGES_ENV, '{"login/heading":"Bienvenido"}', () => {
+    assertEquals(resolveMessageOverrides(), { 'login/heading': 'Bienvenido' })
+  })
+})
+
+Deno.test('resolveMessageOverrides: throws IAM_INVALID_MESSAGES on malformed JSON, never applies a value halfway', () => {
+  withEnv(MESSAGES_ENV, '{not valid json', () => {
+    assertThrows(() => resolveMessageOverrides(), Error, 'IAM_MESSAGES must be valid JSON')
+  })
+})
+
+Deno.test("postLoginRedirectUrl: defaults to '/' when unset", () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, undefined, () => {
+    assertEquals(postLoginRedirectUrl(), '/')
+  })
+})
+
+Deno.test('postLoginRedirectUrl: reflects a configured destination', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    assertEquals(postLoginRedirectUrl(), '/dashboard')
+  })
+})
+
+Deno.test(`resolvePostLoginRedirect: ${REDIRECT_TO_PARAM} wins over the configured default when present and safe`, () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    const url = new URL(`http://localhost/en/login?${REDIRECT_TO_PARAM}=%2Faccount%2Fsettings`)
+    assertEquals(resolvePostLoginRedirect(url), '/account/settings')
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: falls back to the configured default with no redirect_to at all', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    const url = new URL('http://localhost/en/login')
+    assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: rejects an absolute-URL redirect_to (open-redirect guard), falls back to the default', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    const url = new URL(
+      `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+        encodeURIComponent('https://attacker.example')
+      }`,
+    )
+    assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: rejects a protocol-relative redirect_to (open-redirect guard), falls back to the default', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    const url = new URL(
+      `http://localhost/en/login?${REDIRECT_TO_PARAM}=${encodeURIComponent('//attacker.example')}`,
+    )
+    assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: an absolute redirect_to on TRUSTED_REDIRECT_ORIGINS wins over the configured default', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, 'https://app.example.com', () => {
+      const url = new URL(
+        `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+          encodeURIComponent('https://app.example.com/dashboard?tab=settings')
+        }`,
+      )
+      assertEquals(resolvePostLoginRedirect(url), 'https://app.example.com/dashboard?tab=settings')
+    })
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: TRUSTED_REDIRECT_ORIGINS parses multiple comma-separated, trimmed origins', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, ' https://a.example.com , https://b.example.com', () => {
+      const url = new URL(
+        `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+          encodeURIComponent('https://b.example.com/x')
+        }`,
+      )
+      assertEquals(resolvePostLoginRedirect(url), 'https://b.example.com/x')
+    })
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: an absolute redirect_to whose origin is NOT on the allowlist is still rejected, even with other origins configured', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, 'https://app.example.com', () => {
+      const url = new URL(
+        `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+          encodeURIComponent('https://attacker.example/dashboard')
+        }`,
+      )
+      assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+    })
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: TRUSTED_REDIRECT_ORIGINS matches the origin exactly, a path prefix is not enough', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    // Configuring an origin WITH a path is a misconfiguration this parses literally, never
+    // matching any real `URL.origin` (which never includes a path) — fails safe, not open.
+    withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, 'https://app.example.com/allowed-path', () => {
+      const url = new URL(
+        `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+          encodeURIComponent('https://app.example.com/anywhere')
+        }`,
+      )
+      assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+    })
+  })
+})
+
+Deno.test('withRedirectToParam: threads a trusted absolute redirect_to through unchanged', () => {
+  withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, 'https://app.example.com', () => {
+    const url = new URL(
+      `http://localhost/en/login?${REDIRECT_TO_PARAM}=${
+        encodeURIComponent('https://app.example.com/dashboard')
+      }`,
+    )
+    assertEquals(
+      withRedirectToParam('/en/login/otp/jane%40example.com', url),
+      `/en/login/otp/jane%40example.com?${REDIRECT_TO_PARAM}=${
+        encodeURIComponent('https://app.example.com/dashboard')
+      }`,
+    )
+  })
+})
+
+Deno.test('withRedirectToParam: appends a safe redirect_to onto a path with no existing query string', () => {
+  const url = new URL(`http://localhost/en/login?${REDIRECT_TO_PARAM}=%2Faccount`)
+  assertEquals(
+    withRedirectToParam('/en/login/otp/jane%40example.com', url),
+    `/en/login/otp/jane%40example.com?${REDIRECT_TO_PARAM}=%2Faccount`,
+  )
+})
+
+Deno.test('withRedirectToParam: appends onto a path that already has a query string', () => {
+  const url = new URL(`http://localhost/en/login?${REDIRECT_TO_PARAM}=%2Faccount`)
+  assertEquals(
+    withRedirectToParam('/en/login?error=invalid_credentials', url),
+    `/en/login?error=invalid_credentials&${REDIRECT_TO_PARAM}=%2Faccount`,
+  )
+})
+
+Deno.test('withRedirectToParam: a no-op when the given url carries no safe redirect_to', () => {
+  const url = new URL('http://localhost/en/login')
+  assertEquals(
+    withRedirectToParam('/en/login/otp/jane%40example.com', url),
+    '/en/login/otp/jane%40example.com',
+  )
 })

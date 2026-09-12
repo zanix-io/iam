@@ -1,17 +1,33 @@
-import { assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertRejects, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import { mockHandlerContext, mockPageContext } from '@zanix/space/testing'
 import { HttpError } from '@zanix/errors'
 
 import LoginOtpPage from 'space/routes/[lang]/login/otp/[email]/page.tsx'
 import { fn, mockAccessor } from '../../helpers/mock.ts'
-import { mockActionContext } from '../../helpers/space-context.ts'
+import { mockActionContext, renderComponentWithIntl } from '../../helpers/space-context.ts'
 
 type OtpParams = { lang: string; email: string }
+
+/** Mirrors `en/index.json`'s own real keys `OtpView` formats — see `renderComponentWithIntl`'s own
+ * doc for why `useIntl()` needs a real render pass, not a plain `page.component({...})` call. */
+const TEST_MESSAGES = {
+  'login/otp/heading': 'Enter your verification code',
+  'login/otp/sent-to': 'A verification code was sent for {email}.',
+  'login/otp/code-label': 'Verification code',
+  'common/invalid-or-expired-code': 'Invalid or expired code.',
+  'common/verify': 'Verify',
+  'common/back-to-sign-in': 'Back to sign in',
+}
 
 function pageWithInteractor(loginWithOTPCallback: (...args: unknown[]) => unknown) {
   const page = new LoginOtpPage(mockHandlerContext())
   mockAccessor(page, 'interactor', { loginWithOTPCallback: fn(loginWithOTPCallback) })
   return page
+}
+
+function renderOtpView(props: Parameters<InstanceType<typeof LoginOtpPage>['component']>[0]) {
+  const page = new LoginOtpPage(mockHandlerContext())
+  return renderComponentWithIntl(page.component, props, TEST_MESSAGES)
 }
 
 Deno.test('LoginOtpPage.loader: decodes the email param and surfaces the error flag', () => {
@@ -35,32 +51,28 @@ Deno.test('LoginOtpPage.loader: a malformed percent-sequence email param falls b
   assertEquals(data.email, '%E0%A4%A')
 })
 
-// `<main>` children, in JSX order: h1, p, invalidCode slot, SubmitGuard, form, back-link — the
-// `<form>` (index 4) itself carries [hidden csrf, hidden email, Field, Button], Field at index 2.
-function codeFieldOf(element: { props: { children: unknown[] } }) {
-  const form = (element.props.children as unknown[])[4] as { props: { children: unknown[] } }
-  return form.props.children[2] as { props: { error: string[] | undefined } }
-}
-
 Deno.test('LoginOtpPage.component: renders the flattened code field errors when present', () => {
-  const page = new LoginOtpPage(mockHandlerContext())
-  const element = page.component({
+  const html = renderOtpView({
     lang: 'en',
     email: 'jane@example.com',
     invalidCode: false,
     fieldErrors: { code: [{ constraints: ['Code must be 6 digits.'] }] },
   })
-  assertEquals(codeFieldOf(element).props.error, ['Code must be 6 digits.'])
+  assertStringIncludes(html, 'Code must be 6 digits.')
 })
 
 Deno.test('LoginOtpPage.component: renders no field error when fieldErrors is unset', () => {
-  const page = new LoginOtpPage(mockHandlerContext())
-  const element = page.component({
-    lang: 'en',
-    email: 'jane@example.com',
-    invalidCode: false,
-  })
-  assertEquals(codeFieldOf(element).props.error, undefined)
+  const html = renderOtpView({ lang: 'en', email: 'jane@example.com', invalidCode: false })
+  assertEquals(html.includes('Code must be 6 digits.'), false)
+})
+
+Deno.test('LoginOtpPage.component: renders every message-catalog string for real, through IntlProvider', () => {
+  const html = renderOtpView({ lang: 'en', email: 'jane@example.com', invalidCode: true })
+  assertStringIncludes(html, 'Enter your verification code')
+  assertStringIncludes(html, 'A verification code was sent for jane@example.com.')
+  assertStringIncludes(html, 'Invalid or expired code.')
+  assertStringIncludes(html, 'Verify</button>')
+  assertStringIncludes(html, 'Back to sign in')
 })
 
 Deno.test('LoginOtpPage.action: redirects home once the code verifies', async () => {

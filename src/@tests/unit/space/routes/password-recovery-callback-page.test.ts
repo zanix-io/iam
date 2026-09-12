@@ -1,17 +1,34 @@
-import { assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertRejects, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import { mockHandlerContext, mockPageContext } from '@zanix/space/testing'
 import { HttpError } from '@zanix/errors'
 
 import PasswordRecoveryCallbackPage from 'space/routes/[lang]/password/recovery/callback/page.tsx'
 import { fn, mockAccessor } from '../../helpers/mock.ts'
-import { mockActionContext } from '../../helpers/space-context.ts'
+import { mockActionContext, renderComponentWithIntl } from '../../helpers/space-context.ts'
 
 type CallbackParams = { lang: string }
+
+/** Mirrors `en/index.json`'s own real keys `RecoveryCallbackView` formats. */
+const TEST_MESSAGES = {
+  'password/recovery/callback-heading': 'Reset your password',
+  'common/invalid-or-expired-code': 'Invalid or expired code.',
+  'login/email-label': 'Email',
+  'password/recovery/code-label': 'Recovery code',
+  'password/recovery/password-label': 'New password',
+  'password/recovery/submit': 'Reset password',
+}
 
 function pageWithInteractor(recoveryCallback: (...args: unknown[]) => unknown) {
   const page = new PasswordRecoveryCallbackPage(mockHandlerContext())
   mockAccessor(page, 'interactor', { recoveryCallback: fn(recoveryCallback) })
   return page
+}
+
+function renderRecoveryCallbackView(
+  props: Parameters<InstanceType<typeof PasswordRecoveryCallbackPage>['component']>[0],
+) {
+  const page = new PasswordRecoveryCallbackPage(mockHandlerContext())
+  return renderComponentWithIntl(page.component, props, TEST_MESSAGES)
 }
 
 Deno.test('PasswordRecoveryCallbackPage.loader: pre-fills the email from the query string', () => {
@@ -24,20 +41,8 @@ Deno.test('PasswordRecoveryCallbackPage.loader: pre-fills the email from the que
   assertEquals(data.email, 'jane@example.com')
 })
 
-// `<main>` children, in JSX order: h1, invalidCode slot, ManagedForm, form, — the `<form>` (index
-// 3) itself carries [hidden csrf, email Field, code Field, password Field, Button].
-function fieldsOf(element: { props: { children: unknown[] } }) {
-  const form = (element.props.children as unknown[])[3] as { props: { children: unknown[] } }
-  return {
-    email: form.props.children[1] as { props: { error: string[] | undefined } },
-    code: form.props.children[2] as { props: { error: string[] | undefined } },
-    password: form.props.children[3] as { props: { error: string[] | undefined } },
-  }
-}
-
 Deno.test('PasswordRecoveryCallbackPage.component: renders each field’s own flattened errors when present', () => {
-  const page = new PasswordRecoveryCallbackPage(mockHandlerContext())
-  const element = page.component({
+  const html = renderRecoveryCallbackView({
     email: 'jane@example.com',
     invalidCode: false,
     fieldErrors: {
@@ -45,20 +50,21 @@ Deno.test('PasswordRecoveryCallbackPage.component: renders each field’s own fl
       code: [{ constraints: ['Code must be 6 digits.'] }],
     },
   })
-  const fields = fieldsOf(element)
-  assertEquals(fields.email.props.error, ['Must be a valid email.'])
-  assertEquals(fields.code.props.error, ['Code must be 6 digits.'])
-  // No `password` entry in `fieldErrors` — must stay `undefined`, not an empty array.
-  assertEquals(fields.password.props.error, undefined)
+  assertStringIncludes(html, 'Must be a valid email.')
+  assertStringIncludes(html, 'Code must be 6 digits.')
 })
 
 Deno.test('PasswordRecoveryCallbackPage.component: renders no field errors when fieldErrors is unset', () => {
-  const page = new PasswordRecoveryCallbackPage(mockHandlerContext())
-  const element = page.component({ email: 'jane@example.com', invalidCode: false })
-  const fields = fieldsOf(element)
-  assertEquals(fields.email.props.error, undefined)
-  assertEquals(fields.code.props.error, undefined)
-  assertEquals(fields.password.props.error, undefined)
+  const html = renderRecoveryCallbackView({ email: 'jane@example.com', invalidCode: false })
+  assertEquals(html.includes('Must be a valid email.'), false)
+  assertEquals(html.includes('Code must be 6 digits.'), false)
+})
+
+Deno.test('PasswordRecoveryCallbackPage.component: renders every message-catalog string for real, through IntlProvider', () => {
+  const html = renderRecoveryCallbackView({ email: 'jane@example.com', invalidCode: true })
+  assertStringIncludes(html, 'Reset your password')
+  assertStringIncludes(html, 'Invalid or expired code.')
+  assertStringIncludes(html, 'Reset password</button>')
 })
 
 Deno.test('PasswordRecoveryCallbackPage.action: redirects home once the password resets', async () => {

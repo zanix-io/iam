@@ -1,11 +1,11 @@
 import type { PageContext } from '@zanix/space'
 
 import { Page, SpacePageController } from '@zanix/space'
-import { PasswordService } from '../../../../../../server/interactors/password.interactor.ts'
+import { RecoveryRequestView } from 'ui/pages/password-recovery-request/index.ts'
+import type { RecoveryRequestViewProps } from 'ui/pages/password-recovery-request/index.ts'
+import { PasswordService } from 'server/interactors/password.interactor.ts'
 
 type RecoveryParams = { lang: string; email: string }
-
-type RecoveryViewProps = { lang: string; email: string }
 
 /** See `../../../login/otp/[email]/page.tsx`'s identical helper — same reasoning. */
 function decodeEmailParam(raw: string): string {
@@ -14,20 +14,6 @@ function decodeEmailParam(raw: string): string {
   } catch {
     return raw
   }
-}
-
-function RecoveryRequestView({ lang, email }: RecoveryViewProps) {
-  return (
-    <main>
-      <h1>Check your email</h1>
-      <p>If an account exists for {email}, a recovery code has been sent.</p>
-      <p>
-        <a href={`/${lang}/password/recovery/callback?email=${encodeURIComponent(email)}`}>
-          I have my code
-        </a>
-      </p>
-    </main>
-  )
 }
 
 /**
@@ -51,7 +37,9 @@ export default class PasswordRecoveryRequestPage
 
   public override component = RecoveryRequestView
 
-  public override loader = async (ctx: PageContext<RecoveryParams>): Promise<RecoveryViewProps> => {
+  public override loader = async (
+    ctx: PageContext<RecoveryParams>,
+  ): Promise<RecoveryRequestViewProps> => {
     const email = decodeEmailParam(ctx.params.email)
     await this.interactor.recovery(email)
     return { lang: ctx.params.lang, email }

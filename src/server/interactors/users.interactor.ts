@@ -11,6 +11,7 @@ import { NotifierProvider } from '@zanix/notifications'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
 import { PasswordService } from './password.interactor.ts'
+import { SERVICE_ID } from 'utils/constants.ts'
 
 /**
  * Business logic for the `users` domain slice — profile/settings management and administrative
@@ -77,7 +78,7 @@ export class UsersService extends ZanixInteractor {
 
     await this.providers.get(NotifierProvider).email({
       to: email,
-      subject: 'Welcome to zanix-iam',
+      subject: `Welcome to ${SERVICE_ID}`,
       zanixTemplate: 'welcome',
       data: {},
     }, { useWorker: 'one-time' })

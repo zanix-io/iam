@@ -3,6 +3,7 @@
  * slice added to this project — `roles`/`permissions`/`users`/`grant-access`).
  */
 
+import { InternalError } from '@zanix/errors'
 import { parseTTL } from '@zanix/helpers'
 
 /** OAuth2 providers this project wires (see `zanix-iam`'s `auth` app manifest resources). */
@@ -143,6 +144,14 @@ export function isCookieConsentEnabled(): boolean {
 export const TERMS_AND_CONDITIONS_URL_ENV = 'TERMS_AND_CONDITIONS_URL'
 
 /**
+ * Env var carrying this project's own Privacy Notice URL — same presence-gated contract as
+ * {@linkcode TERMS_AND_CONDITIONS_URL_ENV}, and independent of it: a deployment can set either,
+ * both, or neither. When set, `login/page.tsx` shows a plain, informational link next to the form;
+ * when unset, nothing renders and the login flow is otherwise unaffected.
+ */
+export const PRIVACY_NOTICE_URL_ENV = 'PRIVACY_NOTICE_URL'
+
+/**
  * `users` domain slice — every status a profile can be in. `ACTIVE` is the default for both an
  * admin-registered account and an OAuth2-auto-provisioned one; `INACTIVE`/`DELETED` are the only
  * states an admin can transition a profile INTO afterward (see `EDITABLE_USER_STATUS` — there is
@@ -162,7 +171,222 @@ export const EDITABLE_USER_STATUS = ['INACTIVE', 'DELETED'] as const
  */
 export const PERMISSION_REGEX = /^[A-Za-z-]+:[A-Za-z-]+$/
 
-const PERMISSIONS_PREFIX = 'zanix-iam'
+/**
+ * Env var name for this deployed instance's own identity — used to build the RBAC permission
+ * prefix ({@linkcode RBAC_PERMISSIONS}), the TOTP issuer (`AuthService.enrollTotp`), and the
+ * copy of emails sent to the end user (account-welcome/TOTP-enabled), so a self-hosted instance
+ * never surfaces the literal string `'zanix-iam'` (the Zanix team's own instance) to its own
+ * users. See {@linkcode SERVICE_ID}.
+ */
+export const SERVICE_ID_ENV = 'SERVICE_ID'
+
+/**
+ * This deployed instance's own identity — see {@linkcode SERVICE_ID_ENV}. Defaults to
+ * `'zanix-iam'` when unset, so the Zanix team's own instance needs no env var change to keep
+ * behaving identically. Validated eagerly against {@linkcode PERMISSION_REGEX}'s own module-name
+ * charset (letters and hyphens only) — a malformed override would otherwise silently build
+ * unmatchable permission codes rather than failing fast at boot.
+ */
+export const SERVICE_ID: string = Deno.env.get(SERVICE_ID_ENV) || 'zanix-iam'
+
+if (!/^[A-Za-z-]+$/.test(SERVICE_ID)) {
+  throw new InternalError(
+    `${SERVICE_ID_ENV} must contain only letters and hyphens — got: "${SERVICE_ID}"`,
+    { code: 'IAM_INVALID_SERVICE_ID' },
+  )
+}
+
+const PERMISSIONS_PREFIX = SERVICE_ID
+
+/**
+ * Env var name for the email of this project's own opt-in, production-safe first-admin bootstrap
+ * account — see `server/repositories/users/seeders/seeders.prod.ts` and
+ * `server/repositories/auth/seeders/seeders.prod.ts`, which seed it only when this AND
+ * {@linkcode FIRST_ADMIN_PASSWORD_ENV} are both set. On a genuinely fresh deployment,
+ * `POST /users/register` itself is gated behind `RBAC_PERMISSIONS.userWrite` — which nobody holds
+ * yet — so without this, there is no production-safe way to create the first account at all.
+ */
+export const FIRST_ADMIN_EMAIL_ENV = 'FIRST_ADMIN_EMAIL'
+
+/**
+ * Env var name for the password of the account {@linkcode FIRST_ADMIN_EMAIL_ENV} names — see that
+ * constant's own doc. Hashed automatically on insert, same as every other `auth.password` write
+ * (`protection: 'hash'`, `auth/model.defs.ts`) — never logged or stored in plain text.
+ */
+export const FIRST_ADMIN_PASSWORD_ENV = 'FIRST_ADMIN_PASSWORD'
+
+/**
+ * Env var name for a JSON object of `--space-*` design-token overrides this instance's login/2FA/
+ * password-recovery UI should render with — consumed by `space.app.ts`'s own `theme.resolve`. Same
+ * "one env var, JSON value" shape `@zanix/admin`'s own `ZANIX_ADMIN_SERVICES` already establishes
+ * — reused here rather than a bespoke `--customizations <file>` mechanism, which would depend on a
+ * file already being on disk, undercutting the zero-clone deployment this exists for. Unset means
+ * no override — this instance renders with `@zanix/space-ui`'s own default tokens, same as today.
+ */
+export const THEME_ENV = 'IAM_THEME'
+
+/**
+ * Parses {@linkcode THEME_ENV} into the `Record<string, string>` shape `defineSpaceApp`'s own
+ * `theme.resolve` returns — `undefined` when unset (no override), so `space.app.ts` doesn't need
+ * its own `try`/`catch`. A malformed value throws eagerly rather than silently applying no theme —
+ * `theme.resolve` runs on every response, so surfacing this at the very first request (a loud
+ * boot-adjacent failure) beats a self-hosted operator quietly wondering why their configured colors
+ * never show up. Sanitization of the resulting keys/values (rejecting `;`/`{`/`}`/`<`/`>`/backtick)
+ * is `@zanix/space`'s own `theme.resolve` responsibility — not duplicated here.
+ */
+export function resolveThemeOverrides(): Record<string, string> | undefined {
+  const raw = Deno.env.get(THEME_ENV)
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw) as Record<string, string>
+  } catch {
+    throw new InternalError(`${THEME_ENV} must be valid JSON — got: "${raw}"`, {
+      code: 'IAM_INVALID_THEME',
+    })
+  }
+}
+
+/**
+ * Env var name for a JSON object of message-catalog overrides — merged ON TOP of
+ * `loadMessages()`'s own resolved catalog (`[lang]/layout.tsx`'s own loader), same "one env var,
+ * JSON value" shape as {@linkcode THEME_ENV}. Lets a self-hosted instance override/translate any
+ * catalog key (e.g. `{"login/subject-welcome":"Bienvenido a Acme"}`) without clonning — the SAME
+ * env-var-JSON pattern `@zanix/admin`'s own `ZANIX_ADMIN_SERVICES` already establishes. Unset means
+ * no override — every page renders the base `en/index.json` catalog unchanged.
+ */
+export const MESSAGES_ENV = 'IAM_MESSAGES'
+
+/**
+ * Parses {@linkcode MESSAGES_ENV} — `undefined` when unset, so a caller can spread it
+ * conditionally (`{...base, ...resolveMessageOverrides()}`) with no special-casing. Same
+ * fail-loud-not-halfway posture as {@linkcode resolveThemeOverrides} — a malformed value throws at
+ * the first request rather than silently rendering the base catalog with no indication why the
+ * configured override never took effect.
+ */
+export function resolveMessageOverrides(): Record<string, string> | undefined {
+  const raw = Deno.env.get(MESSAGES_ENV)
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw) as Record<string, string>
+  } catch {
+    throw new InternalError(`${MESSAGES_ENV} must be valid JSON — got: "${raw}"`, {
+      code: 'IAM_INVALID_MESSAGES',
+    })
+  }
+}
+
+/**
+ * Env var name for the DEFAULT post-login/2FA-confirmation/password-recovery destination — the
+ * fallback every `action`'s own success branch across `login`, `login/otp/[email]`,
+ * `login/totp/[email]`, `totp/confirm`, and `password/recovery/callback` uses when the request
+ * carried no (or an unsafe) {@linkcode REDIRECT_TO_PARAM}. Also `LoginPage`/`TotpConfirmPage`'s own
+ * `redirect.to`, which bounces an ALREADY-signed-in request away from those same pages — that one
+ * config field is a static string, not a function of the request (`@zanix/space`'s own
+ * `RedirectConfig.to` — unlike its sibling `condition`), so it can only ever use this default, never
+ * `REDIRECT_TO_PARAM`. This project ships no dashboard/account page of its own (see `LoginPage`'s
+ * own doc) — `'/'` is a placeholder every one of those pages already assumed, not a real
+ * destination; a host embedding this app alongside its own frontend sets this once instead of
+ * forking five files.
+ */
+export const POST_LOGIN_REDIRECT_URL_ENV = 'POST_LOGIN_REDIRECT_URL'
+
+/** The configured DEFAULT post-login destination — see {@linkcode POST_LOGIN_REDIRECT_URL_ENV}.
+ * Defaults to `'/'`, unchanged from every call site's own previous hardcoded literal. Prefer
+ * {@linkcode resolvePostLoginRedirect} at any real `action` call site — this is the fallback it
+ * falls back TO, not the per-request answer. */
+export const postLoginRedirectUrl: () => string = () =>
+  Deno.env.get(POST_LOGIN_REDIRECT_URL_ENV) || '/'
+
+/**
+ * Query param carrying a CALLER-specified post-login destination — e.g. a protected page this
+ * project's own host redirected an anonymous visitor away from, appending
+ * `?redirect_to=/the/original/path` so `login/page.tsx`'s own success branch can send them back
+ * instead of always landing on {@linkcode POST_LOGIN_REDIRECT_URL_ENV}'s fixed default. Threaded
+ * through the 2FA challenge hop (`login/otp/[email]`/`login/totp/[email]`) by `login/page.tsx`'s
+ * own 2FA-required redirect, so it survives that extra step — see `login/page.tsx`'s own `action`.
+ */
+export const REDIRECT_TO_PARAM = 'redirect_to'
+
+/**
+ * Comma-separated allowlist of trusted, fully-qualified origins (e.g.
+ * `https://app.example.com,https://admin.example.com`) a {@linkcode REDIRECT_TO_PARAM} may
+ * point at ABSOLUTELY, on top of the same-origin relative paths {@linkcode isSafeRedirectTarget}
+ * always allows. Empty/unset by default — no absolute URL is ever trusted until an operator opts
+ * in explicitly, so this project's own zero-config default behaves exactly as it did before this
+ * option existed.
+ *
+ * Real motivation: a consumer app deployed on a genuinely DIFFERENT origin from this project's own
+ * (its own domain/port, its own cookie scope — this ecosystem's normal multi-app-per-service
+ * topology) can send a visitor to THIS project's own hosted login/2FA/consent UI and get them back
+ * on ITS OWN domain afterward, instead of hand-rolling a second login UI against this project's
+ * plain REST API just because it happens to live on a different origin. A comma-separated string,
+ * not JSON like {@linkcode THEME_ENV}/{@linkcode MESSAGES_ENV} — this is a flat list of strings,
+ * not a structured value, and a CSV is the lighter-weight, easier-to-hand-author shape for that
+ * (no quotes/brackets to get right), matching how an origin allowlist is conventionally written.
+ */
+export const TRUSTED_REDIRECT_ORIGINS_ENV = 'TRUSTED_REDIRECT_ORIGINS'
+
+/** Parses {@linkcode TRUSTED_REDIRECT_ORIGINS_ENV} into a real, trimmed list of origins — `[]`
+ * when unset (never throws: an operator who never sets this at all is the overwhelmingly common
+ * case, and must see IDENTICAL behavior to before this option existed, not a boot-time failure). */
+function resolveTrustedRedirectOrigins(): string[] {
+  const raw = Deno.env.get(TRUSTED_REDIRECT_ORIGINS_ENV)
+  if (!raw) return []
+  return raw.split(',').map((origin) => origin.trim()).filter(Boolean)
+}
+
+/**
+ * Whether `value` is safe to actually redirect to — a genuine relative path, OR an absolute URL
+ * whose origin exactly matches {@linkcode TRUSTED_REDIRECT_ORIGINS_ENV}'s configured allowlist.
+ * Rejects a protocol-relative URL (`//attacker.example`, still followed by every browser as
+ * `https://attacker.example`) and any absolute URL not on that allowlist — without this check,
+ * {@linkcode REDIRECT_TO_PARAM} would be a textbook open redirect: this instance's own, trusted
+ * domain used to bounce a just-authenticated visitor to an attacker-controlled page.
+ */
+function isSafeRedirectTarget(value: string | null): value is string {
+  if (!value) return false
+  if (value.startsWith('/') && !value.startsWith('//')) return true
+  // Cheap shape check before the `new URL()` try/catch below — rules out a protocol-relative
+  // value (already handled above) and anything that isn't `http(s)` at all (e.g. `javascript:`,
+  // `mailto:`) without needing to construct a URL just to reject it.
+  if (!/^https?:\/\//.test(value)) return false
+  try {
+    return resolveTrustedRedirectOrigins().includes(new URL(value).origin)
+  } catch {
+    // A malformed absolute-looking string (e.g. `https://`) — never safe.
+    return false
+  }
+}
+
+/**
+ * Resolves where a successful login/2FA-confirmation/password-recovery should land for THIS
+ * request. {@linkcode REDIRECT_TO_PARAM}'s own query param wins whenever it's present and safe
+ * (see {@linkcode isSafeRedirectTarget} — a same-origin relative path always qualifies, an
+ * absolute URL only when it's on {@linkcode TRUSTED_REDIRECT_ORIGINS_ENV}'s allowlist); otherwise
+ * falls back to {@linkcode postLoginRedirectUrl}'s configured default. The one call site this
+ * can't help — `LoginPage`/`TotpConfirmPage`'s own static `redirect.to` — has no per-request
+ * `ctx`/`url` to read a query param from at all; see {@linkcode POST_LOGIN_REDIRECT_URL_ENV}'s own
+ * doc for why. `redirectResponse`'s own `location` param already accepts "a path or full URL", so
+ * a trusted absolute target returned here needs no special handling at the call site.
+ */
+export function resolvePostLoginRedirect(url: URL): string {
+  const requested = url.searchParams.get(REDIRECT_TO_PARAM)
+  return isSafeRedirectTarget(requested) ? requested : postLoginRedirectUrl()
+}
+
+/**
+ * Appends `url`'s own {@linkcode REDIRECT_TO_PARAM} (when present and safe — see
+ * {@linkcode isSafeRedirectTarget}) onto `path` — how `login/page.tsx`'s own 2FA-required redirect
+ * carries a caller-specified destination THROUGH the OTP/TOTP challenge hop, so
+ * `resolvePostLoginRedirect` still sees it once that challenge's own `action` finally succeeds. A
+ * no-op (returns `path` unchanged) when `url` carries no safe `redirect_to` of its own.
+ */
+export function withRedirectToParam(path: string, url: URL): string {
+  const requested = url.searchParams.get(REDIRECT_TO_PARAM)
+  if (!isSafeRedirectTarget(requested)) return path
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}${REDIRECT_TO_PARAM}=${encodeURIComponent(requested)}`
+}
 
 /**
  * Permission strings gating the `roles`/`permissions`/`grant-access`/`users` domain slices' own
@@ -198,6 +422,11 @@ export const RBAC_PERMISSIONS = {
   grantAccessWrite: `${PERMISSIONS_PREFIX}:grant-access-write`,
   userRead: `${PERMISSIONS_PREFIX}:user-read`,
   userWrite: `${PERMISSIONS_PREFIX}:user-write`,
+  /** Gates `templates.handler.ts`'s own `/templates` CRUD API — one permission for the whole
+   * controller (no read/write split, matching that guard's own single-permission shape). Was
+   * previously a bespoke `'iam:templates'` literal, inconsistent with every other entry here
+   * (wrong prefix, no real catalog entry) — folded in for consistency. */
+  templatesAccess: `${PERMISSIONS_PREFIX}:templates-access`,
 } as const
 
 /**
