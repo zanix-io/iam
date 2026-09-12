@@ -9,6 +9,21 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`./ui/sdk/session-guard`** — `iamSessionGuard`/`iamOptionalSessionGuard`, real session guards
+  for any `@zanix/space` app that DELEGATES its login/2FA/recovery flow to a real, separately
+  deployed `iam` instance (`docs/consuming-iam.md`'s Tier 2/3 consumers) — the delegated-issuer
+  counterpart to `@zanix/auth`'s own `pageSessionGuard`/`optionalSessionGuard`, which are the wrong
+  tool here: both are pure composition over `deriveSessionToken`, which verifies/rotates a session
+  token pair LOCALLY, correct only for an app that genuinely IS its own issuer. `iamSessionGuard`/
+  `iamOptionalSessionGuard` instead call `iam`'s real `POST /login/refresh` through a
+  rate-limit-aware, single-flight-deduped, `(subject, refresh-token-id)`-keyed cache — generalized
+  from `@presenza/web`'s own hand-rolled `require-session.ts`/`resolve-optional-session.ts`/
+  `session-refresh-cache.ts` after a real, confirmed architectural mismatch surfaced trying to
+  migrate that consumer onto `@zanix/auth`'s native guards instead. Also exports
+  `seedIamSessionCache` (seed the cache right after a fresh login/OTP/TOTP completion, avoiding a
+  wasted refresh call — and its rate-limit risk — on the very next guarded page view) and
+  `getOrRefreshIamTokens` (the lower-level cache/dedup primitive both guards share, for a caller
+  that needs the tokens without the full guard wrapper). Requires `@zanix/auth@^1.5.0`.
 - **`LoginView.privacyUrl`** — a Privacy Notice link rendered alongside the existing `termsUrl` one
   (`login/privacy-link` message key), independent of it: a host sets either, both, or neither.
   `undefined` renders no link, same purely-informational contract as `termsUrl`. This project's own

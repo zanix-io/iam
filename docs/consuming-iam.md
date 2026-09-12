@@ -72,6 +72,17 @@ shape, verified against `iam`'s own generated OpenAPI spec rather than assumed f
 `grant-access`/`permissions`/`roles`/`users` are deliberately out of scope here (admin-only, not
 part of the login/2FA/recovery surface this SDK targets).
 
+### `@zanix/space` guards — don't hand-roll this, `ui/sdk/session-guard` already does it
+
+If your host is a `@zanix/space` app, `iamSessionGuard`/`iamOptionalSessionGuard`
+([`ui/sdk/session-guard`](../ui/sdk/session-guard.ts)) already implement everything the "Rate
+limiting" section below recommends — real refresh caching, single-flight de-dup, `429` handling,
+rotated-cookie recovery — as drop-in `MiddlewareGlobalGuard`s, the delegated-issuer counterpart to
+`@zanix/auth`'s own `pageSessionGuard`/`optionalSessionGuard` (which are the wrong tool for a Tier
+2/3 consumer — see that module's own top doc for why). Read the section below if you're proxying
+`refresh` some OTHER way (a non-`@zanix/space` backend, say); a `@zanix/space` consumer should reach
+for the guard first.
+
 ### Rate limiting — read this if you proxy `refresh` through your own backend
 
 `iam`'s sensitive endpoints run under a strict `criticRateLimit` (default: 1 request per

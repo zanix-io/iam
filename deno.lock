@@ -15,6 +15,7 @@
     "jsr:@std/fmt@~0.225.4": "0.225.6",
     "jsr:@std/fs@1": "1.0.24",
     "jsr:@std/http@0.224": "0.224.5",
+    "jsr:@std/internal@0.224": "0.224.0",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/media-types@^1.0.0-rc.1": "1.1.0",
     "jsr:@std/net@~0.224.3": "0.224.5",
@@ -31,6 +32,7 @@
     "jsr:@zanix/asyncmq@0.8": "0.8.0",
     "jsr:@zanix/auth@1": "1.4.1",
     "jsr:@zanix/auth@^1.4.1": "1.4.1",
+    "jsr:@zanix/auth@^1.5.0": "1.5.0",
     "jsr:@zanix/core@^3.1.2": "3.1.2",
     "jsr:@zanix/datamaster@^1.10.0": "1.10.0",
     "jsr:@zanix/datamaster@^1.9.0": "1.10.0",
@@ -85,7 +87,11 @@
       "integrity": "c98e279362ca6982d5285c3b89517b757c1e3477ee9f14eb2fdf80a45aaa9642"
     },
     "@std/assert@0.224.0": {
-      "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f"
+      "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f",
+      "dependencies": [
+        "jsr:@std/fmt@0.224",
+        "jsr:@std/internal@0.224"
+      ]
     },
     "@std/async@1.5.0": {
       "integrity": "4c1f22d287a17ad7d8643b1952bc5a4d21e5d8b68dc8c20d8268eecc69096e82"
@@ -114,7 +120,7 @@
     "@std/fs@1.0.24": {
       "integrity": "f3061b45b81673a2bece689da041df32d174be064c89eb6397fb5718d3fb7877",
       "dependencies": [
-        "jsr:@std/internal",
+        "jsr:@std/internal@^1.0.14",
         "jsr:@std/path@^1.1.5"
       ]
     },
@@ -129,6 +135,12 @@
         "jsr:@std/net",
         "jsr:@std/path@1.0.0-rc.2",
         "jsr:@std/streams"
+      ]
+    },
+    "@std/internal@0.224.0": {
+      "integrity": "afc50644f9cdf4495eeb80523a8f6d27226b4b36c45c7c195dfccad4b8509291",
+      "dependencies": [
+        "jsr:@std/fmt@0.224"
       ]
     },
     "@std/internal@1.0.14": {
@@ -158,7 +170,7 @@
     "@std/path@1.1.6": {
       "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
       "dependencies": [
-        "jsr:@std/internal"
+        "jsr:@std/internal@^1.0.14"
       ]
     },
     "@std/semver@1.0.8": {
@@ -197,6 +209,14 @@
     "@zanix/auth@1.4.1": {
       "integrity": "b96a54c4828329535a4702860a5786d0a64ace8fa3361a2944610d16bd9f0b13",
       "dependencies": [
+        "jsr:@zanix/server@4",
+        "jsr:@zanix/utils@4"
+      ]
+    },
+    "@zanix/auth@1.5.0": {
+      "integrity": "49f6b740917151ac1d1286046cbdc0ec5be469021160113e17bef80b98652338",
+      "dependencies": [
+        "jsr:@zanix/datamaster@^1.9.0",
         "jsr:@zanix/server@4",
         "jsr:@zanix/utils@4"
       ]
@@ -579,6 +599,7 @@
       "jsr:@zanix/app@^1.0.2",
       "jsr:@zanix/asyncmq@0.8",
       "jsr:@zanix/auth@^1.4.1",
+      "jsr:@zanix/auth@^1.5.0",
       "jsr:@zanix/core@^3.1.2",
       "jsr:@zanix/datamaster@^1.10.0",
       "jsr:@zanix/notifications@^1.2.3",

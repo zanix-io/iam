@@ -78,7 +78,7 @@
     "server/": "./src/server/",
     "@zanix/app": "jsr:@zanix/app@^1.0.2",
     "@zanix/app/runtime": "jsr:@zanix/app@^1.0.2/runtime",
-    "@zanix/auth": "jsr:@zanix/auth@^1.4.1",
+    "@zanix/auth": "jsr:@zanix/auth@^1.5.0",
     "@zanix/auth/core": "jsr:@zanix/auth@^1.4.1/core",
     "@zanix/space": "jsr:@zanix/space@^1.11.3",
     "@zanix/space/react": "jsr:@zanix/space@^1.11.3/react",
@@ -146,7 +146,8 @@
     "./ui/sdk/totp": "./ui/sdk/totp.ts",
     "./ui/sdk/password-recovery": "./ui/sdk/password-recovery.ts",
     "./ui/sdk/validation": "./ui/sdk/validation.ts",
-    "./ui/sdk/messages": "./ui/sdk/messages.ts"
+    "./ui/sdk/messages": "./ui/sdk/messages.ts",
+    "./ui/sdk/session-guard": "./ui/sdk/session-guard.ts"
   },
   "publish": {
     "exclude": [
