@@ -153,6 +153,14 @@ export class AuthService extends ZanixInteractor {
       return { ...tokens, expiresAt: TOKEN_EXPIRATION }
     }
 
+    // Reaching here means `email` already has an `auth` record — created via password, OAuth2, or
+    // a prior OTP signup, this method doesn't distinguish which. A verified code for that email
+    // always logs into THIS account: correct auto-linking when the person who owns the inbox is
+    // also who created the account, but indistinguishable here from someone else gaining access to
+    // that inbox and taking over an account they never created. Deliberate for now (zero real
+    // accounts to migrate) — hardening it, e.g. an extra confirmation step the first time a new
+    // method links to an account with another method already active, is a product decision for
+    // whenever this stops being true.
     await this.providers.get(UsersRepository).assertActive(auth.userId)
     const permissions = await this.resolveSessionPermissions(auth.roleId)
     const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
