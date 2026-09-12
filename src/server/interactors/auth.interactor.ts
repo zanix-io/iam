@@ -395,6 +395,124 @@ export class AuthService extends ZanixInteractor {
   }
 
   /**
+   * Returns a plain, already-sanitized summary of the caller's OWN sign-in methods — never the
+   * raw `auth` document. `password`/`totpSecret` are `access: 'internal'` fields precisely so a
+   * generic serialization of the hydrated document could never safely reach a response; this
+   * method reads them server-side ONLY to derive a boolean presence check, the same "never echo a
+   * secret-shaped value, even for a presence check" discipline applied everywhere else in this
+   * ecosystem. Backs screen 07 ("Métodos de acceso") of the auth signup/signin decision — self
+   * user-facing settings, not an admin listing (`UsersService.getOwnProfile`'s own doc draws the
+   * identical self-scoped/admin-scoped line for the `users` domain slice).
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
+   *   longer resolves to a real `auth` record.
+   */
+  public async getOwnAuthMethods() {
+    const authId = this.context.session?.subject
+    if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+
+    const auth = await this.providers.get(AuthRepository).findById(authId) as
+      | HydratedAuth
+      | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+
+    return {
+      email: auth.email.unmask(),
+      hasPassword: Boolean(auth.password),
+      oauthProvider: auth.oauthProvider ?? null,
+      totpEnabled: auth.twoFactorAuthConfig?.method === 'totp',
+    }
+  }
+
+  /**
+   * Links `provider` to the CALLER'S OWN account (never a login, never account creation) —
+   * screen 07's "Conectar" action on an already-authenticated session. Deliberately stricter than
+   * `loginWithOauthCallback`'s own account-matching: the provider's verified email must equal this
+   * account's OWN `email` EXACTLY, not merely "not already used by someone else". This isn't
+   * an arbitrary extra restriction — it's the only shape that can ever actually work with today's
+   * schema: `loginWithOauth*` resolves an account purely by `findByEmail(providerEmail)`, so
+   * persisting `oauthProvider` against an account whose stored `email` differs from the provider's
+   * own verified email would link a method that could never again find its way back to this
+   * account on a future login. Because `emailKeyId` is a unique index, requiring exact equality
+   * against the CALLER'S OWN account also makes a separate "is this email already claimed by a
+   * DIFFERENT account" lookup redundant (this project's earlier `ms-iam`-precedent warning against
+   * unchecked auto-linking, on `loginWithOauthCallback`'s own doc, doesn't apply here for that
+   * reason) — no other `auth` record could hold that same email in the first place.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `BAD_REQUEST` when this project isn't
+   *   configured for `provider`; `FORBIDDEN` when the session subject no longer resolves to a real
+   *   `auth` record, or the provider returns no verified email; `CONFLICT` when the provider's own
+   *   verified email doesn't match the caller's own account email.
+   */
+  public async linkOauth(code: string, provider: OauthProviders) {
+    const authId = this.context.session?.subject
+    if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+
+    const connector = this.getOauthConnector(provider)
+    if (!connector) {
+      throw new HttpError('BAD_REQUEST', {
+        message: `OAuth2 provider "${provider}" is not configured.`,
+      })
+    }
+
+    const auth = await this.providers.get(AuthRepository).findById(authId) as
+      | HydratedAuth
+      | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+
+    const user = await connector.validateCode(code) as {
+      email: string | null
+      verified_email?: boolean
+    }
+    if (!user.email || user.verified_email === false) {
+      throw new HttpError('FORBIDDEN', {
+        message: `This ${provider} account has no verified email address available.`,
+      })
+    }
+
+    if (user.email !== auth.email.unmask()) {
+      throw new HttpError('CONFLICT', {
+        message:
+          `This ${provider} account's email doesn't match your own account's email. Sign in ` +
+          `with that email directly instead of connecting a different one.`,
+      })
+    }
+
+    await this.providers.get(AuthRepository).updateAuth({ id: authId, oauthProvider: provider })
+    return { response: `${provider} connected` }
+  }
+
+  /**
+   * Disconnects `provider` from the caller's OWN account — screen 07's "Desconectar" action. No
+   * "last remaining method" guard: email+OTP (`loginWithOTP`/`loginWithOTPCallback`) resolves
+   * purely from `AuthRepository.findByEmail`, never from `oauthProvider`/`password` — every
+   * account can always fall back to it regardless of what else is disconnected, so there is no
+   * real scenario where this call could lock the caller out. Adding a guard against a lockout this
+   * schema already makes impossible would be misleading complexity, not a real safety net (see the
+   * auth signup/signin decision's own "auth serves the gesture, never the other way around").
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
+   *   longer resolves to a real `auth` record.
+   */
+  public async unlinkOauth(provider: OauthProviders) {
+    const authId = this.context.session?.subject
+    if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+
+    const auth = await this.providers.get(AuthRepository).findById(authId) as
+      | HydratedAuth
+      | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+
+    if (auth.oauthProvider === provider) {
+      await this.providers.get(AuthRepository).updateAuth(
+        { id: authId },
+        { unset: ['oauthProvider', 'oauthRefreshToken'] },
+      )
+    }
+    return { response: `${provider} disconnected` }
+  }
+
+  /**
    * Mints a fresh session for `authId` directly — the tail of `finishLogin` (permission resolution,
    * token issuance, `lastLoginAt`) without its own 2FA branch. For a caller that already knows this
    * `auth` record passed real authentication (2FA included, when configured) through some OTHER

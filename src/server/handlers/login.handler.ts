@@ -1,4 +1,12 @@
-import { Controller, Get, type HandlerContext, Post, ZanixController } from '@zanix/server'
+import {
+  Controller,
+  Delete,
+  Get,
+  Guard,
+  type HandlerContext,
+  Post,
+  ZanixController,
+} from '@zanix/server'
 import { AuthTokenValidation, CaptchaGuard, RateLimitGuard } from '@zanix/auth'
 import {
   LoginRTO,
@@ -11,6 +19,7 @@ import {
 import { AuthService } from '../interactors/auth.interactor.ts'
 import { PwdRecoveryRTO, TotpConfirmRTO } from './rtos/password.ts'
 import { criticRateLimit, freeRateLimit } from 'utils/constants.ts'
+import { refreshRateLimitIdentityGuard } from 'utils/refresh-rate-limit-guard.ts'
 
 /**
  * Login/session endpoints for the `auth` domain slice. Anonymous rate limiting on every route
@@ -76,9 +85,56 @@ export class LoginController extends ZanixController<AuthService> {
     return this.interactor.loginWithOauthCallback(code, oauth)
   }
 
-  /** Exchanges a refresh `token` for a new session token pair. */
+  /**
+   * Completes an OAuth2 CONNECT flow for `:oauth` against the caller's OWN already-authenticated
+   * account — never a login, never account creation (see `AuthService.linkOauth`'s own doc).
+   * Requires a valid access token; the target account is the session's own subject.
+   */
+  @Post(':oauth/link', { Params: OAuthQueryRTO, Body: OAuthLoginRTO })
+  @AuthTokenValidation()
+  public oAuthLink(ctx: HandlerContext<{ body: OAuthLoginRTO; params: OAuthQueryRTO }>) {
+    const { code } = ctx.payload.body
+    const { oauth } = ctx.payload.params
+    return this.interactor.linkOauth(code, oauth)
+  }
+
+  /**
+   * Disconnects `:oauth` from the caller's own account. Requires a valid access token.
+   */
+  @Delete(':oauth', { Params: OAuthQueryRTO })
+  @AuthTokenValidation()
+  public oAuthUnlink(ctx: HandlerContext<{ params: OAuthQueryRTO }>) {
+    return this.interactor.unlinkOauth(ctx.payload.params.oauth)
+  }
+
+  /**
+   * Returns a plain, sanitized summary of the caller's own sign-in methods — see
+   * `AuthService.getOwnAuthMethods`'s own doc. Requires a valid access token.
+   */
+  @Get('methods')
+  @AuthTokenValidation()
+  public methods(_ctx: HandlerContext) {
+    return this.interactor.getOwnAuthMethods()
+  }
+
+  /**
+   * Exchanges a refresh `token` for a new session token pair. Rate-limited per-identity, not just
+   * per-IP, when the token also reaches this endpoint via the `X-Znx-App-Token` header/cookie —
+   * see `refreshRateLimitIdentityGuard`'s own doc for why that's needed on top of
+   * `@RateLimitGuard` alone.
+   *
+   * **Decorator order here is load-bearing, not stylistic**: `@zanix/server`'s stacked method
+   * decorators apply BOTTOM-UP (confirmed via a real, isolated repro against
+   * `defineMiddlewareDecorator` — the decorator closest to the method registers, and therefore
+   * RUNS, first) — the exact opposite of top-to-bottom reading order. `refreshRateLimitIdentityGuard`
+   * is written closer to the method (below `@RateLimitGuard`) specifically so it runs FIRST,
+   * populating `ctx.locals.session` before `@RateLimitGuard` reads it. Writing them in "reading"
+   * order (identity guard on top) would silently run `@RateLimitGuard` first every time, making
+   * this guard a no-op — confirmed as a real regression, not a hypothetical.
+   */
   @Post('refresh', { Body: TokenRTO })
   @RateLimitGuard({ anonymousLimit: criticRateLimit, trustProxyHeader: true })
+  @Guard(refreshRateLimitIdentityGuard())
   public refresh(ctx: HandlerContext<{ body: TokenRTO }>) {
     return this.interactor.refreshTokens(ctx.payload.body.token)
   }

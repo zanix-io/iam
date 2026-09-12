@@ -841,3 +841,119 @@ Deno.test('issueSessionForSubject: throws when the linked users profile is deact
     'no longer exists',
   )
 })
+
+Deno.test('getOwnAuthMethods: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.getOwnAuthMethods(), HttpError, 'Authentication required')
+})
+
+Deno.test('getOwnAuthMethods: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.getOwnAuthMethods(), HttpError, 'Account not found')
+})
+
+Deno.test('getOwnAuthMethods: returns a plain sanitized summary, never the raw password/totpSecret', async () => {
+  const { service } = buildService({
+    authRepo: {
+      findById: fn(() =>
+        baseAuth({
+          oauthProvider: 'google',
+          twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] },
+        })
+      ),
+    },
+  })
+  const result = await service.getOwnAuthMethods()
+  assertEquals(result, {
+    email: 'jane@example.com',
+    hasPassword: true,
+    oauthProvider: 'google',
+    totpEnabled: true,
+  })
+})
+
+Deno.test('getOwnAuthMethods: no password/oauth/totp reports the falsy shape', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ password: undefined })) },
+  })
+  const result = await service.getOwnAuthMethods()
+  assertEquals(result, {
+    email: 'jane@example.com',
+    hasPassword: false,
+    oauthProvider: null,
+    totpEnabled: false,
+  })
+})
+
+Deno.test('linkOauth: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(
+    () => service.linkOauth('code', 'google'),
+    HttpError,
+    'Authentication required',
+  )
+})
+
+Deno.test('linkOauth: throws BAD_REQUEST when the provider is not configured', async () => {
+  const { service } = buildService()
+  await assertRejects(() => service.linkOauth('code', 'google'), HttpError, 'not configured')
+})
+
+Deno.test('linkOauth: throws FORBIDDEN when the provider returns no verified email', async () => {
+  const { service } = buildService()
+  withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: false }))
+  await assertRejects(
+    () => service.linkOauth('code', 'google'),
+    HttpError,
+    'no verified email',
+  )
+})
+
+Deno.test("linkOauth: throws CONFLICT when the provider's email differs from the caller's own", async () => {
+  const { service } = buildService()
+  withOauthConnector(service, () => ({ email: 'different@example.com', verified_email: true }))
+  await assertRejects(
+    () => service.linkOauth('code', 'google'),
+    HttpError,
+    "doesn't match",
+  )
+})
+
+Deno.test("linkOauth: matching email connects the provider to the caller's own account", async () => {
+  const { service, authRepo } = buildService()
+  withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: true }))
+  const result = await service.linkOauth('code', 'google')
+  assertEquals(result, { response: 'google connected' })
+  assertEquals(authRepo.updateAuth.calls[0], [{ id: 'auth-1', oauthProvider: 'google' }])
+})
+
+Deno.test('unlinkOauth: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.unlinkOauth('google'), HttpError, 'Authentication required')
+})
+
+Deno.test('unlinkOauth: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.unlinkOauth('google'), HttpError, 'Account not found')
+})
+
+Deno.test('unlinkOauth: clears oauthProvider/oauthRefreshToken when connected to that provider', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ oauthProvider: 'google' })) },
+  })
+  const result = await service.unlinkOauth('google')
+  assertEquals(result, { response: 'google disconnected' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1' },
+    { unset: ['oauthProvider', 'oauthRefreshToken'] },
+  ])
+})
+
+Deno.test('unlinkOauth: connected to a DIFFERENT provider is a no-op write', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ oauthProvider: 'github' })) },
+  })
+  const result = await service.unlinkOauth('google')
+  assertEquals(result, { response: 'google disconnected' })
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})

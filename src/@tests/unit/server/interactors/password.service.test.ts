@@ -308,3 +308,68 @@ Deno.test('recoveryCallback: passes refreshExpiration when REFRESH_TOKEN_EXPIRAT
     assertEquals('accessExpiration' in options, false)
   })
 })
+
+Deno.test('addPassword: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.addPassword('New1234'), HttpError, 'Authentication required')
+})
+
+Deno.test('addPassword: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.addPassword('New1234'), HttpError, 'Account not found')
+})
+
+Deno.test('addPassword: throws CONFLICT when a password is already set — never overwrites', async () => {
+  const { service, authRepo } = buildService()
+  await assertRejects(
+    () => service.addPassword('New1234'),
+    HttpError,
+    'already set',
+  )
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})
+
+Deno.test('addPassword: no existing password sets one, no currentPassword ever checked', async () => {
+  const { service, authRepo, notifier } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ password: undefined })) },
+  })
+  const result = await service.addPassword('New1234')
+  assertEquals(result, { response: 'password added' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1', password: 'New1234' },
+    { applyProtection: true },
+  ])
+  assertEquals(
+    (notifier.email.calls[0]?.[0] as { zanixTemplate: string }).zanixTemplate,
+    'password-changed',
+  )
+})
+
+Deno.test('removePassword: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.removePassword(), HttpError, 'Authentication required')
+})
+
+Deno.test('removePassword: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.removePassword(), HttpError, 'Account not found')
+})
+
+Deno.test('removePassword: clears password/mustChangePassword when one is set', async () => {
+  const { service, authRepo } = buildService()
+  const result = await service.removePassword()
+  assertEquals(result, { response: 'password removed' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1' },
+    { unset: ['password', 'mustChangePassword'] },
+  ])
+})
+
+Deno.test('removePassword: no password set is a no-op write', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ password: undefined })) },
+  })
+  const result = await service.removePassword()
+  assertEquals(result, { response: 'password removed' })
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})

@@ -1,6 +1,6 @@
-import { Controller, Get, type HandlerContext, Post, ZanixController } from '@zanix/server'
+import { Controller, Delete, Get, type HandlerContext, Post, ZanixController } from '@zanix/server'
 import { AuthTokenValidation, CaptchaGuard, RateLimitGuard } from '@zanix/auth'
-import { PwdRecoveryCbRTO, PwdRecoveryRTO, PwdRTO } from './rtos/password.ts'
+import { AddPasswordRTO, PwdRecoveryCbRTO, PwdRecoveryRTO, PwdRTO } from './rtos/password.ts'
 import { PasswordService } from '../interactors/password.interactor.ts'
 import { criticRateLimit, freeRateLimit } from 'utils/constants.ts'
 
@@ -20,6 +20,23 @@ export class PasswordController extends ZanixController<PasswordService> {
   public change(ctx: HandlerContext<{ body: PwdRTO }>) {
     const { currentPassword, newPassword } = ctx.payload.body
     return this.interactor.changePwd(currentPassword, newPassword)
+  }
+
+  /**
+   * Sets a first password for the caller's own account — only when it doesn't already have one
+   * (see `PasswordService.addPassword`'s own doc). Requires a valid access token.
+   */
+  @Post('add', { Body: AddPasswordRTO })
+  @AuthTokenValidation()
+  public add(ctx: HandlerContext<{ body: AddPasswordRTO }>) {
+    return this.interactor.addPassword(ctx.payload.body.newPassword)
+  }
+
+  /** Removes the caller's own password entirely. Requires a valid access token. */
+  @Delete('remove')
+  @AuthTokenValidation()
+  public remove(_ctx: HandlerContext) {
+    return this.interactor.removePassword()
   }
 
   /**

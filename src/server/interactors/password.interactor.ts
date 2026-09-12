@@ -73,6 +73,79 @@ export class PasswordService extends ZanixInteractor {
   }
 
   /**
+   * Sets a password for the caller's own account, ONLY when it doesn't already have one — screen
+   * 08's "Añadir contraseña" (add, never change), reachable only from an already-authenticated
+   * "Métodos de acceso" settings screen, never during signup. Deliberately never asks for a
+   * current password, unlike {@link changePwd}: there genuinely isn't one to prove knowledge of
+   * yet. An account that already has a password must go through `changePwd` instead — this method
+   * refuses outright rather than silently overwriting one.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
+   *   longer resolves to a real `auth` record; `CONFLICT` when a password is already set;
+   *   `BAD_REQUEST` when `newPassword` fails the active password policy.
+   */
+  public async addPassword(newPassword: string) {
+    const id = this.context.session?.subject
+    if (!id) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+
+    const auth = await this.providers.get(AuthRepository).findById(id) as HydratedAuth | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    if (auth.password) {
+      throw new HttpError('CONFLICT', {
+        message: 'A password is already set for this account. Use change-password instead.',
+      })
+    }
+    await this.providers.get(UsersRepository).assertActive(auth.userId)
+
+    const policyResult = resolveBehavior<(password: string) => true | string>(
+      'auth',
+      'passwordPolicy',
+    )?.(newPassword) ?? true
+    if (policyResult !== true) {
+      throw new HttpError('BAD_REQUEST', { message: policyResult })
+    }
+
+    await this.providers.get(AuthRepository).updateAuth(
+      { id, password: newPassword },
+      { applyProtection: true },
+    )
+
+    await this.providers.get(NotifierProvider).email({
+      to: auth.email.unmask(),
+      subject: 'A password was added to your account',
+      zanixTemplate: 'password-changed',
+      data: {},
+    }, { useWorker: 'one-time' })
+
+    return { response: 'password added' }
+  }
+
+  /**
+   * Removes the caller's own password entirely — screen 07's "Quitar" action on the password row.
+   * No "last remaining method" guard, same reasoning as `AuthService.unlinkOauth`'s own doc:
+   * email+OTP always works regardless of `password`/`oauthProvider`, so there's no real lockout
+   * scenario this could cause.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
+   *   longer resolves to a real `auth` record.
+   */
+  public async removePassword() {
+    const id = this.context.session?.subject
+    if (!id) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+
+    const auth = await this.providers.get(AuthRepository).findById(id) as HydratedAuth | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+
+    if (auth.password) {
+      await this.providers.get(AuthRepository).updateAuth(
+        { id },
+        { unset: ['password', 'mustChangePassword'] },
+      )
+    }
+    return { response: 'password removed' }
+  }
+
+  /**
    * Generates an OTP (5-minute TTL) for `email`'s account and dispatches it through `notifier`
    * via `@zanix/notifications`' `NotifierProvider` — email uses this package's built-in
    * `login-otp`/`password-recovery` templates, SMS/WhatsApp use its built-in `otp` template

@@ -9,6 +9,14 @@ export class PwdRTO extends BaseRTO {
   accessor newPassword!: string
 }
 
+/** `POST /pwd/add` body — sets a first password for an account that doesn't have one yet, no
+ * `currentPassword` to prove (there isn't one) — see `PasswordService.addPassword`'s own doc for
+ * why this is a distinct RTO/route from `PwdRTO`/`change`, never an optional field on it. */
+export class AddPasswordRTO extends BaseRTO {
+  @IsString({ expose: true })
+  accessor newPassword!: string
+}
+
 /** `GET /pwd/recovery/:email` and `GET /login/otp/:email` param — URI-decoded defensively (an
  * email can carry `+`/`%`). */
 export class PwdRecoveryRTO extends BaseRTO {
