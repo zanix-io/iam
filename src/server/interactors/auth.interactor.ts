@@ -32,6 +32,16 @@ import { resolveEffectivePermissions as defaultResolveEffectivePermissions } fro
  * deactivated/deleted profile can neither log in nor keep refreshing an existing session. A no-op
  * when `auth.userId` is unset, so this never breaks against an `auth` record with no linked
  * profile (see that method's own doc).
+ *
+ * One deliberate carve-out to that hard block: a successful login via Google OAuth2
+ * (`loginWithOauthCallback`) or email OTP (`loginWithOTPCallback`'s existing-account branch)
+ * auto-reactivates an `'INACTIVE'` profile (`UsersRepository.reactivate`) instead of rejecting it
+ * — the counterpart to `UsersService.deactivateOwnAccount`'s own self-deactivate, which has no
+ * self-service way back to `'ACTIVE'` otherwise. Every OTHER `assertActive` call site
+ * (`loginWithPassword`, `loginWithTOTPCallback`, `issueSessionForSubject`, `refreshTokens`, and the
+ * self-registration branch of `loginWithOTPCallback` — where the account was just created and is
+ * always `'ACTIVE'`) stays a hard, unmodified block. `'DELETED'` never auto-reactivates through any
+ * path, including the two carved out here.
  */
 @Interactor()
 export class AuthService extends ZanixInteractor {
@@ -102,10 +112,17 @@ export class AuthService extends ZanixInteractor {
    * (`recovery` wouldn't have dispatched one in the first place with the flag off, but this method
    * doesn't trust that invariant blindly).
    *
+   * When an account DOES exist, an `'INACTIVE'` linked `users` profile does NOT block this login:
+   * it's allowed to proceed and is auto-reactivated (`UsersRepository.reactivate`), but only AFTER
+   * `code` verifies successfully — checking status any earlier would let anyone reactivate (or
+   * probe the status of) an inactive account by supplying its email with no valid code at all. A
+   * `'DELETED'` profile still hard-blocks immediately, before `code` is even checked — see this
+   * file's own header doc for the full carve-out.
+   *
    * @throws {HttpError} `FORBIDDEN` when no account exists for `email` and self-registration is
    *   disabled or `code` doesn't verify against the email-keyed target; when an account DOES
-   *   exist, `FORBIDDEN` when `code` is invalid/expired (`ZanixAuthProvider.otp.authenticate`) or
-   *   the linked `users` profile is deactivated/deleted (`UsersRepository.assertActive`).
+   *   exist, `FORBIDDEN` when the linked `users` profile is `'DELETED'`, or when `code` is
+   *   invalid/expired (`ZanixAuthProvider.otp.authenticate`).
    */
   public async loginWithOTPCallback(email: string, code: string) {
     let auth = await this.providers.get(AuthRepository).findByEmail(
@@ -161,7 +178,20 @@ export class AuthService extends ZanixInteractor {
     // accounts to migrate) — hardening it, e.g. an extra confirmation step the first time a new
     // method links to an account with another method already active, is a product decision for
     // whenever this stops being true.
-    await this.providers.get(UsersRepository).assertActive(auth.userId)
+    //
+    // Deliberately NOT a plain `assertActive` call here — see this file's own header doc for the
+    // reactivation carve-out. `'DELETED'` still hard-blocks immediately, same as `assertActive`,
+    // BEFORE `code` is even checked (that account can never legitimately resurrect, so leaking
+    // nothing extra by checking early). An `'INACTIVE'` status is deliberately NOT acted on yet —
+    // only cached — otherwise anyone could reactivate (or probe the status of) an inactive account
+    // by supplying its email with no valid code at all.
+    const userId = auth.userId
+    const profile = await this.providers.get(UsersRepository).findById(userId)
+    if (profile?.status === 'DELETED') {
+      throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
+    }
+    const wasInactive = profile?.status === 'INACTIVE'
+
     const permissions = await this.resolveSessionPermissions(auth.roleId)
     const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
       subject: auth.id,
@@ -169,6 +199,13 @@ export class AuthService extends ZanixInteractor {
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     })
+
+    // Only reached once `code` verifies successfully — see the block above for why this can't run
+    // any earlier. Guarded on `userId` again (always set whenever `wasInactive` is true — `findById`
+    // above only ever resolves a profile from a real one) purely to satisfy the type checker.
+    if (wasInactive && userId) {
+      await this.providers.get(UsersRepository).reactivate(userId)
+    }
     await this.persistSession(auth.id)
     return { ...tokens, expiresAt: TOKEN_EXPIRATION }
   }
@@ -315,11 +352,17 @@ export class AuthService extends ZanixInteractor {
    * runs — by the time `code` reaches here, the request is already known to be a genuine
    * continuation of a flow this project itself started, never a forged callback URL.
    *
+   * The OAuth2 credential is already verified (`connector.validateCode(code)`, below) by the time
+   * this checks the linked `users` profile's `status`: `'DELETED'` still hard-blocks with the same
+   * error `assertActive` throws elsewhere, but an `'INACTIVE'` profile is auto-reactivated
+   * (`UsersRepository.reactivate`) instead of rejected — see this file's own header doc for the
+   * full carve-out.
+   *
    * @throws {HttpError} `BAD_REQUEST` when this project isn't configured for `provider`;
    *   `FORBIDDEN` when the provider returns no verified email, when no account exists for the
    *   resolved email and `selfRegistrationViaOAuth` is disabled, or when the linked `users`
-   *   profile is deactivated/deleted; `CONFLICT` when the resolved email is already registered
-   *   through a different sign-in method (password or another OAuth2 provider).
+   *   profile is `'DELETED'`; `CONFLICT` when the resolved email is already registered through a
+   *   different sign-in method (password or another OAuth2 provider).
    */
   public async loginWithOauthCallback(code: string, provider: OauthProviders) {
     const connector = this.getOauthConnector(provider)
@@ -397,7 +440,20 @@ export class AuthService extends ZanixInteractor {
         message: 'An account already exists for this email with a different sign-in method.',
       })
     }
-    await this.providers.get(UsersRepository).assertActive(auth.userId)
+
+    // Not a plain `assertActive` here — see this file's own header doc and this method's own
+    // doc for the reactivation carve-out. The OAuth2 credential is already verified above, so
+    // reactivating on `'INACTIVE'` here poses none of the probe risk the OTP branch below has to
+    // guard against.
+    if (auth.userId) {
+      const profile = await this.providers.get(UsersRepository).findById(auth.userId)
+      if (profile?.status === 'DELETED') {
+        throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
+      }
+      if (profile?.status === 'INACTIVE') {
+        await this.providers.get(UsersRepository).reactivate(auth.userId)
+      }
+    }
 
     return this.finishLogin(auth, 'login', { oauthProvider: provider })
   }

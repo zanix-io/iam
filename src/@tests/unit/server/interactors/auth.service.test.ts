@@ -92,6 +92,8 @@ const defaultNotifier = () => ({
 const defaultUsersRepo = () => ({
   registerUser: fn((..._args: unknown[]): unknown => ({ id: 'user-1' })),
   assertActive: fn((..._args: unknown[]) => {}),
+  findById: fn((..._args: unknown[]): unknown => ({ status: 'ACTIVE' })),
+  reactivate: fn((..._args: unknown[]) => ({})),
 })
 
 const defaultRolesRepo = () => ({
@@ -390,6 +392,57 @@ Deno.test('loginWithOTPCallback: no existing account, invalid code, never provis
   assertEquals(authProvider.otp.authenticate.calls.length, 0)
 })
 
+Deno.test('loginWithOTPCallback: a VALID code reactivates an INACTIVE existing account', async () => {
+  const { service, usersRepo } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1' })) },
+    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+  })
+  const result = await service.loginWithOTPCallback('jane@example.com', '123456') as Record<
+    string,
+    unknown
+  >
+  assertEquals(usersRepo.reactivate.calls[0], ['user-1'])
+  assertEquals(result.accessToken, 'access')
+})
+
+Deno.test('loginWithOTPCallback: an INVALID code never reactivates an INACTIVE account — the real probe-vector regression test', async () => {
+  // Critical regression guard for the reorder `loginWithOTPCallback` needed: reactivation must
+  // only ever happen AFTER `otp.authenticate` verifies a real code, never before/regardless of it
+  // — otherwise anyone could reactivate (or probe the status of) an inactive account by supplying
+  // its email with no valid code at all.
+  const { service, usersRepo } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1' })) },
+    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+    authProvider: {
+      otp: {
+        ...defaultAuthProvider().otp,
+        authenticate: fn(() => {
+          throw new HttpError('FORBIDDEN', { message: 'Invalid or expired code.' })
+        }),
+      },
+    },
+  })
+  await assertRejects(
+    () => service.loginWithOTPCallback('jane@example.com', '000000'),
+    HttpError,
+  )
+  assertEquals(usersRepo.reactivate.calls.length, 0)
+})
+
+Deno.test('loginWithOTPCallback: still hard-blocks a DELETED existing account, never checking/authenticating the code or reactivating', async () => {
+  const { service, usersRepo, authProvider } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1' })) },
+    usersRepo: { findById: fn(() => ({ status: 'DELETED' })) },
+  })
+  await assertRejects(
+    () => service.loginWithOTPCallback('jane@example.com', '123456'),
+    HttpError,
+    'no longer exists',
+  )
+  assertEquals(authProvider.otp.authenticate.calls.length, 0)
+  assertEquals(usersRepo.reactivate.calls.length, 0)
+})
+
 Deno.test('loginWithTOTPCallback: embeds the resolved role permissions', async () => {
   const { service, authProvider } = buildService({
     authRepo: {
@@ -502,8 +555,8 @@ Deno.test('refreshTokens: falls back to the SESSION_HEADERS.user.token cookie wh
   assertEquals(authRepo.findById.calls[0], ['auth-1'])
 })
 
-Deno.test('loginWithPassword: throws FORBIDDEN when the linked users profile is deactivated', async () => {
-  const { service } = buildService({
+Deno.test('loginWithPassword: throws FORBIDDEN when the linked users profile is deactivated, never reactivating (no scope creep)', async () => {
+  const { service, usersRepo } = buildService({
     usersRepo: {
       assertActive: fn(() => {
         throw new HttpError('FORBIDDEN', { message: 'This account has been deactivated.' })
@@ -515,6 +568,26 @@ Deno.test('loginWithPassword: throws FORBIDDEN when the linked users profile is 
     HttpError,
     'deactivated',
   )
+  // Regression guard: the OTP/OAuth2 reactivation carve-out (see `AuthService`'s own header doc)
+  // must never leak into this path — still a hard, unmodified `assertActive` block.
+  assertEquals(usersRepo.reactivate.calls.length, 0)
+})
+
+Deno.test('loginWithTOTPCallback: throws FORBIDDEN when the linked users profile is deactivated, never reactivating (no scope creep)', async () => {
+  const { service, usersRepo } = buildService({
+    authRepo: withTotpSecret(),
+    usersRepo: {
+      assertActive: fn(() => {
+        throw new HttpError('FORBIDDEN', { message: 'This account has been deactivated.' })
+      }),
+    },
+  })
+  await assertRejects(
+    () => service.loginWithTOTPCallback('jane@example.com', '123456'),
+    HttpError,
+    'deactivated',
+  )
+  assertEquals(usersRepo.reactivate.calls.length, 0)
 })
 
 Deno.test('totpEnroll: throws UNAUTHORIZED with no session', () => {
@@ -687,7 +760,7 @@ Deno.test('loginWithOauthCallback: an email already linked to a DIFFERENT sign-i
   assertEquals(authRepo.registerAuth.calls.length, 0)
 })
 
-Deno.test('loginWithOauthCallback: an existing account already linked to the SAME provider just logs in', async () => {
+Deno.test('loginWithOauthCallback: an existing ACTIVE account already linked to the SAME provider just logs in, no reactivation', async () => {
   const { service, authRepo, usersRepo } = buildService({
     authRepo: { findByEmail: fn(() => baseAuth({ oauthProvider: 'google', userId: 'user-1' })) },
   })
@@ -695,27 +768,38 @@ Deno.test('loginWithOauthCallback: an existing account already linked to the SAM
 
   const result = await service.loginWithOauthCallback('code', 'google') as Record<string, unknown>
 
-  assertEquals(usersRepo.assertActive.calls[0], ['user-1'])
+  assertEquals(usersRepo.findById.calls[0], ['user-1'])
+  assertEquals(usersRepo.reactivate.calls.length, 0)
   assertEquals(authRepo.registerAuth.calls.length, 0)
   assertEquals(result.accessToken, 'access')
 })
 
-Deno.test('loginWithOauthCallback: throws FORBIDDEN when the linked users profile is deactivated', async () => {
-  const { service } = buildService({
+Deno.test('loginWithOauthCallback: reactivates an INACTIVE account and completes the login', async () => {
+  const { service, usersRepo } = buildService({
     authRepo: { findByEmail: fn(() => baseAuth({ oauthProvider: 'google', userId: 'user-1' })) },
-    usersRepo: {
-      assertActive: fn(() => {
-        throw new HttpError('FORBIDDEN', { message: 'This account has been deactivated.' })
-      }),
-    },
+    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+  })
+  withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: true }))
+
+  const result = await service.loginWithOauthCallback('code', 'google') as Record<string, unknown>
+
+  assertEquals(usersRepo.reactivate.calls[0], ['user-1'])
+  assertEquals(result.accessToken, 'access')
+})
+
+Deno.test('loginWithOauthCallback: still hard-blocks a DELETED account with the unchanged error, never reactivating', async () => {
+  const { service, usersRepo } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ oauthProvider: 'google', userId: 'user-1' })) },
+    usersRepo: { findById: fn(() => ({ status: 'DELETED' })) },
   })
   withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: true }))
 
   await assertRejects(
     () => service.loginWithOauthCallback('code', 'google'),
     HttpError,
-    'deactivated',
+    'no longer exists',
   )
+  assertEquals(usersRepo.reactivate.calls.length, 0)
 })
 
 Deno.test('refreshTokens: throws FORBIDDEN when no account is found for the token subject', async () => {

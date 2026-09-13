@@ -35,6 +35,7 @@ const defaultUsersRepo = () => ({
   findById: fn((..._args: unknown[]): unknown => baseUser()),
   updateUser: fn((..._args: unknown[]) => ({})),
   searchUsers: fn((..._args: unknown[]) => ({ docs: [baseUser()], total: 1 })),
+  reactivate: fn((..._args: unknown[]) => ({})),
 })
 
 const defaultNotifier = () => ({
@@ -133,6 +134,58 @@ Deno.test('updateOwnProfile: updates the profile resolved from the session, neve
   assertEquals(update.id, 'user-1')
   assertEquals(update.firstName, 'Updated')
   assertEquals('status' in update, false)
+})
+
+Deno.test('deactivateOwnAccount: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.deactivateOwnAccount(), HttpError, 'Authentication required')
+})
+
+Deno.test('deactivateOwnAccount: throws NOT_FOUND when the auth record has no linked profile', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ userId: undefined })) },
+  })
+  await assertRejects(() => service.deactivateOwnAccount(), HttpError, 'No profile is linked')
+})
+
+Deno.test("deactivateOwnAccount: sets the session subject's own profile status to INACTIVE", async () => {
+  const { service, usersRepo } = buildService()
+  const result = await service.deactivateOwnAccount()
+  assertEquals(result, { response: 'account deactivated' })
+  const [update] = usersRepo.updateUser.calls[0] as [Record<string, unknown>]
+  assertEquals(update, { id: 'user-1', status: 'INACTIVE' })
+})
+
+Deno.test('deleteOwnAccount: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.deleteOwnAccount(), HttpError, 'Authentication required')
+})
+
+Deno.test('deleteOwnAccount: throws NOT_FOUND when the auth record has no linked profile', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ userId: undefined })) },
+  })
+  await assertRejects(() => service.deleteOwnAccount(), HttpError, 'No profile is linked')
+})
+
+Deno.test("deleteOwnAccount: sets the session subject's own profile status to DELETED", async () => {
+  const { service, usersRepo } = buildService()
+  const result = await service.deleteOwnAccount()
+  assertEquals(result, { response: 'account deleted' })
+  const [update] = usersRepo.updateUser.calls[0] as [Record<string, unknown>]
+  assertEquals(update, { id: 'user-1', status: 'DELETED' })
+})
+
+Deno.test('deactivateOwnAccount/deleteOwnAccount: only ever resolve the target account from the session subject, no argument of their own', async () => {
+  // Structural proof of self-scoping: both methods take no parameters at all — the ONLY account
+  // they can possibly affect is whatever `resolveOwnAuth()` resolves from
+  // `this.context.session?.subject`. A different session subject affects a different account,
+  // never one passed explicitly.
+  const first = buildService({ session: { subject: 'auth-1' } })
+  await first.service.deactivateOwnAccount()
+  assertEquals(first.usersRepo.updateUser.calls[0]?.[0], { id: 'user-1', status: 'INACTIVE' })
+  assertEquals(UsersService.prototype.deactivateOwnAccount.length, 0)
+  assertEquals(UsersService.prototype.deleteOwnAccount.length, 0)
 })
 
 Deno.test('getUserById: throws NOT_FOUND when no profile exists', async () => {

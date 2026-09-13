@@ -120,6 +120,37 @@ export class UsersService extends ZanixInteractor {
   }
 
   /**
+   * Deactivates the CALLER's own account — sets the linked `users` profile's `status` to
+   * `'INACTIVE'`. Self-scoped via `resolveOwnAuth()` (the session's own subject only — no `id`
+   * parameter exists anywhere in this call chain, so this is structurally incapable of acting on
+   * another user's account). Deliberately bypasses `AdminEditUserRTO`/`EDITABLE_USER_STATUS` — the
+   * same reasoning `updateOwnProfile` already uses to let self-service touch a field the admin RTO
+   * doesn't expose (see that method's own doc).
+   *
+   * Reversible, but not from here: this method only ever moves `status` to `'INACTIVE'` (see
+   * `deleteOwnAccount` for `'DELETED'`), never back to `'ACTIVE'`. Reactivation happens
+   * automatically, and only as a side effect of a successful login via email OTP or Google OAuth2
+   * — see `AuthService`'s own header doc for that carve-out.
+   */
+  public async deactivateOwnAccount() {
+    const auth = await this.resolveOwnAuth()
+    await this.providers.get(UsersRepository).updateUser({ id: auth.userId, status: 'INACTIVE' })
+    return { response: 'account deactivated' }
+  }
+
+  /**
+   * Deletes the CALLER's own account — sets the linked `users` profile's `status` to `'DELETED'`.
+   * Self-scoped via `resolveOwnAuth()`, the same structural guarantee as `deactivateOwnAccount`'s
+   * own doc. Unlike a self-deactivate, this is NOT reversible through any login path —
+   * `'DELETED'` never auto-reactivates (see `AuthService`'s own header doc).
+   */
+  public async deleteOwnAccount() {
+    const auth = await this.resolveOwnAuth()
+    await this.providers.get(UsersRepository).updateUser({ id: auth.userId, status: 'DELETED' })
+    return { response: 'account deleted' }
+  }
+
+  /**
    * Gets a profile by `id`. Admin-scoped — gated at the handler level by `RBAC_PERMISSIONS.userRead`/
    * `userWrite` (see `UsersController`'s own doc).
    *

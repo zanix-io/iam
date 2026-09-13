@@ -100,8 +100,8 @@
     "react-dom": "npm:react-dom@^19.2.8",
     "babel-plugin-react-compiler": "npm:babel-plugin-react-compiler@^1.0.0",
     "qrcode-generator": "npm:qrcode-generator@^1.5.2",
-    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.1.0-rc.4",
-    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.1.0-rc.4/preact",
+    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.1.0-rc.6",
+    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.1.0-rc.6/preact",
     "preact": "npm:preact@^10.29.0",
     "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
     "happy-dom": "npm:happy-dom@^20.11.2",
@@ -141,13 +141,19 @@
     "./ui/pages/totp-enroll/preact": "./ui/pages/totp-enroll/index.preact.ts",
     "./ui/components/cookie-consent-modal": "./ui/components/cookie-consent-modal/index.ts",
     "./ui/components/cookie-consent-modal/preact": "./ui/components/cookie-consent-modal/index.preact.ts",
+    "./ui/components/password-toggle-field": "./ui/components/password-toggle-field/index.ts",
+    "./ui/components/password-toggle-field/preact": "./ui/components/password-toggle-field/index.preact.ts",
+    "./ui/components/otp-code-field": "./ui/components/otp-code-field/index.ts",
+    "./ui/components/otp-code-field/preact": "./ui/components/otp-code-field/index.preact.ts",
     "./ui/sdk/login": "./ui/sdk/login.ts",
+    "./ui/sdk/users": "./ui/sdk/users.ts",
     "./ui/sdk/otp": "./ui/sdk/otp.ts",
     "./ui/sdk/totp": "./ui/sdk/totp.ts",
     "./ui/sdk/password-recovery": "./ui/sdk/password-recovery.ts",
     "./ui/sdk/validation": "./ui/sdk/validation.ts",
     "./ui/sdk/messages": "./ui/sdk/messages.ts",
-    "./ui/sdk/session-guard": "./ui/sdk/session-guard.ts"
+    "./ui/sdk/session-guard": "./ui/sdk/session-guard.ts",
+    "./ui/sdk/redirect-unauthorized": "./ui/sdk/redirect-unauthorized.ts"
   },
   "publish": {
     "exclude": [

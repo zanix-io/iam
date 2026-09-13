@@ -107,4 +107,16 @@ export class UsersRepository extends ZanixProvider<{ database: ZanixMongoConnect
       throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
     }
   }
+
+  /**
+   * Sets `userId`'s profile `status` back to `'ACTIVE'` — the write side of the auto-reactivation
+   * carve-out `AuthService.loginWithOauthCallback`/`loginWithOTPCallback` apply on a successful
+   * Google OAuth2 or email OTP login (see that file's own header doc for the full carve-out: OTP +
+   * Google only, `'DELETED'` never reactivates through any path). Never called for password/TOTP
+   * logins. Takes no status of its own to check — every caller already resolved the profile's
+   * current status before deciding this call is warranted.
+   */
+  public reactivate(userId: string) {
+    return this.Model.updateOne({ _id: userId }, { $set: { status: 'ACTIVE' } }).exec()
+  }
 }

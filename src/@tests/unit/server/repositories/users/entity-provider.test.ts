@@ -62,6 +62,13 @@ Deno.test('UsersRepository.assertActive: throws FORBIDDEN for a DELETED profile,
   assertEquals(error.message, 'This account no longer exists.')
 })
 
+Deno.test('UsersRepository.reactivate: sets status back to ACTIVE', async () => {
+  const updateOne = fn((..._args: unknown[]) => ({ exec: () => Promise.resolve({ n: 1 }) }))
+  const repo = buildRepository({ updateOne })
+  await repo.reactivate('user-1')
+  assertEquals(updateOne.calls[0], [{ _id: 'user-1' }, { $set: { status: 'ACTIVE' } }])
+})
+
 Deno.test('UsersRepository.searchUsers: filters by status only when given', () => {
   const paginate = fn((_opts: Record<string, unknown>) => Promise.resolve({ docs: [], total: 0 }))
   const repo = buildRepository({ paginate })
