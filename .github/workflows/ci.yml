@@ -43,4 +43,3 @@ jobs:
 
       - name: Run tests
         run: deno test --allow-all
-
