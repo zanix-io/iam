@@ -1,0 +1,43 @@
+# .github/workflows/publish.yml
+
+name: Publish
+
+on:
+  # Run on push or PRs to main branch
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  # Runs `ci.yml` (the `zanix check-cycles` circular-import-hazard check) as a reusable workflow,
+  # same repo, same branch — a same-repo `uses:` job can't also declare `runs-on`/`steps` of its
+  # own. `publish` below only starts once every job inside this one has succeeded.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci # blocks `publish` unless every job inside the called `ci.yml` succeeded
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Allows reading of the repository's contents.
+      id-token: write # Allows the creation of an ID token for authentication with JSR.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Publish to Deno
+        # `needs.ci.result == 'success'` is explicit, not just relying on the default `needs:`
+        # skip-on-failure behavior above — that default only holds as long as `publish` keeps its
+        # own `if:` unset; an `always()`/similar override on the JOB (e.g. added later to get
+        # diagnostics on a failing run) would silently defeat it without this STEP-level check.
+        if: success() && needs.ci.result == 'success' && github.event_name == 'push'
+        run: deno publish

@@ -40,3 +40,7 @@ jobs:
 
       - name: Check for duplicate '@zanix/*' dependencies
         run: deno run -A jsr:@zanix/cli check-duplicates
+
+      - name: Run tests
+        run: deno test --allow-all
+
