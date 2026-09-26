@@ -33,6 +33,37 @@ export const IAM_UI_MESSAGES_EN_COMPILED: Readonly<
       'value': 'Cookie consent',
     },
   ],
+  'cookie-consent-modal/accept': [
+    {
+      'type': 0,
+      'value': 'Accept',
+    },
+  ],
+  'cookie-consent-modal/body': [
+    {
+      'type': 0,
+      'value':
+        'This service needs to store one cookie in your browser — the session cookie itself — to keep you signed in between pages. There is only this one cookie anywhere in this project right now; nothing else is tracked.',
+    },
+  ],
+  'cookie-consent-modal/decline': [
+    {
+      'type': 0,
+      'value': 'Decline',
+    },
+  ],
+  'cookie-consent-modal/error': [
+    {
+      'type': 0,
+      'value': 'Something went wrong recording your choice. Please try again.',
+    },
+  ],
+  'cookie-consent-modal/heading': [
+    {
+      'type': 0,
+      'value': 'Session cookie',
+    },
+  ],
   'login/email-label': [
     {
       'type': 0,

@@ -1,7 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "1.0.0",
-  "minimumDependencyAge": 0,
+  "version": "1.0.1",
   "zanix": {
     "project": "space-server"
   },
@@ -56,7 +55,7 @@
       ".dist"
     ],
     "plugins": [
-      "jsr:@zanix/utils@^4.5.0/linter/deno-zanix-plugin"
+      "jsr:@zanix/utils@^4.7.0/linter/deno-zanix-plugin"
     ],
     "report": "pretty"
   },
@@ -79,8 +78,8 @@
     "server/": "./src/server/",
     "@zanix/app": "jsr:@zanix/app@^1.0.2",
     "@zanix/app/runtime": "jsr:@zanix/app@^1.0.2/runtime",
-    "@zanix/auth": "jsr:@zanix/auth@^1.5.4",
-    "@zanix/auth/core": "jsr:@zanix/auth@^1.5.4/core",
+    "@zanix/auth": "jsr:@zanix/auth@^1.6.0",
+    "@zanix/auth/core": "jsr:@zanix/auth@^1.6.0/core",
     "@zanix/space": "jsr:@zanix/space@^1.16.0",
     "@zanix/space/react": "jsr:@zanix/space@^1.16.0/react",
     "@zanix/space/preact": "jsr:@zanix/space@^1.16.0/preact",
@@ -93,17 +92,17 @@
     "@zanix/datamaster": "jsr:@zanix/datamaster@^1.11.1",
     "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.8.0",
     "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.8.0/jobs",
-    "@zanix/validator": "jsr:@zanix/utils@^4.5.0/validator",
-    "@zanix/errors": "jsr:@zanix/utils@^4.5.0/errors",
-    "@zanix/helpers": "jsr:@zanix/utils@^4.5.0/helpers",
+    "@zanix/validator": "jsr:@zanix/utils@^4.7.0/validator",
+    "@zanix/errors": "jsr:@zanix/utils@^4.7.0/errors",
+    "@zanix/helpers": "jsr:@zanix/utils@^4.7.0/helpers",
     "@zanix/core": "jsr:@zanix/core@^3.1.2",
     "react": "npm:react@^19.2.8",
     "react-dom": "npm:react-dom@^19.2.8",
     "babel-plugin-react-compiler": "npm:babel-plugin-react-compiler@^1.0.0",
     "qrcode-generator": "npm:qrcode-generator@^1.5.2",
     "@formatjs/icu-messageformat-parser": "npm:@formatjs/icu-messageformat-parser@^3.5.17",
-    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.1.0-rc.6",
-    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.1.0-rc.6/preact",
+    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.4.0",
+    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.4.0/preact",
     "preact": "npm:preact@^10.29.0",
     "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
     "happy-dom": "npm:happy-dom@^20.11.2",

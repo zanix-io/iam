@@ -18,6 +18,12 @@ export const IAM_UI_MESSAGES_EN: Readonly<Record<string, string>> = {
   'common/try-again': 'Try again',
   'common/verify': 'Verify',
   'consent/heading': 'Cookie consent',
+  'cookie-consent-modal/accept': 'Accept',
+  'cookie-consent-modal/body':
+    'This service needs to store one cookie in your browser — the session cookie itself — to keep you signed in between pages. There is only this one cookie anywhere in this project right now; nothing else is tracked.',
+  'cookie-consent-modal/decline': 'Decline',
+  'cookie-consent-modal/error': 'Something went wrong recording your choice. Please try again.',
+  'cookie-consent-modal/heading': 'Session cookie',
   'login/email-label': 'Email',
   'login/email-placeholder': 'you@example.com',
   'login/heading': 'Sign in or create an account',

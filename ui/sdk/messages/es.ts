@@ -18,6 +18,12 @@ export const IAM_UI_MESSAGES_ES: Readonly<Record<string, string>> = {
   'common/try-again': 'Intentar de nuevo',
   'common/verify': 'Verificar',
   'consent/heading': 'Consentimiento de cookies',
+  'cookie-consent-modal/accept': 'Aceptar',
+  'cookie-consent-modal/body':
+    'Este servicio necesita guardar una cookie en tu navegador — la cookie de sesión — para mantenerte conectado entre páginas. Solo existe esta cookie en este proyecto; no se rastrea nada más.',
+  'cookie-consent-modal/decline': 'Rechazar',
+  'cookie-consent-modal/error': 'Algo falló al registrar tu elección. Intenta de nuevo.',
+  'cookie-consent-modal/heading': 'Cookie de sesión',
   'login/email-label': 'Correo electrónico',
   'login/email-placeholder': 'tucorreo@ejemplo.com',
   'login/heading': 'Inicia sesión o crea una cuenta',

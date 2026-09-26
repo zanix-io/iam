@@ -4,7 +4,16 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
+import { IntlProvider } from '@zanix/space-ui'
+import { IAM_UI_MESSAGES_EN } from '../../../sdk/messages.ts'
 import { CookieConsentModal } from 'ui/components/cookie-consent-modal/index.ts'
+
+/** `CookieConsentModal` now reads its own copy via `useIntl()`, which throws outside a real
+ * `IntlProvider` — every render site in this file goes through this instead of a bare
+ * `createElement(CookieConsentModal, ...)`. */
+function withIntl(element: ReturnType<typeof createElement>) {
+  return createElement(IntlProvider, { locale: 'en', messages: IAM_UI_MESSAGES_EN }, element)
+}
 
 // `dom-test-setup`-equivalent minimal DOM stub — `@zanix/space-ui`'s own `must`/DOM-setup helper
 // isn't published for consumers, so this file drives real interaction through `react-dom/client`
@@ -25,7 +34,7 @@ function mount(element: ReturnType<typeof createElement>) {
 
 Deno.test('CookieConsentModal: open by default when no decision was recorded yet', () => {
   const html = renderToStaticMarkup(
-    createElement(CookieConsentModal, { lang: 'en', initialDecided: false }),
+    withIntl(createElement(CookieConsentModal, { lang: 'en', initialDecided: false })),
   )
   assertStringIncludes(html, 'Session cookie')
   assertStringIncludes(html, 'Accept')
@@ -34,7 +43,7 @@ Deno.test('CookieConsentModal: open by default when no decision was recorded yet
 
 Deno.test('CookieConsentModal: renders nothing (Modal closed) once a decision was already recorded', () => {
   const html = renderToStaticMarkup(
-    createElement(CookieConsentModal, { lang: 'en', initialDecided: true }),
+    withIntl(createElement(CookieConsentModal, { lang: 'en', initialDecided: true })),
   )
   assertEquals(html.includes('Session cookie'), false)
 })
@@ -49,7 +58,7 @@ Deno.test('CookieConsentModal: Accept posts { accepted: true } to /{lang}/consen
 
   try {
     const { container, unmount } = mount(
-      createElement(CookieConsentModal, { lang: 'fr', initialDecided: false }),
+      withIntl(createElement(CookieConsentModal, { lang: 'fr', initialDecided: false })),
     )
     const acceptButton = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === 'Accept')
@@ -72,7 +81,7 @@ Deno.test('CookieConsentModal: a failed round trip surfaces the alert, without s
 
   try {
     const { container, unmount } = mount(
-      createElement(CookieConsentModal, { lang: 'en', initialDecided: false }),
+      withIntl(createElement(CookieConsentModal, { lang: 'en', initialDecided: false })),
     )
     const declineButton = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === 'Decline')

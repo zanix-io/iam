@@ -7,15 +7,16 @@ import { createCookieConsentModal } from 'ui/components/cookie-consent-modal/ren
 /**
  * Closing the consent dialog without choosing (Escape, `closeOnEscape: true`) records a decline,
  * the same request the Decline button sends. Exercised at the factory level: the `onClose` is
- * read off the `Modal` element the component returns, and `fetch` is replaced for the one request it triggers.
+ * read off the `ConsentModal` element the component returns, and `fetch` is replaced for the one
+ * request it triggers.
  */
 Deno.test('CookieConsentModal: dismissing the dialog records a decline (accepted: false)', async () => {
   const CookieConsentModal = createCookieConsentModal<ReactElement>(
     createElement as unknown as CreateElement<ReactElement>,
     { useState: <T>(initial: T) => [initial, () => {}] as [T, (value: T) => void] },
     {
-      Modal: () => null,
-      Button: () => createElement('button'),
+      ConsentModal: () => null,
+      useIntl: () => ({ formatMessage: (key: string) => `[${key}]` }) as never,
     },
   )
   const element = CookieConsentModal({ lang: 'en', initialDecided: false }) as unknown as {

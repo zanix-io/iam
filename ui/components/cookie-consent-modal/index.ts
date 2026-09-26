@@ -1,6 +1,6 @@
 import { createElement, useState } from 'react'
 import type { ReactElement } from 'react'
-import { Button, Modal } from '@zanix/space-ui'
+import { ConsentModal, useIntl } from '@zanix/space-ui'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createCookieConsentModal } from './render.ts'
 import type { CookieConsentModalProps } from './types.ts'
@@ -20,5 +20,5 @@ export const CookieConsentModal: (props: CookieConsentModalProps) => ReactElemen
   createCookieConsentModal(
     createElement as unknown as CreateElement<ReactElement>,
     { useState },
-    { Button, Modal },
+    { ConsentModal, useIntl },
   )

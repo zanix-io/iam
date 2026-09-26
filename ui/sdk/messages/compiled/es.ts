@@ -33,6 +33,37 @@ export const IAM_UI_MESSAGES_ES_COMPILED: Readonly<
       'value': 'Consentimiento de cookies',
     },
   ],
+  'cookie-consent-modal/accept': [
+    {
+      'type': 0,
+      'value': 'Aceptar',
+    },
+  ],
+  'cookie-consent-modal/body': [
+    {
+      'type': 0,
+      'value':
+        'Este servicio necesita guardar una cookie en tu navegador — la cookie de sesión — para mantenerte conectado entre páginas. Solo existe esta cookie en este proyecto; no se rastrea nada más.',
+    },
+  ],
+  'cookie-consent-modal/decline': [
+    {
+      'type': 0,
+      'value': 'Rechazar',
+    },
+  ],
+  'cookie-consent-modal/error': [
+    {
+      'type': 0,
+      'value': 'Algo falló al registrar tu elección. Intenta de nuevo.',
+    },
+  ],
+  'cookie-consent-modal/heading': [
+    {
+      'type': 0,
+      'value': 'Cookie de sesión',
+    },
+  ],
   'login/email-label': [
     {
       'type': 0,

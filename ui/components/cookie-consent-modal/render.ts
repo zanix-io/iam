@@ -1,4 +1,5 @@
 import type { CreateElement } from 'ui/typings/renderer.ts'
+import type { ConsentModalProps, Formatter } from '@zanix/space-ui'
 import type { CookieConsentModalProps } from './types.ts'
 
 import { buildConsentRequest } from 'utils/cookie-consent.ts'
@@ -20,24 +21,14 @@ export type CookieConsentModalHooks = {
 }
 
 /**
- * The `@zanix/space-ui` bindings this view needs, injected alongside `h`/hooks — `index.ts`/
- * `index.preact.ts` each supply their own renderer's real, already-bound copies (`@zanix/space-ui`'s
- * root barrel for React, `/preact` for Preact). Both `Modal` and `Button` are passed through `h`
- * as component REFERENCES below (`h(Modal, props, ...children)`), never called directly — `Modal`
- * calls real hooks internally (focus trap, open-stack bookkeeping); see {@linkcode CreateElement}'s
- * own doc for why that distinction is load-bearing, not stylistic.
+ * The `@zanix/space-ui` binding this view needs, injected alongside `h`/hooks — `index.ts`/
+ * `index.preact.ts` each supply their own renderer's real, already-bound `ConsentModal` (`@zanix/
+ * space-ui`'s root export for React, `/preact` for Preact). Composed as-is — `iam`'s own dialog
+ * copy and Accept/Decline/error wiring are the only project-specific pieces left here.
  */
 export type CookieConsentModalDeps<E> = {
-  Modal: (props: {
-    open: boolean
-    onClose: () => void
-    label: string
-    closeOnEscape?: boolean
-    className?: string
-    nonce?: string
-    children: Array<E | null>
-  }) => E | null
-  Button: (props: { onClick?: () => void; disabled?: boolean }) => E
+  ConsentModal: (props: ConsentModalProps) => E | null
+  useIntl: () => Formatter
 }
 
 /**
@@ -49,10 +40,8 @@ export type CookieConsentModalDeps<E> = {
  * `iam`'s own `space/comets/cookie-consent-modal.comet.tsx`, which wraps whichever binding of this
  * component `iam` itself renders with.
  *
- * Built entirely from the injected `Modal`/`Button` — no new `@zanix/space-ui` component needed.
- * `Modal`'s own backdrop (`showOverlay`, the default) covers the full viewport above everything
- * else while `open`, which is what actually prevents an operator from reaching, say, an OAuth2
- * "Continue with Google" button underneath before deciding.
+ * Built entirely from the injected `ConsentModal` (`@zanix/space-ui`'s generic accept/decline
+ * dialog) — no project-specific markup left in this file, only the copy and the decision logic.
  *
  * Decline is persisted the same way Accept is — a real, distinct recorded decision (never "no
  * cookie at all") — so a visitor who already declined isn't re-prompted on every single page
@@ -63,16 +52,22 @@ export function createCookieConsentModal<E>(
   hooks: CookieConsentModalHooks,
   deps: CookieConsentModalDeps<E>,
 ): (props: CookieConsentModalProps) => E {
-  const { Modal, Button } = deps
+  const { ConsentModal, useIntl } = deps
 
   return function CookieConsentModal(
     { lang, initialDecided, cspNonce }: CookieConsentModalProps,
   ): E {
+    const { formatMessage } = useIntl()
     const [open, setOpen] = hooks.useState(!initialDecided)
     const [pending, setPending] = hooks.useState(false)
     const [error, setError] = hooks.useState(false)
 
     function decide(accepted: boolean) {
+      // `ConsentModal` exposes no per-button disabled state, unlike the plain `Button`s this
+      // component used to compose directly — this guard reproduces the same double-submit
+      // protection (a second click while the first request is still in flight is a no-op) without
+      // needing one.
+      if (pending) return
       setPending(true)
       setError(false)
       const { url, init } = buildConsentRequest(lang, accepted)
@@ -96,33 +91,23 @@ export function createCookieConsentModal<E>(
         .finally(() => setPending(false))
     }
 
-    return h(
-      Modal,
-      {
-        open,
-        onClose: () => decide(false),
-        label: 'Cookie consent',
-        closeOnEscape: true,
-        className: DIALOG_CLASS_NAME,
-        nonce: cspNonce,
-      },
-      h('h2', { key: 'heading' }, 'Session cookie'),
-      h(
-        'p',
-        { key: 'body' },
-        'This service needs to store one cookie in your browser — the session cookie itself — ' +
-          'to keep you signed in between pages. There is only this one cookie anywhere in this ' +
-          'project right now; nothing else is tracked.',
-      ),
-      error
-        ? h(
-          'p',
-          { key: 'error', role: 'alert' },
-          'Something went wrong recording your choice. Please try again.',
-        )
-        : null,
-      h(Button, { key: 'accept', onClick: () => decide(true), disabled: pending }, 'Accept'),
-      h(Button, { key: 'decline', onClick: () => decide(false), disabled: pending }, 'Decline'),
-    )
+    return h(ConsentModal, {
+      open,
+      onClose: () => decide(false),
+      heading: formatMessage('cookie-consent-modal/heading'),
+      body: formatMessage('cookie-consent-modal/body'),
+      onAccept: () => decide(true),
+      onDecline: () => decide(false),
+      // `ConsentModal`'s own `acceptLabel`/`declineLabel` default to English literals — this
+      // package has no i18n mechanism of its own (see `@zanix/space-ui`'s own `DatePicker/index.ts`
+      // "locale is a plain, explicit prop" doc) — so every localized surface always passes both
+      // explicitly, never relies on that default.
+      acceptLabel: formatMessage('cookie-consent-modal/accept'),
+      declineLabel: formatMessage('cookie-consent-modal/decline'),
+      error: error ? formatMessage('cookie-consent-modal/error') : undefined,
+      closeOnEscape: true,
+      className: DIALOG_CLASS_NAME,
+      nonce: cspNonce,
+    })
   }
 }

@@ -1,7 +1,10 @@
 import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import '../dom-test-setup.ts'
 import { h, render as renderDom } from 'preact'
+import type { VNode } from 'preact'
 import { render as renderToString } from 'preact-render-to-string'
+import { IntlProvider } from '@zanix/space-ui/preact'
+import { IAM_UI_MESSAGES_EN } from '../../../sdk/messages.ts'
 import { CookieConsentModal } from 'ui/components/cookie-consent-modal/index.preact.ts'
 
 // Same behavior as `cookie-consent-modal.test.ts` (the React binding), verified independently
@@ -9,15 +12,24 @@ import { CookieConsentModal } from 'ui/components/cookie-consent-modal/index.pre
 // logic (`render.ts`) — including its `useState` usage — behaves identically regardless of which
 // renderer it's bound to. Called via `h(CookieConsentModal, props)`, never JSX.
 
+/** `CookieConsentModal` reads its own copy via `useIntl()`, which throws outside a real
+ * `IntlProvider` — every render site in this file goes through this instead of a bare
+ * `h(CookieConsentModal, props)`. */
+function withIntl<P>(element: VNode<P>) {
+  return h(IntlProvider, { locale: 'en', messages: IAM_UI_MESSAGES_EN }, element)
+}
+
 Deno.test('CookieConsentModal (preact): open by default when no decision was recorded yet', () => {
-  const html = renderToString(h(CookieConsentModal, { lang: 'en', initialDecided: false }))
+  const html = renderToString(
+    withIntl(h(CookieConsentModal, { lang: 'en', initialDecided: false })),
+  )
   assertStringIncludes(html, 'Session cookie')
   assertStringIncludes(html, 'Accept')
   assertStringIncludes(html, 'Decline')
 })
 
 Deno.test('CookieConsentModal (preact): renders nothing once a decision was already recorded', () => {
-  const html = renderToString(h(CookieConsentModal, { lang: 'en', initialDecided: true }))
+  const html = renderToString(withIntl(h(CookieConsentModal, { lang: 'en', initialDecided: true })))
   assertEquals(html.includes('Session cookie'), false)
 })
 
@@ -32,7 +44,7 @@ Deno.test('CookieConsentModal (preact): Decline posts { accepted: false } to /{l
   try {
     const container = document.createElement('div')
     document.body.appendChild(container)
-    renderDom(h(CookieConsentModal, { lang: 'de', initialDecided: false }), container)
+    renderDom(withIntl(h(CookieConsentModal, { lang: 'de', initialDecided: false })), container)
     const declineButton = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === 'Decline')
     declineButton?.dispatchEvent(new Event('click', { bubbles: true }))

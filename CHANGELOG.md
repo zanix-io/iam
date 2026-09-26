@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-26
+
+### Fixed
+
+- **`cookie-consent-modal` hardcoded its copy in English, never reading it from the message
+  catalogs** — the one component whose accept/decline dialog didn't follow this package's own
+  established convention (every other view resolves its text through `useIntl`). Now wired the same
+  way, with new `cookie-consent-modal/{heading,body,accept,decline,error}` keys in both the English
+  and Spanish catalogs.
+
+### Changed
+
+- **`cookie-consent-modal` now composes `@zanix/space-ui`'s shared `ConsentModal`** instead of
+  assembling `Modal`/`Button` directly — the presentational shell (heading, body copy, the
+  Accept/Decline/acknowledgement structure) was near-identical duplication with a second,
+  independent consumer of the same shape; this package's own decision/submission logic is unchanged.
+  Bumped `@zanix/space-ui` (`^2.1.0-rc.6` → `^2.4.0`), `@zanix/auth` (`^1.5.4` → `^1.6.0`), and the
+  `@zanix/utils`-derived subpaths (`^4.5.0` → `^4.7.0`).
+
 ## [1.0.0] - 2026-09-26
 
 First release of `@zanix/iam`: an identity and access management service that runs standalone or is

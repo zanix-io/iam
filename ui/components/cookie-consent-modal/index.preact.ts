@@ -1,7 +1,7 @@
 import { h } from 'preact'
 import type { VNode } from 'preact'
 import { useState } from 'preact/hooks'
-import { Button, Modal } from '@zanix/space-ui/preact'
+import { ConsentModal, useIntl } from '@zanix/space-ui/preact'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createCookieConsentModal } from './render.ts'
 import type { CookieConsentModalProps } from './types.ts'
@@ -19,5 +19,5 @@ export const CookieConsentModal: (props: CookieConsentModalProps) => VNode =
   createCookieConsentModal(
     h as unknown as CreateElement<VNode>,
     { useState },
-    { Button, Modal },
+    { ConsentModal, useIntl },
   )
