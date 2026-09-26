@@ -2,12 +2,12 @@ import { Controller, Delete, Get, type HandlerContext, Post, ZanixController } f
 import { AuthTokenValidation, CaptchaGuard, RateLimitGuard } from '@zanix/auth'
 import { AddPasswordRTO, PwdRecoveryCbRTO, PwdRecoveryRTO, PwdRTO } from './rtos/password.ts'
 import { PasswordService } from '../interactors/password.interactor.ts'
-import { criticRateLimit, freeRateLimit } from 'utils/constants.ts'
+import { criticalRateLimit, freeRateLimit } from 'utils/constants.ts'
 
 /**
- * Self-service password + TOTP-enrollment endpoints. Anonymous rate limiting on the recovery
- * routes carries the same `trustProxyHeader: true` caveat as `LoginController` — see that file's
- * own header doc.
+ * Self-service password endpoints — change/add/remove and recovery. Anonymous rate limiting on the
+ * recovery routes carries the same `trustProxyHeader: true` caveat as `LoginController` — see that
+ * file's own header doc, including why each route below carries its own `app` value.
  */
 @Controller({ prefix: 'pwd', Interactor: PasswordService })
 export class PasswordController extends ZanixController<PasswordService> {
@@ -44,7 +44,11 @@ export class PasswordController extends ZanixController<PasswordService> {
    * `recoveryCallback`.
    */
   @Get('recovery/:email', { Params: PwdRecoveryRTO })
-  @RateLimitGuard({ anonymousLimit: criticRateLimit, trustProxyHeader: true })
+  @RateLimitGuard({
+    app: 'pwd:recovery',
+    anonymousLimit: criticalRateLimit,
+    trustProxyHeader: true,
+  })
   @CaptchaGuard()
   public recovery(ctx: HandlerContext<{ params: PwdRecoveryRTO }>) {
     return this.interactor.recovery(ctx.payload.params.email)
@@ -52,7 +56,11 @@ export class PasswordController extends ZanixController<PasswordService> {
 
   /** Verifies the recovery `code` sent to `email` and sets `password`, issuing session tokens. */
   @Post('recovery/callback', { Body: PwdRecoveryCbRTO })
-  @RateLimitGuard({ anonymousLimit: freeRateLimit, trustProxyHeader: true })
+  @RateLimitGuard({
+    app: 'pwd:recovery-callback',
+    anonymousLimit: freeRateLimit,
+    trustProxyHeader: true,
+  })
   public recoveryCallback(ctx: HandlerContext<{ body: PwdRecoveryCbRTO }>) {
     const { password, code, email } = ctx.payload.body
     return this.interactor.recoveryCallback(email, code, password)

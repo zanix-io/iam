@@ -129,3 +129,68 @@ Deno.test('LoginClient.logout: sends the access token as a bearer header', async
     assertEquals(result.response, 'token revoked')
   })
 })
+
+Deno.test('LoginClient.confirmReactivation: posts the reactivation token to login/reactivate, unauthenticated', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { accessToken: 'a', refreshToken: 'r', expiresAt: 1 } }],
+    async (calls) => {
+      const result = await new LoginClient({ baseUrl: BASE_URL }).confirmReactivation('react-1')
+      assertEquals([calls[0].method, calls[0].url], ['POST', `${BASE_URL}/login/reactivate`])
+      assertEquals(bodyJson(calls[0]), { reactivationToken: 'react-1' })
+      assertEquals(calls[0].headers.get('Authorization'), null)
+      assertEquals((result as { accessToken: string }).accessToken, 'a')
+    },
+  )
+})
+
+Deno.test("LoginClient.getOwnAuthMethods: gets login/methods with the caller's bearer token", async () => {
+  await withMockFetch([{ status: 200, body: { hasPassword: true } }], async (calls) => {
+    await new LoginClient({ baseUrl: BASE_URL }).getOwnAuthMethods('access-token-value')
+    assertEquals([calls[0].method, calls[0].url], ['GET', `${BASE_URL}/login/methods`])
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+  })
+})
+
+Deno.test('LoginClient.getLoginMethods: gets login/methods/:email with the email URI-encoded, unauthenticated', async () => {
+  await withMockFetch([{ status: 200, body: { hasPassword: false } }], async (calls) => {
+    await new LoginClient({ baseUrl: BASE_URL }).getLoginMethods('user+tag@example.com')
+    assertEquals(
+      calls[0].url,
+      `${BASE_URL}/login/methods/${encodeURIComponent('user+tag@example.com')}`,
+    )
+    assertEquals(calls[0].headers.get('Authorization'), null)
+  })
+})
+
+Deno.test('LoginClient.linkOauth: posts the provider code to login/:provider/link with a bearer header', async () => {
+  await withMockFetch([{ status: 200, body: { response: 'google connected' } }], async (calls) => {
+    await new LoginClient({ baseUrl: BASE_URL }).linkOauth('access-token-value', 'google', 'code-1')
+    assertEquals([calls[0].method, calls[0].url], ['POST', `${BASE_URL}/login/google/link`])
+    assertEquals(bodyJson(calls[0]), { code: 'code-1' })
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+  })
+})
+
+Deno.test('LoginClient.unlinkOauth: deletes login/:provider with a bearer header', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { response: 'github disconnected' } }],
+    async (calls) => {
+      await new LoginClient({ baseUrl: BASE_URL }).unlinkOauth('access-token-value', 'github')
+      assertEquals([calls[0].method, calls[0].url], ['DELETE', `${BASE_URL}/login/github`])
+      assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+    },
+  )
+})
+
+Deno.test('LoginClient.oauthAuthorize: an email hint is sent URI-encoded as ?email=', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { url: 'https://accounts.example', state: 's' } }],
+    async (calls) => {
+      await new LoginClient({ baseUrl: BASE_URL }).oauthAuthorize('google', 'user+tag@example.com')
+      assertEquals(
+        calls[0].url,
+        `${BASE_URL}/login/google?email=${encodeURIComponent('user+tag@example.com')}`,
+      )
+    },
+  )
+})

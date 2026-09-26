@@ -6,27 +6,24 @@ import {
   type RequiredVerifiableScalar,
   Schema,
 } from '@zanix/datamaster'
-import { LOGIN_ACTIONS, OAUTH_PROVIDERS, TWO_FACTOR_METHODS } from 'utils/constants.ts'
+import { LOGIN_ACTIONS, NOTIFIERS, OAUTH_PROVIDERS, TWO_FACTOR_METHODS } from 'utils/constants.ts'
 import seeders from './seeders/main.ts'
 
 /**
  * The `auth` collection's own persisted shape — credentials and session-lifecycle state, kept
- * separate from the future `users` collection's profile data (a later, not-yet-built slice).
+ * separate from the `users` collection's profile data (see `../users/model.defs.ts`).
  *
  * This model's own `_id` is the Mongoose-default `Schema.Types.ObjectId`-typed field (no override
  * below), so every seeded/inserted `id`/`_id` value here must be a real 24-character hex ObjectId
  * — there's no exception for this collection.
  *
- * `userId` is a generic foreign-key reference to that future `users` collection — declared here
- * (matching `grant-access`'s own real precedent of referencing `roles`/`users` generically before
- * those slices exist) without a `ref: 'users'` populate ever being exercised until that slice
- * registers the `users` model. `email`/`phone` are denormalized directly onto this record
- * (rather than only living on `users`, as a real, deployed sibling project does) so THIS slice's
- * own login/recovery/OTP/TOTP flows — including SMS/WhatsApp delivery, which needs a real phone
- * number — are fully self-contained before `users` exists.
+ * `userId` references the linked `users` profile (optional — see
+ * `UsersRepository.assertActive`). `email`/`phone` live on this record rather than on `users`, so
+ * the login/recovery/OTP/TOTP flows — including SMS/WhatsApp delivery, which needs a real phone
+ * number — are self-contained in the `auth` collection.
  *
- * `email` is stored MASKED (`dataPoliciesGetter({ protection: 'mask' })`), the same real, deployed
- * sibling project's own precedent for this exact field — paired with `emailKeyId`, a separate,
+ * `email` is stored MASKED (`dataPoliciesGetter({ protection: 'mask' })`) — paired with
+ * `emailKeyId`, a separate,
  * deterministic SHA-256 digest of the plaintext (see `email-key.ts`'s own doc) that `findByEmail`
  * actually queries against, since a masked value isn't directly equality-queryable on its own.
  * `emailKeyId` — not `email` — carries the real `unique` index for exactly that reason: a
@@ -55,8 +52,21 @@ export type AuthenticationAttrs = {
    * since `email` itself is stored masked and isn't directly equality-queryable. Always set by
    * `AuthRepository.registerAuth`/its own seeders; never set by a caller directly. */
   emailKeyId: string
-  /** E.164 phone number, required only to receive an `sms`/`whatsapp` `NOTIFIERS` dispatch. */
+  /** E.164 phone number, required only to receive an `sms`/`whatsapp` `NOTIFIERS` dispatch. Set
+   * exclusively by `AuthService.phoneConfirm` — only once a real OTP sent to this exact number has
+   * been verified (`AuthService.phoneEnroll`'s own doc), never trusted from a plain settings edit. */
   phone?: string
+  /** Which channel a passwordless OTP-login code (`PasswordService.recovery`, `isLogin: true`)
+   * gets delivered through, when the caller doesn't already force one (a real 2FA challenge always
+   * does — see `AuthService.finishLogin`). `undefined` means "email", the default — never stored
+   * explicitly as `'email'` itself.
+   * Deliberately NOT `twoFactorAuthConfig.method`, even though both draw from the same `NOTIFIERS`
+   * set: this is a delivery-channel PREFERENCE for the one-and-only login code a passwordless
+   * attempt already sends, never a second, additional factor — choosing `'sms'` here must never
+   * cause a code to go out on `'email'` too, or vice versa. Only ever `'sms'`/`'whatsapp'` when
+   * `phone` is already set (`AuthService.setOtpNotifier`'s own invariant, enforced there, not by
+   * this schema). */
+  otpNotifier?: Exclude<typeof NOTIFIERS[number], 'email'>
   password?: string
   mustChangePassword?: boolean
   /** Second-factor requirement — `method: 'totp'` never carries a `NOTIFIERS` delivery channel. */
@@ -68,7 +78,7 @@ export type AuthenticationAttrs = {
   totpSecret?: string
   oauthProvider?: typeof OAUTH_PROVIDERS[number]
   oauthRefreshToken?: string
-  /** Generic reference to a future `roles` collection — see `userId`'s own doc above. */
+  /** The assigned `roles` document — see `RolesService.assignRole`. Unset means no permissions. */
   roleId?: string
   lastLoginAt?: Date
   createdAt: Date
@@ -122,6 +132,10 @@ registerModel<AuthenticationAttrs>({
     phone: {
       type: String,
       get: dataPoliciesGetter({ access: 'internal', protection: 'mask' }),
+    },
+    otpNotifier: {
+      type: String,
+      enum: NOTIFIERS.filter((notifier) => notifier !== 'email'),
     },
     roleId: {
       type: Schema.Types.ObjectId,

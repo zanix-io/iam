@@ -22,4 +22,6 @@ Deno.test('OauthCallbackView: renders a meta refresh to / plus a no-JS fallback 
   assertStringIncludes(html, '<h1>Signed in</h1>')
   assertStringIncludes(html, 'href="/"')
   assertStringIncludes(html, 'Continue</a>')
+  // The back link carries its `data-space` styling hook (see `login-oauth-callback-error.test.ts`).
+  assertStringIncludes(html, 'data-space="auth-back-link"')
 })

@@ -213,7 +213,7 @@ Deno.test('seedIamSessionCache: a no-op on an undecodable refresh token', async 
 
 // ---- iamSessionGuard ----
 
-Deno.test('iamSessionGuard: no session cookie throws UNAUTHORIZED', async () => {
+Deno.test('iamSessionGuard: no session cookie throws UNAUTHORIZED with code NO_SESSION_COOKIE', async () => {
   const cache = fakeCacheProvider()
   const subject = unique('user')
   const ctx = fakeGuardContext(cache, undefined)
@@ -222,13 +222,17 @@ Deno.test('iamSessionGuard: no session cookie throws UNAUTHORIZED', async () => 
   }
   const guard = iamSessionGuard([], options)
 
-  await assertRejects(
+  const error = await assertRejects(
     async () => {
       await guard(ctx)
     },
     HttpError,
     'No session cookie present',
   )
+  // `redirect-unauthorized.ts`'s `IamUnauthorizedReason` mapping reads this exact `code` to tell
+  // "never had a session" apart from "had one, it expired", so the discriminator itself is
+  // asserted, not just the generic `HttpError`.
+  assertEquals((error as unknown as { code: string }).code, 'NO_SESSION_COOKIE')
 })
 
 Deno.test('iamSessionGuard: a valid session applies the refreshed tokens and lets the request through', async () => {
@@ -251,7 +255,7 @@ Deno.test('iamSessionGuard: a valid session applies the refreshed tokens and let
   )
 })
 
-Deno.test('iamSessionGuard: a rejected refresh() throws UNAUTHORIZED with the original error as cause', async () => {
+Deno.test('iamSessionGuard: a rejected refresh() throws UNAUTHORIZED with the original error as cause, code SESSION_REFRESH_FAILED', async () => {
   const cache = fakeCacheProvider()
   const subject = unique('user')
   const token = fakeJwt({ sub: subject, jti: unique('jti') })
@@ -266,6 +270,9 @@ Deno.test('iamSessionGuard: a rejected refresh() throws UNAUTHORIZED with the or
     await guard(ctx)
   }, HttpError)
   assertEquals(error.cause, upstream)
+  // Same real consumer dependency as the no-cookie case above — this is the OTHER half of the
+  // discriminator (`code: 'SESSION_REFRESH_FAILED'`), a real cookie that turned out invalid.
+  assertEquals((error as unknown as { code: string }).code, 'SESSION_REFRESH_FAILED')
 })
 
 Deno.test('iamSessionGuard: a 429 from refresh() is re-thrown UNCHANGED, never collapsed into UNAUTHORIZED', async () => {
@@ -372,9 +379,7 @@ Deno.test('iamOptionalSessionGuard: even a 429 rate-limit resolves anonymous, ne
   assertEquals(result, {})
 })
 
-// ---- regression coverage: a real bug caught migrating @presenza/web's own require-session.ts
-// onto this module unchanged (its existing test suite, run as-is against the migrated guard,
-// caught both without needing a single test edit) ----
+// ---- refresh-cookie edge cases: an undecodable cookie and a refresh that fails ----
 
 Deno.test('iamSessionGuard: a malformed/undecodable refresh-token cookie still authenticates via an uncached refresh() — a local decode failure is never an authorization decision', async () => {
   const cache = fakeCacheProvider()
@@ -433,4 +438,35 @@ Deno.test('iamSessionGuard: a loginClient factory IS invoked, lazily, once a ses
   await iamSessionGuard([], options)(ctx)
 
   assertEquals(factoryCalls, 1)
+})
+
+Deno.test('seedIamSessionCache/getOrRefreshIamTokens: preferRedis reads and writes the Redis store, never the local one', async () => {
+  const stores = { local: new Map<string, unknown>(), redis: new Map<string, unknown>() }
+  const storeOf = (map: Map<string, unknown>) => ({
+    get: (key: string) => Promise.resolve(map.get(key)),
+    set: (key: string, value: unknown) => (map.set(key, value), Promise.resolve(true)),
+  })
+  const cache = {
+    local: storeOf(stores.local),
+    redis: storeOf(stores.redis),
+  } as unknown as ZanixCacheProvider
+  const tokens = {
+    accessToken: fakeJwt({ sub: 'u-redis' }),
+    refreshToken: fakeJwt({ sub: 'u-redis', jti: 'jti-redis' }),
+    expiresAt: 1,
+  } as RefreshResult
+
+  await seedIamSessionCache(cache, 'u-redis', tokens, { preferRedis: true })
+  assertEquals([stores.redis.size, stores.local.size], [1, 0])
+
+  let refreshed = 0
+  const served = await getOrRefreshIamTokens(
+    cache,
+    'u-redis',
+    tokens.refreshToken,
+    () => (refreshed++, Promise.resolve(tokens)),
+    { preferRedis: true },
+  )
+  assertEquals(served, tokens)
+  assertEquals(refreshed, 0)
 })

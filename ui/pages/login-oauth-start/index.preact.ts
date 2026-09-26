@@ -3,6 +3,7 @@ import type { VNode } from 'preact'
 import { Button, useIntl } from '@zanix/space-ui/preact'
 import { SubmitGuard } from '@zanix/space/comet/preact'
 import type { CreateElement } from 'ui/typings/renderer.ts'
+import AutoSubmit from 'ui/components/auto-submit/index.preact.ts'
 import { createOauthStartView } from './render.ts'
 import type { OauthStartViewDeps } from './render.ts'
 import type { OauthStartViewProps } from './types.ts'
@@ -17,5 +18,6 @@ export const OauthStartView: (props: OauthStartViewProps) => VNode = createOauth
     useIntl,
     Button,
     SubmitGuard: SubmitGuard as unknown as OauthStartViewDeps<VNode>['SubmitGuard'],
+    AutoSubmit: AutoSubmit as unknown as OauthStartViewDeps<VNode>['AutoSubmit'],
   },
 )

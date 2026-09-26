@@ -20,11 +20,11 @@ const HEADER = GENERAL_HEADERS.cookiesAcceptedHeader
 /**
  * A minimal `GuardContext` — `ctx.cookies` is built `Object.freeze`'d, matching what
  * `@zanix/server`'s own built-in `cookiesGuard` (run before every app guard) actually hands
- * downstream, so a regression back to writing `ctx.cookies` (this guard's own former, real, broken
- * implementation — see its doc) throws here too, not just against a real server round trip.
+ * downstream, so a guard that writes into `ctx.cookies` throws here too, not only against a real
+ * server round trip.
  * `ctx.req` stays a bare `new Request(...)` — its `Headers` guard is mutable (`"request"`), which
  * is fine here: the immutable-`Headers` case a real incoming request carries is covered by
- * `integration/space/middleware.test.ts`'s own real `Deno.serve` regression test; this file only
+ * `integration/space/middleware.test.ts`'s real `Deno.serve` test; this file only
  * needs to prove the guard's OWN read/write logic, not the platform constraint around it.
  */
 function buildGuardContext(): GuardContext {
@@ -55,7 +55,7 @@ Deno.test(
       const originalReq = ctx.req
       cookieConsentBypassGuard()(ctx)
       assertEquals(ctx.req.headers.get(HEADER), 'true')
-      // The frozen ctx.cookies object is never touched — the fix reassigns ctx.req instead.
+      // The frozen ctx.cookies object is never touched; the guard reassigns ctx.req instead.
       assertEquals(ctx.cookies[HEADER], undefined)
       // ctx.req is a genuinely NEW Request (the original's Headers guard stays untouched), not a
       // mutation of the one the pipeline started with.

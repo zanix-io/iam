@@ -26,5 +26,7 @@ Deno.test(
     assertStringIncludes(html, 'complete</h1>')
     assertStringIncludes(html, 'href="/en/login"')
     assertStringIncludes(html, 'Try again')
+    // Same `data-space` back-link styling hook the non-preact test asserts.
+    assertStringIncludes(html, 'data-space="auth-back-link"')
   },
 )

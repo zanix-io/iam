@@ -47,6 +47,9 @@ Deno.test('TotpEnrollView: renders the heading, the secret, and the otpauth link
   assertStringIncludes(html, '<h1>Set up an authenticator app</h1>')
   assertStringIncludes(html, '<code>JBSWY3DPEHPK3PXP</code>')
   assertStringIncludes(html, 'href="otpauth://totp/iam:jane@example.com?secret=JBSWY3DPEHPK3PXP"')
+  // The link carries a `data-space` hook so themes style it; a bare `<a>` would fall back to the
+  // browser's default blue/underlined link styling.
+  assertStringIncludes(html, 'data-space="otpauth-link"')
 })
 
 Deno.test('TotpEnrollView: embeds the real QR-code SVG markup as-is', () => {
@@ -57,6 +60,8 @@ Deno.test('TotpEnrollView: embeds the real QR-code SVG markup as-is', () => {
 Deno.test('TotpEnrollView: renders the invalid-code banner only when invalidCode is true', () => {
   const html = render({ ...BASE_PROPS, invalidCode: true })
   assertStringIncludes(html, 'scan the new code below.')
+  // The banner carries the `[data-space='banner']` styling hook (see `login-totp.test.ts`).
+  assertStringIncludes(html, 'data-space="banner" data-variant="error"')
 })
 
 Deno.test('TotpEnrollView: posts to the sibling totp/confirm route with the secret carried through', () => {

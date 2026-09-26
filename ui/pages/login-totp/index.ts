@@ -4,6 +4,8 @@ import { Button, Field, Input, useIntl } from '@zanix/space-ui'
 // A NAMED import — see `login/index.ts`'s own identical doc. No draft persistence: same
 // single-use-code reasoning as `login-otp/index.ts`.
 import { SubmitGuard } from '@zanix/space/comet/react'
+import { RateLimitCard } from 'ui/components/rate-limit-card/index.ts'
+import { authHiddenFields } from 'ui/components/auth-hidden-fields/index.ts'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createTotpLoginView } from './render.ts'
 import type { TotpViewDeps } from './render.ts'
@@ -27,5 +29,7 @@ export const TotpLoginView: (props: TotpViewProps) => ReactElement = createTotpL
     Field,
     Input,
     SubmitGuard: SubmitGuard as unknown as TotpViewDeps<ReactElement>['SubmitGuard'],
+    RateLimitCard: RateLimitCard as unknown as TotpViewDeps<ReactElement>['RateLimitCard'],
+    authHiddenFields,
   },
 )

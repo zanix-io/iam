@@ -5,6 +5,7 @@ import { Button, useIntl } from '@zanix/space-ui'
 // no single default.
 import { SubmitGuard } from '@zanix/space/comet/react'
 import type { CreateElement } from 'ui/typings/renderer.ts'
+import AutoSubmit from 'ui/components/auto-submit/index.ts'
 import { createOauthStartView } from './render.ts'
 import type { OauthStartViewDeps } from './render.ts'
 import type { OauthStartViewProps } from './types.ts'
@@ -24,5 +25,6 @@ export const OauthStartView: (props: OauthStartViewProps) => ReactElement = crea
     useIntl,
     Button,
     SubmitGuard: SubmitGuard as unknown as OauthStartViewDeps<ReactElement>['SubmitGuard'],
+    AutoSubmit: AutoSubmit as unknown as OauthStartViewDeps<ReactElement>['AutoSubmit'],
   },
 )

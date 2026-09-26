@@ -93,3 +93,18 @@ Deno.test('RolesRepository.searchRoles: a given tenantId is an exact filter', ()
 
   assertEquals(paginate.calls[0][0].filter, { tenantId: 'tenant-1' })
 })
+
+Deno.test('RolesRepository: createRole saves a new document; updateRole/deleteRole target the id', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls, created } = recordingModel()
+  const repo = buildRepository(Model)
+  const data = { name: 'Editor', code: 'editor', description: 'Edits' }
+
+  assertEquals(await repo.createRole(data) as unknown, { id: 'saved-1', ...data })
+  assertEquals(created, [data])
+
+  await repo.updateRole({ id: 'role-1', name: 'Renamed' })
+  await repo.deleteRole('role-1')
+  assertEquals(calls.updateOne, [[{ _id: 'role-1' }, { $set: { name: 'Renamed' } }]])
+  assertEquals(calls.deleteOne, [[{ _id: 'role-1' }]])
+})

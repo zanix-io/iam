@@ -14,7 +14,7 @@ import { PasswordService } from './password.interactor.ts'
 import { SERVICE_ID } from 'utils/constants.ts'
 
 /**
- * Business logic for the `users` domain slice — profile/settings management and administrative
+ * Business logic for the `users` domain — profile/settings management and administrative
  * registration. Credentials/session lifecycle stay in the sibling `AuthService`/`PasswordService`
  * (see `repositories/users/model.defs.ts` for why the two collections stay separate); a profile is
  * always reached FROM its `auth` record via `AuthenticationAttrs.userId`, never the reverse, so
@@ -43,14 +43,13 @@ export class UsersService extends ZanixInteractor {
   }
 
   /**
-   * Registers a new user profile and its authentication record. Restricted to callers with a
-   * valid session — there is no public self-signup endpoint (see `UsersController`'s own doc).
+   * Registers a new user profile and its authentication record — administrative registration
+   * (`UsersController.register` requires `RBAC_PERMISSIONS.userWrite`); self-registration happens
+   * only through OTP/OAuth2 login (see `AuthService`).
    *
    * When `password` is omitted, the new account is invited to set its own credential through the
    * already-built password-recovery flow (`PasswordService.recovery`) rather than an admin
-   * choosing/knowing it. The real, deployed sibling project this domain slice is grounded on
-   * doesn't do this: registering a passwordless account there sends only a generic "welcome" email
-   * with no way to actually set a password — a real usability/security gap this slice closes.
+   * choosing/knowing it.
    *
    * @throws {HttpError} `CONFLICT` when `email` is already registered.
    */
@@ -123,14 +122,13 @@ export class UsersService extends ZanixInteractor {
    * Deactivates the CALLER's own account — sets the linked `users` profile's `status` to
    * `'INACTIVE'`. Self-scoped via `resolveOwnAuth()` (the session's own subject only — no `id`
    * parameter exists anywhere in this call chain, so this is structurally incapable of acting on
-   * another user's account). Deliberately bypasses `AdminEditUserRTO`/`EDITABLE_USER_STATUS` — the
-   * same reasoning `updateOwnProfile` already uses to let self-service touch a field the admin RTO
-   * doesn't expose (see that method's own doc).
+   * another user's account). Deliberately bypasses `AdminEditUserRTO`/`EDITABLE_USER_STATUS`: the
+   * target is always the caller's own profile.
    *
    * Reversible, but not from here: this method only ever moves `status` to `'INACTIVE'` (see
-   * `deleteOwnAccount` for `'DELETED'`), never back to `'ACTIVE'`. Reactivation happens
-   * automatically, and only as a side effect of a successful login via email OTP or Google OAuth2
-   * — see `AuthService`'s own header doc for that carve-out.
+   * `deleteOwnAccount` for `'DELETED'`), never back to `'ACTIVE'`. A later successful OTP or OAuth2
+   * login offers reactivation behind an explicit confirmation step — see `AuthService`'s own header
+   * doc for that carve-out.
    */
   public async deactivateOwnAccount() {
     const auth = await this.resolveOwnAuth()
@@ -142,7 +140,7 @@ export class UsersService extends ZanixInteractor {
    * Deletes the CALLER's own account — sets the linked `users` profile's `status` to `'DELETED'`.
    * Self-scoped via `resolveOwnAuth()`, the same structural guarantee as `deactivateOwnAccount`'s
    * own doc. Unlike a self-deactivate, this is NOT reversible through any login path —
-   * `'DELETED'` never auto-reactivates (see `AuthService`'s own header doc).
+   * `'DELETED'` never reactivates (see `AuthService`'s own header doc).
    */
   public async deleteOwnAccount() {
     const auth = await this.resolveOwnAuth()
@@ -188,7 +186,7 @@ export class UsersService extends ZanixInteractor {
 
   /**
    * Paginated, filterable/searchable admin listing of profiles — the real hydrated documents,
-   * returned as-is. See `getOwnProfile`'s own doc for why this stopped hand-adapting each entry.
+   * returned as-is. See `getOwnProfile`'s own doc for why entries are never hand-adapted.
    */
   public async searchUsers(options: Partial<SearchUsersRTO>) {
     return await this.providers.get(UsersRepository).searchUsers(options)

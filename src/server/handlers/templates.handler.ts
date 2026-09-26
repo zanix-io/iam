@@ -4,11 +4,10 @@ import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
 /**
  * This project's local `/templates` CRUD API — `@zanix/notifications`'s own
- * `createTemplatesController`, which owns the schema/collection/HTTP surface end-to-end (see
- * `notifications-template-storage-modes`); this file only supplies the auth guard, per
- * `zanix-server-internals`'s "auth is never assumed" rule.
+ * `createTemplatesController`, which owns the schema/collection/HTTP surface end-to-end; this file
+ * only supplies the auth guard — the controller never assumes auth on its own.
  *
- * What makes this project's templates editable at all (both here and, once
+ * What makes this project's templates editable at all (both here and, when
  * `@zanix/admin`'s cross-service `POST /templates/sync` pulls from this project's own
  * `/.well-known/zanix/code-templates` Discovery — see `mod.ts`'s `codeTemplatesDiscovery: true` —
  * from a central console's own copy) is `TEMPLATES_BACKEND=local` being set (see this project's

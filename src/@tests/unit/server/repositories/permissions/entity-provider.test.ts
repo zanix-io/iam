@@ -52,3 +52,36 @@ Deno.test('PermissionsRepository.findById: a falsy id short-circuits without que
   assertEquals(repo.findById(undefined), undefined)
   assertEquals(findById.calls.length, 0)
 })
+
+Deno.test('PermissionsRepository: create/findByCode/update/search build the expected model calls', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls, created } = recordingModel()
+  const repo = buildRepository(Model)
+  const data = { code: 'billing:invoice-read', name: 'Read invoices' }
+
+  assertEquals(await repo.createPermission(data) as unknown, { id: 'saved-1', ...data })
+  assertEquals(created, [data])
+
+  await repo.findById('perm-1')
+  await repo.findByCode('billing:invoice-read')
+  await repo.updatePermission({ id: 'perm-1', isActive: false })
+  await repo.searchPermissions({ query: 'invoice', page: 2, limit: 10, sortBy: { code: 1 } })
+  await repo.searchPermissions()
+  assertEquals(calls.findById, [['perm-1']])
+  assertEquals(calls.findOne, [[{ code: 'billing:invoice-read' }]])
+  assertEquals(calls.updateOne, [[{ _id: 'perm-1' }, { $set: { isActive: false } }]])
+  assertEquals(calls.paginate, [
+    [{
+      page: 2,
+      limit: 10,
+      sort: { code: 1 },
+      search: { query: 'invoice', fields: ['name', 'code'] },
+    }],
+    [{
+      page: undefined,
+      limit: undefined,
+      sort: undefined,
+      search: { query: undefined, fields: ['name', 'code'] },
+    }],
+  ])
+})

@@ -3,6 +3,7 @@ import { h } from 'preact'
 import type { VNode } from 'preact'
 import { render as renderToString } from 'preact-render-to-string'
 import { Button, Field, Input, IntlProvider, useIntl } from '@zanix/space-ui/preact'
+import { authHiddenFields } from 'ui/components/auth-hidden-fields/index.preact.ts'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createOtpView } from 'ui/pages/login-otp/render.ts'
 import type { OtpViewProps } from 'ui/pages/login-otp/types.ts'
@@ -20,7 +21,15 @@ const TEST_MESSAGES = {
 // only by the dedicated wiring test below — see `login.test.ts`'s own identical doc for why.
 const OtpViewForContent = createOtpView<VNode>(
   h as unknown as CreateElement<VNode>,
-  { useIntl, Button, Field, Input, SubmitGuard: () => null },
+  {
+    useIntl,
+    Button,
+    Field,
+    Input,
+    SubmitGuard: () => null,
+    authHiddenFields,
+    OtpResend: () => null,
+  },
 )
 
 function render(props: OtpViewProps): string {
@@ -38,6 +47,14 @@ Deno.test('OtpView (preact): renders the heading and the destination the code wa
 Deno.test('OtpView (preact): renders the invalid-code banner only when invalidCode is true', () => {
   const html = render({ lang: 'en', email: 'jane@example.com', invalidCode: true })
   assertStringIncludes(html, 'Invalid or expired code.')
+})
+
+Deno.test('OtpView (preact): links back to the sign-in page', () => {
+  const html = render({ lang: 'fr', email: 'jane@example.com', invalidCode: false })
+  assertStringIncludes(html, 'href="/fr/login"')
+  assertStringIncludes(html, 'Back to sign in')
+  // Same `data-space` back-link styling hook the non-preact test asserts.
+  assertStringIncludes(html, 'data-space="auth-back-link"')
 })
 
 // Real wiring against the actual `@zanix/space/comet/preact` `SubmitGuard` binding is deliberately

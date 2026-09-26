@@ -5,7 +5,7 @@ import { Provider, ZanixProvider } from '@zanix/server'
 import { HttpError } from '@zanix/errors'
 
 /**
- * Provider for the `users` model — profile data for this project's `users` domain slice. See
+ * Provider for the `users` model — profile data for this project's `users` domain. See
  * `model.defs.ts` for why this stays separate from the `auth` collection (credentials/session
  * state), and why the relationship is reached only from `auth.userId`, never a back-reference here.
  *
@@ -89,9 +89,9 @@ export class UsersRepository extends ZanixProvider<{ database: ZanixMongoConnect
    * `'DELETED'`) — the shared gate every login/session-refresh/recovery path in
    * `AuthService`/`PasswordService` runs before issuing tokens or dispatching a recovery code.
    *
-   * A no-op when `userId` is unset or resolves to no profile at all — an `auth` record created
-   * before this slice existed (or never meant to carry a linked profile, e.g. a future
-   * system/service account) is never gated on a profile that was never assigned.
+   * A no-op when `userId` is unset or resolves to no profile at all — an `auth` record with no
+   * linked profile (e.g. a system/service account) is never gated on a profile that was never
+   * assigned.
    *
    * @throws {HttpError} `FORBIDDEN` when the linked profile is `'INACTIVE'`/`'DELETED'`.
    */
@@ -109,11 +109,10 @@ export class UsersRepository extends ZanixProvider<{ database: ZanixMongoConnect
   }
 
   /**
-   * Sets `userId`'s profile `status` back to `'ACTIVE'` — the write side of the auto-reactivation
-   * carve-out `AuthService.loginWithOauthCallback`/`loginWithOTPCallback` apply on a successful
-   * Google OAuth2 or email OTP login (see that file's own header doc for the full carve-out: OTP +
-   * Google only, `'DELETED'` never reactivates through any path). Never called for password/TOTP
-   * logins. Takes no status of its own to check — every caller already resolved the profile's
+   * Sets `userId`'s profile `status` back to `'ACTIVE'` — the write side of the reactivation
+   * carve-out, called only by `AuthService.confirmReactivation` after an OTP/OAuth2 identity check
+   * and an explicit confirmation (see `AuthService`'s own header doc; `'DELETED'` never reactivates
+   * through any path). Takes no status of its own to check — every caller already resolved the profile's
    * current status before deciding this call is warranted.
    */
   public reactivate(userId: string) {

@@ -4,7 +4,7 @@ import { HttpError } from '@zanix/errors'
 import { Interactor, ZanixInteractor } from '@zanix/server'
 import { addTokenToBlockList, checkTokenBlockList, deriveSessionToken } from '@zanix/auth'
 import { redirectResponse } from 'shared/redirect-response.ts'
-import { REDIRECT_TO_PARAM } from 'utils/constants.ts'
+import { REDIRECT_TO_PARAM, REST_API_PREFIX } from 'utils/constants.ts'
 import { DEFAULT_LANG } from 'space/constants.ts'
 import {
   findOAuthProviderClient,
@@ -16,7 +16,7 @@ import {
 import { AuthService } from './auth.interactor.ts'
 
 /**
- * Business logic for the `oauth-provider` domain slice — this project acting as the OAuth2/OIDC
+ * Business logic for the `oauth-provider` domain — this project acting as the OAuth2/OIDC
  * AUTHORIZATION SERVER for a host application, the opposite role from `AuthService`'s own
  * `loginWithOauth`/`loginWithOauthCallback` (this project as a CLIENT of Google/GitHub).
  *
@@ -40,8 +40,8 @@ import { AuthService } from './auth.interactor.ts'
  * **Response shape design, spelled out deliberately**: `exchangeCode` returns exactly what
  * `AuthService.issueSessionForSubject` returns — the SAME `{accessToken, refreshToken, expiresAt}`
  * shape every other login flow in this project already returns, not a bespoke envelope. A host's
- * backend that already knows how to consume an iam session (e.g. through this project's own SDK,
- * once published) needs no special-cased parsing for a session obtained through this flow.
+ * backend that already knows how to consume an iam session (e.g. through this project's own SDK)
+ * needs no special-cased parsing for a session obtained through this flow.
  */
 @Interactor()
 export class OAuthProviderService extends ZanixInteractor {
@@ -165,15 +165,14 @@ export class OAuthProviderService extends ZanixInteractor {
    * Two existing mechanisms are reused here unchanged, not reinvented: `REDIRECT_TO_PARAM`/
    * `resolvePostLoginRedirect`'s open-redirect-safe mechanism (`utils/constants.ts`) — `/oauth/
    * authorize?...` is a same-origin relative path, which `isSafeRedirectTarget` already accepts
-   * unconditionally, so no allowlist change was needed to support this flow — and `DEFAULT_LANG`
+   * unconditionally, with no `TRUSTED_REDIRECT_ORIGINS` entry — and `DEFAULT_LANG`
    * (`space/constants.ts`), required because `/login` is itself one of `middleware.ts`'s own
    * `REST_CONTROLLER_PREFIXES`: `langPreHandler` deliberately never rewrites a request under that
    * prefix, so a bare, unprefixed `/login` here would NOT be redirected to the real
    * `/{lang}/login` page the way an ordinary Space link is — this builds the already-prefixed path
-   * directly instead. With `AVAILABLE_LANGS` carrying a single entry today, `DEFAULT_LANG` is the
-   * only possible answer regardless; a future second language would need this endpoint to read the
-   * caller's own lang preference (a cookie/`Accept-Language`) the same way `langPreHandler` does,
-   * rather than hardcoding the default.
+   * directly instead. It always uses `DEFAULT_LANG`, never the caller's own lang preference (a
+   * cookie/`Accept-Language`) — correct while `AVAILABLE_LANGS` has a single entry; adding a
+   * language requires resolving the caller's preference here the way `langPreHandler` does.
    *
    * The query is rebuilt from the already-validated `query` fields rather than re-reading the raw
    * request URL, so this can never carry through anything `OAuthAuthorizeRTO` itself didn't already
@@ -186,7 +185,7 @@ export class OAuthProviderService extends ZanixInteractor {
       response_type: query.response_type,
     })
     if (query.state) params.set('state', query.state)
-    const returnTo = `/oauth/authorize?${params.toString()}`
+    const returnTo = `${REST_API_PREFIX}/oauth/authorize?${params.toString()}`
     return `/${DEFAULT_LANG}/login?${REDIRECT_TO_PARAM}=${encodeURIComponent(returnTo)}`
   }
 }

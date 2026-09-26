@@ -98,3 +98,11 @@ Deno.test('AuthRepository.updateAuth: builds a real $unset for every requested f
   assertEquals(update.$unset, { mustChangePassword: '', totpSecret: '' })
   assertEquals(options, { useDataPolicies: true })
 })
+
+Deno.test('AuthRepository.findById: a given id queries the model by that id', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls } = recordingModel({ id: 'auth-1' })
+  const repo = buildRepository(Model)
+  assertEquals(await repo.findById('auth-1') as unknown, { id: 'auth-1' })
+  assertEquals(calls.findById, [['auth-1']])
+})

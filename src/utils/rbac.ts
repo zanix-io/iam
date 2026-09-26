@@ -23,7 +23,7 @@ export type PopulatedRole =
  * Registered as `auth.app.ts`'s own `resolveEffectivePermissions` behavior default — a host may
  * override this entirely (a role hierarchy, a wildcard-expansion policy, an external policy
  * engine, ...) without forking `AuthService`. See that manifest entry's own doc for the override
- * mechanism, and `app-behaviors-and-overrides` for the general pattern.
+ * mechanism, and `@zanix/app`'s behaviors documentation for the general pattern.
  *
  * ⚠️ Only ever re-evaluated at LOGIN, never on refresh — see `AuthService.resolveSessionPermissions`'s
  * own doc for why, and the mitigation `RolesService.assignRole` applies.

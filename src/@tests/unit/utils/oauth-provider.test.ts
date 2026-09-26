@@ -155,3 +155,25 @@ Deno.test('verifyAuthorizationCode: rejects an already-expired code', async () =
     )
   })
 })
+
+Deno.test('mintAuthorizationCode/verifyAuthorizationCode: fail loudly with IAM_MISSING_JWT_KEY when no JWT key is configured', async () => {
+  const { InternalError } = await import('@zanix/errors')
+  await withEnv(JWT_KEY_ENV, undefined, async () => {
+    const mintError = assertThrows(
+      () =>
+        mintAuthorizationCode({
+          sub: 'auth-1',
+          clientId: 'host-app',
+          redirectUri: 'https://host.example/callback',
+        } as never),
+      InternalError,
+      `Missing required JWT key in environment variables: ${JWT_KEY_ENV}.`,
+    )
+    assertEquals((mintError as { code?: string }).code, 'IAM_MISSING_JWT_KEY')
+    await assertRejects(
+      () => verifyAuthorizationCode('any-code'),
+      InternalError,
+      'Missing required JWT key',
+    )
+  })
+})

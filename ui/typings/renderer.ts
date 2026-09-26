@@ -13,9 +13,9 @@
  * real hooks internally; invoking it as a plain function outside an actual render pass either
  * throws "Invalid hook call" (no active dispatcher at all) or, worse, silently attaches its hooks
  * to the CALLING component's own hook slots instead (an active dispatcher exists, but for the
- * wrong component) — confirmed via a real repro on `@zanix/space-ui`'s own `Field`/`Input`/`Modal`
+ * wrong component) — e.g. `@zanix/space-ui`'s own `Field`/`Input`/`Modal`
  * (`useId`/`useState`/`useContext`+more, respectively). `Button`/`Link` happen to have no hooks of
- * their own today, but there is no future-proof way to tell from a component's own public type
+ * their own, but there is no reliable way to tell from a component's own public type
  * alone — `h(Component, props, ...children)` is correct and safe regardless, so it's the only
  * pattern this package uses for composing an already-bound dependency.
  */

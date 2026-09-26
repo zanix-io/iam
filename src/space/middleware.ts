@@ -1,7 +1,7 @@
 import type { GuardContext, MiddlewareGuard } from '@zanix/server'
 import { markCookiesAccepted } from '@zanix/auth'
 import { AVAILABLE_LANGS, DEFAULT_LANG } from './constants.ts'
-import { isCookieConsentEnabled } from 'utils/constants.ts'
+import { isCookieConsentEnabled, REST_API_PREFIX } from 'utils/constants.ts'
 import {
   defineMiddleware,
   definePreHandler,
@@ -11,21 +11,22 @@ import {
 } from '@zanix/space'
 
 /**
- * This project's own real REST controller prefixes (`@Controller({ prefix: ... })` in
- * `src/server/handlers/*.ts`) — passed to `langPreHandler` below via `ignorePrefixes` so its
- * `/{lang}/...` redirect never intercepts this project's REST API, which lives in a completely
- * separate route space from Space pages and has no `{lang}` counterpart at all. Kept as its own
- * named list (rather than inlined) so a future 8th controller is a one-line addition here, not a
- * re-derivation of `langPreHandler`'s own matching shape. Each entry carries a leading `/` and no
- * trailing one, matching `langPreHandler`'s own `pathname.startsWith(prefix)` check and the exact
- * shape of its built-in `FRAMEWORK_PREFIXES` entries that take the same form (e.g. `/health`).
+ * Path prefixes `langPreHandler` must never redirect to a `/{lang}/...` URL, passed to it below as
+ * `ignorePrefixes`. The pre-handler wraps every request on the shared port, so without this list it
+ * also redirects REST calls, which have no `{lang}` counterpart:
+ * - {@linkcode REST_API_PREFIX}: where `mod.ts` serves every REST route, including the
+ *   `/api/oauth/authorize` return target `OAuthProviderService.authorize` sends through the login
+ *   page.
+ * - `/iam-space`: the space app's own REST prefix (`mod.ts`), e.g. `POST /iam-space/log`.
+ * - The bare controller prefixes (`@Controller({ prefix })` in `src/server/handlers/*.ts`): the
+ *   unprefixed paths REST routes resolve to when no global prefix applies.
  *
- * `/oauth` (`OAuthProviderController`) needs this the same as every other entry — including its
- * OWN unauthenticated redirect target (`OAuthProviderService.authorize`'s own `/oauth/authorize?...`
- * `redirect_to` value), which would otherwise round-trip through an extra, pointless `/{lang}/`
- * redirect hop on its way back from the login page.
+ * Each entry has a leading `/` and no trailing one, matching `langPreHandler`'s
+ * `pathname.startsWith(prefix)` check.
  */
 const REST_CONTROLLER_PREFIXES = [
+  REST_API_PREFIX,
+  '/iam-space',
   '/login',
   '/pwd',
   '/users',
@@ -48,7 +49,7 @@ const REST_CONTROLLER_PREFIXES = [
  *
  * Registered from `space.app.ts` (via this module), never only passed to `mod.ts`'s own bootstrap
  * call — `zanix space dev` never imports `mod.ts` at all, so a `preHandler` declared only there
- * would silently never run under `dev` (see `space-i18n-and-population`'s own documented footgun).
+ * would silently never run under `dev`.
  *
  * `ignorePrefixes` is set to {@linkcode REST_CONTROLLER_PREFIXES} — without it, `langPreHandler`
  * 301-redirects EVERY request to this project's own REST API (e.g. `POST /users/register`) to a
@@ -74,11 +75,7 @@ definePreHandler(
  *
  * The actual injection is `@zanix/auth`'s own `markCookiesAccepted` — see that function's own doc
  * for the full mechanism (why a `Set-Cookie` here can never help THIS request, and why the two more
- * obvious ways to attach the signal both throw on a real request). Originally hand-rolled here
- * first; extracted to `@zanix/auth` once a second consumer app's own, independently-written
- * `cookiesAcceptedGuard` turned out to need the EXACT same fix for the EXACT same reason — a
- * generic gap in `checkAcceptedCookies` itself, not something specific to this project's own
- * cookie-consent modal.
+ * obvious ways to attach the signal both throw on a real request).
  *
  * A no-op while the modal stays enabled (the default): {@linkcode CookieConsentModal}'s own
  * Accept/Decline round trip already records the real decision in that case, and unconditionally
@@ -96,9 +93,8 @@ export function cookieConsentBypassGuard(): MiddlewareGuard {
  * already-prefixed `/{lang}/...` request; `langPreHandler` above only refreshes it on an actual
  * redirect, so a request reaching a route directly via an already-prefixed link needs this guard to
  * keep the cookie from going stale), `populationGuard` (segment/tenant content-variant
- * resolution — registered even though this project draws no population distinction of its own yet,
- * so the mechanism is already wired the moment one is needed, matching
- * `space-i18n-and-population`'s own recommended pairing), and `cookieConsentBypassGuard` (see its
+ * resolution — registered even though this project draws no population distinction of its own, so
+ * the mechanism is already wired the moment one is needed), and `cookieConsentBypassGuard` (see its
  * own doc). Safe to register unconditionally: `populationGuard` and `cookieConsentBypassGuard` are
  * both purely additive and never reject a request.
  */

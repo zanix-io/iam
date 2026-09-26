@@ -1,4 +1,9 @@
-/** Props {@linkcode createOauthCallbackView}'s returned view expects — this view reads no `loader`
- * data of its own (the actual token exchange runs in the owning page's `loader`, discarding its
- * result — see that page's own doc for why). */
-export type OauthCallbackViewProps = Record<never, never>
+/** Props {@linkcode createOauthCallbackView}'s returned view expects. */
+export type OauthCallbackViewProps = {
+  /** Where the `<meta http-equiv="refresh">`/fallback `<a>` sends the visitor next — `'/'` when
+   * omitted (a completed login). The owning page's `loader` passes another step when
+   * `AuthService.loginWithOauthCallback` did not finish the login: `/${lang}/login/reactivate/:token`
+   * for a reactivation challenge, `/${lang}/login/totp/:email` or `/${lang}/login/otp/:email` for a
+   * second-factor challenge. */
+  redirectTo?: string
+}

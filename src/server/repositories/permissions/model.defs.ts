@@ -8,8 +8,7 @@ import seeders from './seeders/main.ts'
  * `resolveEffectivePermissions`) without editing each role individually.
  *
  * `code: '*'` is a real, reserved wildcard value — `@zanix/auth`'s own `scopeValidation` grants
- * access to every permission-gated route to a session whose scope includes it (see
- * `auth-permissions-and-rate-limiting`). Seeded once, in production, as the sole permission the
+ * access to every permission-gated route to a session whose scope includes it. Seeded once, in production, as the sole permission the
  * `superadmin` role holds (`roles/seeders/seeders.prod.ts`) — this project's only real bootstrap
  * path for a first administrative account.
  */

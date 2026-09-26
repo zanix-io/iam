@@ -16,7 +16,7 @@ import { mockActionContext, renderComponentWithIntl } from '../../helpers/space-
 
 type LoginViewProps = Parameters<InstanceType<typeof LoginPage>['component']>[0]
 
-/** Mirrors `en/index.json`'s own real keys this page's `LoginView` actually formats, so the
+/** Mirrors the shared catalog's own real keys this page's `LoginView` actually formats, so the
  * rendered markup reads like the real page, not raw message ids — see `renderComponentWithIntl`'s
  * own doc for why `useIntl()` needs a real render pass at all. */
 const TEST_MESSAGES = {
@@ -155,7 +155,7 @@ Deno.test('LoginPage.component: renders every message-catalog string for real, t
   })
   assertStringIncludes(html, 'Invalid email or password.')
   assertStringIncludes(html, 'Sign in</button>')
-  assertStringIncludes(html, 'Continue with google')
+  assertStringIncludes(html, 'Continue with Google')
 })
 
 Deno.test('LoginPage.component: renders a Terms and Conditions link once termsUrl is set', () => {
@@ -278,6 +278,8 @@ Deno.test(`LoginPage.action: a request's own ${REDIRECT_TO_PARAM} wins over POST
 Deno.test(`LoginPage.action: threads a request's own ${REDIRECT_TO_PARAM} into the TOTP challenge redirect`, async () => {
   const page = pageWithInteractor(() => ({
     message: 'Two-factor authentication is enabled. Enter your authenticator code.',
+    email: 'jane@example.com',
+    method: 'totp',
   }))
   const ctx = mockActionContext<LoginParams, { email: string; password: string }>({
     params: { lang: 'en' },
@@ -294,6 +296,8 @@ Deno.test(`LoginPage.action: threads a request's own ${REDIRECT_TO_PARAM} into t
 Deno.test(`LoginPage.action: an unsafe ${REDIRECT_TO_PARAM} is never threaded into the TOTP challenge redirect`, async () => {
   const page = pageWithInteractor(() => ({
     message: 'Two-factor authentication is enabled. Enter your authenticator code.',
+    email: 'jane@example.com',
+    method: 'totp',
   }))
   const ctx = mockActionContext<LoginParams, { email: string; password: string }>({
     params: { lang: 'en' },
@@ -311,6 +315,8 @@ Deno.test(`LoginPage.action: an unsafe ${REDIRECT_TO_PARAM} is never threaded in
 Deno.test('LoginPage.action: redirects to the TOTP challenge when required', async () => {
   const page = pageWithInteractor(() => ({
     message: 'Two-factor authentication is enabled. Enter your authenticator code.',
+    email: 'jane@example.com',
+    method: 'totp',
   }))
   const ctx = mockActionContext<LoginParams, { email: string; password: string }>({
     params: { lang: 'en' },
@@ -323,6 +329,8 @@ Deno.test('LoginPage.action: redirects to the TOTP challenge when required', asy
 Deno.test('LoginPage.action: redirects to the OTP challenge when required', async () => {
   const page = pageWithInteractor(() => ({
     message: 'Two-factor authentication is enabled. A verification code has been sent.',
+    email: 'jane@example.com',
+    method: 'email',
   }))
   const ctx = mockActionContext<LoginParams, { email: string; password: string }>({
     params: { lang: 'en' },

@@ -9,11 +9,11 @@ import {
 import { PermissionsService } from '../interactors/permissions.interactor.ts'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
-/** Either `permissionRead` or `permissionWrite` may list/view — see
- * `auth-permissions-and-rate-limiting`'s OR-not-AND semantics. */
+/** Either `permissionRead` or `permissionWrite` may list/view —
+ * `AuthTokenValidation`'s `permissions` list is OR, not AND. */
 const anyPermissionPermission = [RBAC_PERMISSIONS.permissionRead, RBAC_PERMISSIONS.permissionWrite]
 
-/** Admin endpoints for the `permissions` domain slice's own catalog. */
+/** Admin endpoints for the `permissions` domain's own catalog. */
 @Controller({ prefix: 'permissions', Interactor: PermissionsService })
 export class PermissionsController extends ZanixController<PermissionsService> {
   /** Creates a new permission. */

@@ -32,8 +32,8 @@ const data = resolveFirstAdminUserData()
 
 /** This project's production-always `users` fixtures: the opt-in first-admin bootstrap profile
  * (see {@linkcode FIRST_ADMIN_USER_ID}'s own doc), upserted on boot via `seedManyByIdIfMissing`
- * when configured — otherwise empty, exactly like this file's own prior state. Every other real
- * `users` profile is either registered through `UsersService.registerUser`, or (dev-only)
+ * when configured — otherwise empty. Every other `users` profile is registered through
+ * `UsersService.registerUser`, OTP/OAuth2 self-registration (`AuthService`), or (dev-only)
  * `seeders.dev.ts`'s own bootstrap profile. */
 export default (data.length
   ? [

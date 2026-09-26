@@ -6,7 +6,19 @@
  * challenge in the first place.
  */
 export { OtpClient } from './client/otp.client.ts'
-export type { IamApiClientOptions } from './client/base.ts'
+export {
+  /** The shared base class every `iam` REST client extends — see its own doc. */
+  IamApiClient,
+} from './client/base.ts'
+export type {
+  /** Construction options every `iam` REST client accepts. */
+  IamApiClientOptions,
+} from './client/base.ts'
 export { OtpLoginRTO } from './rtos/login.ts'
-export type { SecondFactorLoginResult } from './rtos/login.ts'
+export type {
+  LoginChallengeResult,
+  OtpCallbackResult,
+  ReactivationChallengeResult,
+  SecondFactorLoginResult,
+} from './rtos/login.ts'
 export type { MessageResponse, SessionTokens } from './rtos/common.ts'

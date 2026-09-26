@@ -18,11 +18,11 @@ import {
 import { RolesService } from '../interactors/roles.interactor.ts'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
-/** Either `roleRead` or `roleWrite` may list/view — see `auth-permissions-and-rate-limiting`'s
- * OR-not-AND semantics. */
+/** Either `roleRead` or `roleWrite` may list/view —
+ * `AuthTokenValidation`'s `permissions` list is OR, not AND. */
 const anyRolePermission = [RBAC_PERMISSIONS.roleRead, RBAC_PERMISSIONS.roleWrite]
 
-/** Admin endpoints for the `roles` domain slice — every route requires `RBAC_PERMISSIONS`. */
+/** Admin endpoints for the `roles` domain — every route requires `RBAC_PERMISSIONS`. */
 @Controller({ prefix: 'roles', Interactor: RolesService })
 export class RolesController extends ZanixController<RolesService> {
   /** Creates a new role. */

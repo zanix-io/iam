@@ -24,39 +24,51 @@ function renderEnrollView(props: Parameters<InstanceType<typeof TotpEnrollPage>[
 
 type EnrollParams = { lang: string }
 
-Deno.test('TotpEnrollPage.loader: surfaces the freshly generated secret/uri and error flag', () => {
-  const page = new TotpEnrollPage(mockHandlerContext())
-  mockAccessor(page, 'interactor', {
-    totpEnroll: fn(() => ({ secret: 'SECRET123', uri: 'otpauth://totp/zanix-iam:jane' })),
-  })
-  const ctx = mockPageContext<EnrollParams>({
-    params: { lang: 'en' },
-    request: new Request('http://localhost/en/totp/enroll?error=invalid_code'),
-  })
-  const data = page.loader?.(ctx) as {
-    secret: string
-    uri: string
-    qrCodeSvg: string
-    invalidCode: boolean
-  }
-  assertEquals(data.secret, 'SECRET123')
-  assertEquals(data.uri, 'otpauth://totp/zanix-iam:jane')
-  assertEquals(data.invalidCode, true)
-})
+Deno.test(
+  'TotpEnrollPage.loader: surfaces the freshly generated secret/uri and error flag',
+  async () => {
+    const page = new TotpEnrollPage(mockHandlerContext())
+    mockAccessor(page, 'interactor', {
+      // `AuthService.totpEnroll` is real async work (it looks up the account's email) — a plain
+      // returned object still works fine through the loader's own `await`, but `fn()` wrapping a
+      // `Promise.resolve(...)` here matches the real interactor's shape more closely than a bare
+      // sync return would.
+      totpEnroll: fn(() =>
+        Promise.resolve({ secret: 'SECRET123', uri: 'otpauth://totp/zanix-iam:jane' })
+      ),
+    })
+    const ctx = mockPageContext<EnrollParams>({
+      params: { lang: 'en' },
+      request: new Request('http://localhost/en/totp/enroll?error=invalid_code'),
+    })
+    const data = await page.loader?.(ctx) as {
+      secret: string
+      uri: string
+      qrCodeSvg: string
+      invalidCode: boolean
+    }
+    assertEquals(data.secret, 'SECRET123')
+    assertEquals(data.uri, 'otpauth://totp/zanix-iam:jane')
+    assertEquals(data.invalidCode, true)
+  },
+)
 
-Deno.test('TotpEnrollPage.loader: renders a QR code encoding the SAME uri, not a second copy', () => {
-  const page = new TotpEnrollPage(mockHandlerContext())
-  const uri = 'otpauth://totp/zanix-iam:jane?secret=SECRET123&issuer=zanix-iam'
-  mockAccessor(page, 'interactor', {
-    totpEnroll: fn(() => ({ secret: 'SECRET123', uri })),
-  })
-  const ctx = mockPageContext<EnrollParams>({
-    params: { lang: 'en' },
-    request: new Request('http://localhost/en/totp/enroll'),
-  })
-  const data = page.loader?.(ctx) as { qrCodeSvg: string }
-  assertEquals(data.qrCodeSvg, renderQrCodeSvg(uri))
-})
+Deno.test(
+  'TotpEnrollPage.loader: renders a QR code encoding the SAME uri, not a second copy',
+  async () => {
+    const page = new TotpEnrollPage(mockHandlerContext())
+    const uri = 'otpauth://totp/zanix-iam:jane?secret=SECRET123&issuer=zanix-iam'
+    mockAccessor(page, 'interactor', {
+      totpEnroll: fn(() => Promise.resolve({ secret: 'SECRET123', uri })),
+    })
+    const ctx = mockPageContext<EnrollParams>({
+      params: { lang: 'en' },
+      request: new Request('http://localhost/en/totp/enroll'),
+    })
+    const data = await page.loader?.(ctx) as { qrCodeSvg: string }
+    assertEquals(data.qrCodeSvg, renderQrCodeSvg(uri))
+  },
+)
 
 Deno.test('TotpEnrollPage.component: renders the secret and QR markup passed in from the loader', () => {
   const html = renderEnrollView({

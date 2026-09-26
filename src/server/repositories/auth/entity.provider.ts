@@ -6,8 +6,7 @@ import { computeEmailKeyId } from './email-key.ts'
 
 /**
  * Provider for the `auth` model — credentials and session-lifecycle state for this project's
- * `auth` domain slice. See `model.defs.ts` for why this stays separate from the future `users`
- * collection.
+ * `auth` domain. See `model.defs.ts` for why this stays separate from the `users` collection.
  *
  * Decorated with an explicit `'authRepository'` slot (rather than the default class-identity
  * resolution) because this class is reached from `AuthService`/`PasswordService`, which this
@@ -55,8 +54,8 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
   }
 
   /**
-   * Finds an `auth` record by its login `email` — the sole account-lookup path this slice needs
-   * until the `users` slice exists (see `model.defs.ts`'s own `email` field doc). Queries by the
+   * Finds an `auth` record by its login `email` (see `model.defs.ts`'s own `email` field doc).
+   * Queries by the
    * deterministic `emailKeyId` digest, never the masked `email` field itself, which the database
    * has no way to match against a plaintext filter directly.
    */

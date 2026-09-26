@@ -2,25 +2,24 @@ import type { GuardContext, GuardResponse } from '@zanix/server'
 
 import { SESSION_HEADERS } from '@zanix/server'
 import { decodeJWT } from '@zanix/auth'
-import { criticRateLimit } from './constants.ts'
+import { criticalRateLimit } from './constants.ts'
 
 /**
  * @module
  *
- * Fixes a real gap `POST /login/refresh`'s plain `@RateLimitGuard({ anonymousLimit,
- * trustProxyHeader: true })` has on its own: `@zanix/auth`'s `rateLimitGuard` keys its bucket by
+ * Gives `POST /login/refresh` a per-identity rate-limit bucket, which a plain
+ * `@RateLimitGuard({ anonymousLimit, trustProxyHeader: true })` can't do on its own: `@zanix/auth`'s `rateLimitGuard` keys its bucket by
  * `ctx.locals.session` when one already exists, falling back to the resolved client IP only when
  * it doesn't — but guards run BEFORE the request body is validated (`@zanix/server`'s own
  * `routerGuard` → `routerPipe` order — `requestValidationPipe` is a PIPE, not a guard), so a guard
  * can never read `ctx.payload.body.token` in time to populate a real, identity-keyed session for
- * `rateLimitGuard` to use. Left as-is, every caller presenting a refresh token in the BODY (the
- * shape `TokenRTO`/this project's own SDK client use) shares the single anonymous/IP bucket —
- * harmless for a real end user's own browser (distinct IPs), but a real, confirmed problem for a
- * consumer proxying these calls through its own backend on behalf of many different end users
+ * `rateLimitGuard` to use. Without this guard, every caller presenting a refresh token in the BODY
+ * (the shape `TokenRTO`/this project's own SDK client use) shares the single anonymous/IP bucket —
+ * harmless for an end user's own browser (distinct IPs), but a problem for a consumer proxying these calls through its own backend on behalf of many different end users
  * (a normal SSR/BFF pattern): every one of THEIR users collapses onto the consumer backend's own
  * IP, sharing one bucket.
  *
- * The fix does NOT need `@zanix/auth` to export anything new, and does NOT trust any
+ * This guard does NOT trust any
  * caller-supplied "this is the real client IP" header (which would itself be a spoofable
  * rate-limit-bypass hole) — it reuses `rateLimitGuard`'s EXISTING session-based path by reading
  * the refresh token from somewhere a guard genuinely CAN see pre-body: the `SESSION_HEADERS.user
@@ -31,11 +30,10 @@ import { criticRateLimit } from './constants.ts'
  * arbitrary, spoofable claim.
  *
  * Decoding here is UNVERIFIED (`decodeJWT`, not `verifyJWT`) — safe because it's used ONLY to pick
- * a rate-limit bucket key, mirroring `AuthService.decodeRefreshSubject`'s own identical,
- * already-established safety reasoning (real signature verification still happens later, in
- * `session.refreshTokens()` itself, unaffected by anything this guard does). A forged/garbage
- * token just fails to decode and falls straight through to the existing anonymous/IP behavior,
- * unchanged — this guard only ever ADDS precision, never removes the existing safety net.
+ * a rate-limit bucket key (see `AuthService.decodeRefreshSubject`'s own doc); signature
+ * verification still happens later, in `session.refreshTokens()` itself. A forged/garbage token
+ * just fails to decode and falls through to the anonymous/IP bucket — this guard only ever ADDS
+ * precision, never removes that safety net.
  */
 
 /**
@@ -52,10 +50,10 @@ export function refreshRateLimitIdentityGuard(): (ctx: GuardContext) => GuardRes
     if (raw) {
       try {
         const sub = decodeJWT(raw).payload.sub as string | undefined
-        if (sub) ctx.locals.session = { id: sub, type: 'user', rateLimit: criticRateLimit }
+        if (sub) ctx.locals.session = { id: sub, type: 'user', rateLimit: criticalRateLimit }
       } catch {
         // Undecodable — leave `ctx.locals.session` unset; `rateLimitGuard` falls back to its own
-        // anonymous/IP path exactly as it does today, no regression.
+        // anonymous/IP path.
       }
     }
     return {}

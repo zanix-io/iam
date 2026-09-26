@@ -1,4 +1,4 @@
-import { assertStringIncludes } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import { createElement } from 'react'
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -17,7 +17,7 @@ const TEST_MESSAGES = {
 // stand-in instead.
 const OauthStartViewForContent = createOauthStartView<ReactElement>(
   createElement as unknown as CreateElement<ReactElement>,
-  { useIntl, Button, SubmitGuard: () => null },
+  { useIntl, Button, SubmitGuard: () => null, AutoSubmit: () => null },
 )
 
 function render(props: OauthStartViewProps): string {
@@ -29,8 +29,8 @@ function render(props: OauthStartViewProps): string {
 
 Deno.test('OauthStartView: renders the "Continue with {provider}" heading and button', () => {
   const html = render({ lang: 'en', oauth: 'google', csrfToken: 'tok' })
-  assertStringIncludes(html, '<h1>Continue with google</h1>')
-  assertStringIncludes(html, 'Continue with google</button>')
+  assertStringIncludes(html, '<h1>Continue with Google</h1>')
+  assertStringIncludes(html, 'Continue with Google</button>')
 })
 
 Deno.test('OauthStartView: carries the CSRF token as a hidden field', () => {
@@ -42,6 +42,8 @@ Deno.test('OauthStartView: links back to the sign-in page', () => {
   const html = render({ lang: 'fr', oauth: 'github', csrfToken: 'tok' })
   assertStringIncludes(html, 'href="/fr/login"')
   assertStringIncludes(html, 'Back to sign in')
+  // The back link carries its `data-space` styling hook (see `login-oauth-callback-error.test.ts`).
+  assertStringIncludes(html, 'data-space="auth-back-link"')
 })
 
 Deno.test('OauthStartView (index.ts): the real binding renders without throwing, SubmitGuard included', async () => {
@@ -51,5 +53,11 @@ Deno.test('OauthStartView (index.ts): the real binding renders without throwing,
   const markup = renderToStaticMarkup(
     createElement(IntlProvider, { locale: 'en', messages: TEST_MESSAGES }, element),
   )
-  assertStringIncludes(markup, 'Continue with google')
+  assertStringIncludes(markup, 'Continue with Google')
+})
+
+Deno.test('OauthStartView: with no CSRF token the hidden field is empty, never "undefined"', () => {
+  const html = render({ lang: 'en', oauth: 'google' } as OauthStartViewProps)
+  assertStringIncludes(html, 'name="_csrf" value=""')
+  assertEquals(html.includes('undefined'), false)
 })

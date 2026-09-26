@@ -1,8 +1,7 @@
 /**
  * This project's own `@zanix/space` frontend — supported languages for `langPreHandler`'s
- * `/{lang}/...` prefix routing (see `middleware.ts`). `['en']` only for now — this task is about
- * wiring the mechanism itself, not authoring a full multi-language content catalog; add a real
- * `messages/<lang>/` catalog (see `space-i18n-and-population`) before adding a second entry here.
+ * `/{lang}/...` prefix routing (see `middleware.ts`). Every entry needs a catalog in
+ * `IAM_UI_MESSAGES` (`ui/sdk/messages.ts`), which the hosted pages read through `iamMessages`.
  */
 export const AVAILABLE_LANGS = ['en'] as const
 

@@ -50,7 +50,15 @@ export function createTotpEnrollView<E>(
       'main',
       null,
       h('h1', null, formatMessage('totp/enroll/heading')),
-      invalidCode ? h('p', { role: 'alert' }, formatMessage('totp/enroll/invalid-code')) : null,
+      // The `data-space='banner'`/`data-variant` pair is the hook the default stylesheet
+      // (`ui/styles.ts`) and an app's own CSS style; see `login/render.ts`.
+      invalidCode
+        ? h(
+          'p',
+          { role: 'alert', 'data-space': 'banner', 'data-variant': 'error' },
+          formatMessage('totp/enroll/invalid-code'),
+        )
+        : null,
       // The QR code is the primary path — most authenticator apps scan it directly. The manual
       // secret/link right below it is a real fallback, never removed: some apps only support
       // typed-key entry, and it's what keeps enrollment possible if the QR image itself fails to
@@ -67,7 +75,11 @@ export function createTotpEnrollView<E>(
         `${formatMessage('totp/enroll/scan-instructions')} `,
         h('code', null, secret),
       ),
-      h('p', null, h('a', { href: uri }, uri)),
+      // `data-space='otpauth-link'` — a bare `<a href>` with no hook would fall back to the
+      // browser's default link styling, outside the design system every other control here
+      // (`Field`/`Button`/`SubmitGuard`) follows. The default stylesheet (`ui/styles.ts`) styles
+      // it, and an app's own CSS overrides that.
+      h('p', null, h('a', { href: uri, 'data-space': 'otpauth-link' }, uri)),
       // Posts to the SIBLING `totp/confirm` page — both pages share the same `X-Znx-Csrf` cookie
       // (same origin, same cookie name), so the token this page's own `csrfGuard()` issues on
       // `GET` is exactly the one `../confirm/page.tsx`'s own `csrfGuard()` validates on `POST`.

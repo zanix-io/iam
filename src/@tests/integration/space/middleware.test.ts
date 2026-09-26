@@ -33,18 +33,18 @@ Deno.test('space/middleware.ts: registers a real preHandler reachable via getUse
   assertEquals(typeof preHandler, 'function')
 })
 
-// Regression coverage for a real, previously-live bug: `langPreHandler` was registered with no
-// `ignorePrefixes`, so it 301-redirected every request to this project's own REST controllers
-// (`/login`, `/pwd`, `/users`, `/roles`, `/permissions`, `/grant-access`) to a `/{lang}/...` URL
-// with no route behind it at all — confirmed live via a real `curl` against `zanix space dev`,
-// never caught by a unit test until now. These assertions call the REAL registered preHandler
-// (not a re-derivation of `langPreHandler`'s own matching logic), so a future removal of an entry
-// from `middleware.ts`'s own `REST_CONTROLLER_PREFIXES` list fails here too, not just in a manual
-// `curl` re-check.
+// `langPreHandler` is registered with `ignorePrefixes` for this project's REST controllers
+// (`/login`, `/pwd`, `/users`, `/roles`, `/permissions`, `/grant-access`) so they are never
+// redirected to a `/{lang}/...` URL with no route behind it. These assertions call the REAL
+// registered preHandler, so removing an entry from `middleware.ts`'s `REST_CONTROLLER_PREFIXES`
+// fails here.
 Deno.test("space/middleware.ts: does not redirect this project's own REST controller routes", async () => {
   const preHandler = getRealPreHandler()
 
   const paths = [
+    '/api/login/otp/user%40example.com',
+    '/api/oauth/authorize?client_id=x',
+    '/iam-space/log',
     '/login/otp/user%40example.com',
     '/pwd/reset',
     '/users/register',
@@ -65,7 +65,7 @@ Deno.test("space/middleware.ts: does not redirect this project's own REST contro
 // same top-level segment, so an unprefixed `/login` is now ambiguous by design (falls through to
 // REST dispatch per `REST_CONTROLLER_PREFIXES` above) — `/consent` has no such collision, so it's
 // the unambiguous case for "an ordinary Space page still gets its `/{lang}/...` redirect".
-Deno.test('space/middleware.ts: still redirects an unprefixed Space page to its /{lang}/... URL', async () => {
+Deno.test('space/middleware.ts: redirects an unprefixed Space page to its /{lang}/... URL', async () => {
   const preHandler = getRealPreHandler()
 
   const response = await preHandler(new Request('http://localhost/consent'), FAKE_SERVE_INFO)
@@ -76,29 +76,20 @@ Deno.test('space/middleware.ts: still redirects an unprefixed Space page to its 
   assertEquals(new URL(location).pathname, '/en/consent')
 })
 
-Deno.test('space/middleware.ts: still skips framework-internal routes untouched by this fix', async () => {
+Deno.test('space/middleware.ts: skips framework-internal routes', async () => {
   const preHandler = getRealPreHandler()
 
   const response = await preHandler(new Request('http://localhost/health'), FAKE_SERVE_INFO)
   assertEquals(response, null)
 })
 
-// Regression coverage for a real, previously-live bug — with a second, real regression already
-// caught behind it before this ever reached production: `cookieConsentBypassGuard` first tried
-// writing `GENERAL_HEADERS.cookiesAcceptedHeader` onto `ctx.req.headers` directly. That passed its
-// own unit test (built against a bare `new Request(...)`, whose `Headers` carry the mutable
-// `"request"` guard) but throws `TypeError: Cannot change headers: headers are immutable` against
-// a REAL server request, whose `Headers` carry the `"immutable"` guard instead. The next attempt
-// wrote into `ctx.cookies` instead — but `@zanix/server`'s own built-in `cookiesGuard` (run before
-// every app guard) `Object.freeze`s `ctx.cookies`, so THAT throws
-// `TypeError: Cannot add property ..., object is not extensible` for exactly the case this guard
-// exists for (no `X-Znx-Cookies-Accepted` key present at all yet). The real fix reassigns `ctx.req`
-// to a freshly cloned `Request` carrying the injected header on a mutable `Headers` instance
-// instead of mutating either the original `Headers` or the frozen `cookies` object — this test
-// reproduces BOTH real constraints together (a genuine `Deno.serve` request for the immutable
-// `Headers`, plus a frozen `cookies` object for the frozen-cookies case) since neither one alone
-// reproduces the other (`zanix-test-tier-conventions`' own Pattern B: a real server dependency
-// belongs in `integration/`, never `unit/`).
+// `cookieConsentBypassGuard` injects `GENERAL_HEADERS.cookiesAcceptedHeader` by reassigning
+// `ctx.req` to a cloned `Request` with a mutable `Headers`. It cannot write onto the incoming
+// request's `Headers` (a real server request's `Headers` carry the `"immutable"` guard and throw
+// `Cannot change headers`) nor into `ctx.cookies` (`@zanix/server`'s built-in `cookiesGuard`
+// freezes it before any app guard runs). This test reproduces both constraints together: a real
+// `Deno.serve` request for the immutable `Headers`, plus a frozen `cookies` object. It binds a
+// real listener, so it belongs in `integration/` (Pattern B in `zanix-test-tier-conventions`).
 Deno.test(
   "space/middleware.ts: cookieConsentBypassGuard tolerates a real request's immutable Headers " +
     'and a frozen ctx.cookies',
@@ -134,15 +125,11 @@ Deno.test(
   },
 )
 
-// Regression coverage for a THIRD real, previously-live bug in the same fix above: the
-// `new Request(ctx.req, { headers })` clone itself throws
-// `TypeError: Input request's body is unusable` once `ctx.req`'s body has already been read —
-// which `@zanix/server`'s own request handler does globally, for every `POST`/`PUT`/`PATCH` request
-// carrying a JSON or `application/x-www-form-urlencoded` body, BEFORE any guard (this one included)
-// ever runs. That's this project's own real, common case: every login/OTP/TOTP/password-recovery
-// Space page action is exactly such a `POST`. This test drains the request body first — the same
-// way that framework-level parsing step does — before invoking the guard, to prove it survives an
-// ALREADY-CONSUMED body rather than only ever being exercised against a bodyless `GET`.
+// Cloning with `new Request(ctx.req, { headers })` throws `Input request's body is unusable` once
+// the body has been read, and `@zanix/server` reads every JSON/form-urlencoded
+// `POST`/`PUT`/`PATCH` body before any guard runs (every login/OTP/TOTP/password-recovery page
+// action is such a `POST`). This test drains the request body first, the same way that parsing
+// step does, then invokes the guard.
 Deno.test(
   'space/middleware.ts: cookieConsentBypassGuard tolerates a POST request whose body was already ' +
     'consumed before the guard ran',

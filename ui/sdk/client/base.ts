@@ -2,20 +2,21 @@ import { RestClient, SESSION_HEADERS } from '@zanix/server'
 
 /** Construction options every {@link IamApiClient} subclass accepts. */
 export interface IamApiClientOptions {
-  /** `iam`'s own deployment base URL (e.g. `https://iam.example.com`) — no trailing slash
-   * required, `RestClient` normalizes it. */
+  /** `iam`'s REST API base URL, its `globalPrefix` included (e.g.
+   * `https://iam.example.com/api`) — no trailing slash required, `RestClient` normalizes it. */
   baseUrl: string
 }
 
 /**
  * Base class every flow-specific `iam` client (`LoginClient`, `OtpClient`, `TotpClient`,
- * `PasswordClient`) extends — a thin `@zanix/server` `RestClient` bound to `iam`'s own base URL,
+ * `PhoneClient`, `PasswordClient`, `UsersClient`) extends — a thin `@zanix/server` `RestClient` bound to `iam`'s own base URL,
  * with nothing else configured. `RestClient` works standalone outside any Zanix app/server runtime
  * (it falls back to an in-process cache when no `'cache:local'` core connector is registered, and
  * its own constructor needs no decoration) — safe to construct directly in a browser or any other
  * plain JavaScript environment.
  */
 export abstract class IamApiClient extends RestClient {
+  /** Binds this client to `options.baseUrl`, with `RestClient`'s own auto-initialization off. */
   constructor(options: IamApiClientOptions) {
     super({ baseUrl: options.baseUrl, autoInitialize: false })
   }

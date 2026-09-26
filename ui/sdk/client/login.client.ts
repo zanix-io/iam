@@ -1,13 +1,16 @@
 import type {
   AuthMethodsResult,
+  LoginMethodsResult,
   LoginResult,
   OauthAuthorizeResult,
+  OauthCallbackResult,
+  ReactivationConfirmResult,
   RefreshResult,
 } from '../rtos/login.ts'
 import type { MessageResponse, OauthProvider } from '../rtos/common.ts'
 
 import { IamApiClient } from './base.ts'
-import { LoginRTO, OAuthLoginRTO, TokenRTO } from '../rtos/login.ts'
+import { LoginRTO, OAuthLoginRTO, ReactivationConfirmRTO, TokenRTO } from '../rtos/login.ts'
 
 /**
  * Thin REST client over `iam`'s real `LoginController` — password login, OAuth2 authorization/
@@ -16,7 +19,7 @@ import { LoginRTO, OAuthLoginRTO, TokenRTO } from '../rtos/login.ts'
  *
  * @example
  * ```ts
- * const login = new LoginClient({ baseUrl: 'https://iam.example.com' })
+ * const login = new LoginClient({ baseUrl: 'https://iam.example.com/api' })
  * const result = await login.login('user@example.com', 'correct horse battery staple')
  * if ('accessToken' in result) {
  *   // logged in — result.accessToken/result.refreshToken are ready to store
@@ -43,14 +46,22 @@ export class LoginClient extends IamApiClient {
   /**
    * Starts the OAuth2 flow for `provider` (one of `iam`'s configured {@link OauthProvider}s).
    *
+   * @param email - Optional — forwarded as `?email=` (`OAuthAuthorizeSearchRTO`'s own doc),
+   * pre-filling/pre-selecting that account on the provider's own chooser screen. The real shape
+   * this exists for: an already-authenticated caller connecting a provider to their OWN account,
+   * passing their own session's own known email — never used for a plain sign-in, which has no
+   * email to hint yet. Never itself proof of anything: the real connect step still independently
+   * verifies the resulting account matches.
+   *
    * @returns The provider's authorization URL to redirect the user to, plus the `state` value
    * embedded in it — persist `state` (e.g. a short-lived cookie) so it can be compared against the
    * provider's own callback for CSRF protection, the same way `iam`'s own hosted login page does.
    * @throws {RestClientError} `realHttpStatus === 400` when `provider` isn't configured on this
    * deployment.
    */
-  public oauthAuthorize(provider: OauthProvider): Promise<OauthAuthorizeResult> {
-    return this.http.get<OauthAuthorizeResult>(`login/${provider}`)
+  public oauthAuthorize(provider: OauthProvider, email?: string): Promise<OauthAuthorizeResult> {
+    const query = email ? `?email=${encodeURIComponent(email)}` : ''
+    return this.http.get<OauthAuthorizeResult>(`login/${provider}${query}`)
   }
 
   /**
@@ -58,15 +69,37 @@ export class LoginClient extends IamApiClient {
    * provider's own redirect — never a client-obtained bearer token (this SDK's providers are
    * code-flow-only, matching `iam`'s own connector configuration).
    *
-   * @returns The same shape as {@link login} — session tokens, or a second-factor challenge.
+   * @returns The same shape as {@link login} — session tokens, or a second-factor challenge — or,
+   * when the account was `'INACTIVE'`, a reactivation challenge instead (see
+   * {@link OauthCallbackResult}'s own doc; narrow with `'needsReactivationConfirm' in result`
+   * before `'accessToken' in result`).
    * @throws {RestClientError} `realHttpStatus === 403` when the provider returns no verified
    * email, or no account exists and self-registration is disabled; `409` when the resolved email
    * is already registered through a different sign-in method.
    */
-  public oauthCallback(provider: OauthProvider, code: string): Promise<LoginResult> {
+  public oauthCallback(provider: OauthProvider, code: string): Promise<OauthCallbackResult> {
     const body = new OAuthLoginRTO()
     body.code = code
-    return this.http.post<LoginResult>(`login/${provider}/callback`, {
+    return this.http.post<OauthCallbackResult>(`login/${provider}/callback`, {
+      body: JSON.stringify(body),
+    })
+  }
+
+  /**
+   * Completes the reactivation an OTP/OAuth2 callback deferred (see
+   * {@link ReactivationChallengeResult}'s own doc, exported from `../rtos/login.ts`):
+   * exchanges `reactivationToken` for a real, finished session — the account's `'INACTIVE'`
+   * profile is only reactivated once this call actually succeeds.
+   *
+   * @returns The same shape as {@link login} — session tokens, or (rarer) a second-factor
+   * challenge, when the account also has 2FA configured.
+   * @throws {RestClientError} `realHttpStatus === 403` when `reactivationToken` is invalid,
+   * expired, or the account no longer exists.
+   */
+  public confirmReactivation(reactivationToken: string): Promise<ReactivationConfirmResult> {
+    const body = new ReactivationConfirmRTO()
+    body.reactivationToken = reactivationToken
+    return this.http.post<ReactivationConfirmResult>('login/reactivate', {
       body: JSON.stringify(body),
     })
   }
@@ -86,8 +119,8 @@ export class LoginClient extends IamApiClient {
   public refresh(token?: string): Promise<RefreshResult> {
     const body = new TokenRTO()
     // Assigning `undefined` explicitly (rather than never touching the accessor at all) crashes
-    // `BaseRTO`'s own accessor implementation (`@zanix/utils`) — a real, upstream bug independent
-    // of this SDK, confirmed via isolated repro. Only assign when there's a real value; the
+    // `BaseRTO`'s own accessor implementation (`@zanix/utils`). Only assign when there's a real
+    // value; the
     // accessor's own unset state already serializes correctly (`{}`, no `token` key at all).
     if (token) body.token = token
     return this.http.post<RefreshResult>('login/refresh', {
@@ -113,6 +146,22 @@ export class LoginClient extends IamApiClient {
     return this.http.get<AuthMethodsResult>('login/methods', {
       headers: this.authHeaders(accessToken),
     })
+  }
+
+  /**
+   * Identifies which login method(s) `email` has configured — step 1 of a two-step login flow:
+   * call this first, then render a password field when `hasPassword` is `true`, or fall through to
+   * `OtpClient.request`/`verify` otherwise. No access token — this runs before any session exists.
+   *
+   * **Always resolves, never throws for an unrecognized email** — deliberately identical
+   * `{ hasPassword: false, oauthProviders: [] }` for a nonexistent email and an existing one with
+   * no password/OAuth2 method configured, so this response can never be used to enumerate which
+   * emails are registered. Treat that default exactly like any other unrecognized email in your
+   * own UI (fall through to OTP) — never surface it as "this account has no password". See the
+   * real handler's own JSDoc (`LoginController.loginMethods`) for the full rationale.
+   */
+  public getLoginMethods(email: string): Promise<LoginMethodsResult> {
+    return this.http.get<LoginMethodsResult>(`login/methods/${encodeURIComponent(email)}`)
   }
 
   /**

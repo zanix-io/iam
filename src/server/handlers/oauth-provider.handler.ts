@@ -2,10 +2,10 @@ import { Controller, Get, type HandlerContext, Post, ZanixController } from '@za
 import { RateLimitGuard } from '@zanix/auth'
 import { OAuthAuthorizeRTO, OAuthTokenExchangeRTO } from './rtos/oauth-provider.ts'
 import { OAuthProviderService } from '../interactors/oauth-provider.interactor.ts'
-import { criticRateLimit, freeRateLimit } from 'utils/constants.ts'
+import { criticalRateLimit, freeRateLimit } from 'utils/constants.ts'
 
 /**
- * OAuth2/OIDC-style PROVIDER endpoints for the `oauth-provider` domain slice — this project acting
+ * OAuth2/OIDC-style PROVIDER endpoints for the `oauth-provider` domain — this project acting
  * as the authorization server for a HOST application, the opposite role from `LoginController`'s
  * own `:oauth`/`:oauth/callback` routes (this project as a CLIENT of Google/GitHub). A host redirects
  * an end user here with its own registered `client_id`/`redirect_uri`, this project's real hosted
@@ -25,7 +25,7 @@ export class OAuthProviderController extends ZanixController<OAuthProviderServic
    * doc for the full mechanism and its documented trade-offs.
    */
   @Get('authorize', { Search: OAuthAuthorizeRTO })
-  @RateLimitGuard({ anonymousLimit: criticRateLimit, trustProxyHeader: true })
+  @RateLimitGuard({ anonymousLimit: criticalRateLimit, trustProxyHeader: true })
   public authorize(ctx: HandlerContext<{ search: OAuthAuthorizeRTO }>) {
     return this.interactor.authorize(ctx.payload.search)
   }

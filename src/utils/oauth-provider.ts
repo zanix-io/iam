@@ -16,8 +16,8 @@ import { createJWT, JWT_KEY_ENV, verifyJWT } from '@zanix/auth'
  * nothing extra to operate for the small, operator-curated set of hosts this tier targets — adding,
  * removing, or rotating a client's secret is an env change and a redeploy, with no self-service
  * registration endpoint of its own. A `grant-access`-style database-backed repository (its own
- * model, admin CRUD endpoints) is the natural upgrade path once a deployment needs runtime client
- * management instead — not built here, since nothing in this project's current scope needs it yet.
+ * model, admin CRUD endpoints) is the upgrade path for a deployment that needs runtime client
+ * management instead.
  */
 export const OAUTH_PROVIDER_CLIENTS_ENV = 'OAUTH_PROVIDER_CLIENTS'
 

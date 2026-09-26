@@ -3,6 +3,8 @@ import '@zanix/space/react'
 // BEFORE `getUserPreHandler()` below, which reads back what this module's own top-level
 // `definePreHandler` call just registered. See that file's own doc for why this must be imported
 // from here (or another module `space.app.ts` itself imports), never only from `mod.ts`.
+import { iamMessages } from './ui/sdk/messages.ts'
+import { iamCssSource } from './ui/styles.ts'
 import './src/space/middleware.ts'
 import type { ZanixAppDefinition } from '@zanix/space'
 
@@ -11,13 +13,22 @@ import {
   defineBootstrapSpaceAppConfig,
   defineSpaceApp,
   getUserPreHandler,
+  globalErrorHandler,
+  redirectCsrfFailure,
 } from '@zanix/space'
 import { resolveThemeOverrides } from 'utils/constants.ts'
 
+// `redirectCsrfFailure()` (`@zanix/space`) turns a stale/missing double-submit token (a cached
+// form from an earlier page load, a browser back-button resubmission) into a redirect back to the
+// same url as a fresh `GET` — re-issuing a valid token so the visitor just resubmits — instead of
+// `@zanix/server`'s raw JSON error body reaching a real browser navigation on any of this
+// project's own `@Guard(csrfGuard())` pages (`login/page.tsx`, `login/otp/[email]/page.tsx`,
+// `login/[oauth]/page.tsx`, `login/totp/[email]/page.tsx`, `totp/enroll/page.tsx`,
+// `totp/confirm/page.tsx`, `password/recovery/callback/page.tsx`).
 defineBootstrapSpaceAppConfig({
   server: {
     ssr: {
-      onError: createNotFoundHandler(),
+      onError: globalErrorHandler(redirectCsrfFailure(), createNotFoundHandler()),
       attachRequestToErrors: true,
       preHandler: getUserPreHandler(),
     },
@@ -29,9 +40,8 @@ defineBootstrapSpaceAppConfig({
  * in `mod.ts`'s own `Zanix.start()` call. */
 const iamSpaceApp: ZanixAppDefinition = defineSpaceApp({
   name: 'iam',
-  // A first, minimal proof that a `@zanix/space` app can declare a `behaviors` slot at all — see
-  // `space-styling-and-theming`'s Fix 4a (`theme`, above/below) for env-var-driven VALUE
-  // customization (colors, no code); this is the STRUCTURE tier instead — a host composing this
+  // One `behaviors` slot — `theme` (below) covers env-var-driven VALUE customization (colors, no
+  // code); this is the STRUCTURE tier instead — a host composing this
   // app's own manifest (never forking it) can replace the login heading entirely, e.g.
   // `Zanix.start({ apps: { iam: { definition: iamSpaceApp, behaviors: { loginHeading: { ... } } } } } })`.
   // Deliberately just one slot, not a rewrite of every page as swappable — see `login/page.tsx`'s
@@ -46,7 +56,10 @@ const iamSpaceApp: ZanixAppDefinition = defineSpaceApp({
   routesDir: './src/space/routes',
   clientBuildDir: './.dist/client',
   assetsDir: './assets',
-  messagesDir: './src/space/messages',
+  // The hosted pages read the same catalogs `@zanix/iam/ui/sdk/messages` ships to every consumer.
+  messageSources: [iamMessages],
+  // The default styles of `iam`'s own views, placed ahead of `globalCss`.
+  cssSources: [iamCssSource],
   // `cookie-consent-modal.comet.tsx`'s own visual panel styling — GLOBAL, not a page's own `static
   // styles`, because that comet is composed once in the root `[lang]/layout.tsx` and shows on
   // EVERY page (see that layout's own doc for why this project's cookie-consent gate is
@@ -56,9 +69,8 @@ const iamSpaceApp: ZanixAppDefinition = defineSpaceApp({
   // Lets a self-hosted instance override this app's own `--space-*` design tokens (brand color,
   // etc.) via one env var (`IAM_THEME`, JSON-valued) — no code, no clone required. See
   // `resolveThemeOverrides`'s own doc for why this is a JSON-in-env-var, not a `--customizations
-  // <file>` flag. `space-styling-and-theming`'s own `theme.resolve` is otherwise unused by this
-  // project today — no seeded `tokens.css`, so an unset `IAM_THEME` renders with `@zanix/space-ui`'s
-  // own defaults, exactly as before this option existed.
+  // <file>` flag. This project seeds no `tokens.css` of its own, so an unset `IAM_THEME` renders
+  // with `@zanix/space-ui`'s own defaults.
   theme: {
     resolve: resolveThemeOverrides,
   },

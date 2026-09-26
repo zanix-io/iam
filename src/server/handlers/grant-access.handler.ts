@@ -18,17 +18,16 @@ import {
 import { GrantAccessService } from '../interactors/grant-access.interactor.ts'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
-/** Either `grantAccessRead` or `grantAccessWrite` may list/view/check — see
- * `auth-permissions-and-rate-limiting`'s OR-not-AND semantics. */
+/** Either `grantAccessRead` or `grantAccessWrite` may list/view/check —
+ * `AuthTokenValidation`'s `permissions` list is OR, not AND. */
 const anyGrantAccessPermission = [
   RBAC_PERMISSIONS.grantAccessRead,
   RBAC_PERMISSIONS.grantAccessWrite,
 ]
 
 /**
- * Admin endpoints for the `grant-access` domain slice — every route requires `RBAC_PERMISSIONS`,
- * exactly like `RolesController`/`PermissionsController` (see `GrantAccessService`'s own doc for
- * why this deliberately does NOT reuse the grounding reference's own hand-rolled authorization).
+ * Admin endpoints for the `grant-access` domain — every route requires `RBAC_PERMISSIONS`,
+ * exactly like `RolesController`/`PermissionsController` (see `GrantAccessService`'s own doc).
  */
 @Controller({ prefix: 'grant-access', Interactor: GrantAccessService })
 export class GrantAccessController extends ZanixController<GrantAccessService> {

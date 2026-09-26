@@ -8,7 +8,14 @@
  * `PasswordClient`'s own header doc.
  */
 export { PasswordClient } from './client/password.client.ts'
-export type { IamApiClientOptions } from './client/base.ts'
+export {
+  /** The shared base class every `iam` REST client extends — see its own doc. */
+  IamApiClient,
+} from './client/base.ts'
+export type {
+  /** Construction options every `iam` REST client accepts. */
+  IamApiClientOptions,
+} from './client/base.ts'
 export { PwdRecoveryCbRTO, PwdRTO } from './rtos/password.ts'
 export type { MessageResponse, PasswordRecoveryResult } from './rtos/password.ts'
 export type { SessionTokens } from './rtos/common.ts'

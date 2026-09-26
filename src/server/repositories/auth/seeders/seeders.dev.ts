@@ -5,7 +5,7 @@ import { computeEmailKeyId } from '../email-key.ts'
 import { SERVICE_ID } from 'utils/constants.ts'
 
 /**
- * Local-dev-only account id, referenced by any future slice's own dev seeders. Must be a real
+ * Local-dev-only account id, referenced by other domains' own dev seeders. Must be a real
  * 24-character hex ObjectId — like every other model in this project, `auth`'s own `_id` is the
  * Mongoose-default `Schema.Types.ObjectId`-typed field (no override in `model.defs.ts`), so it
  * fails to cast anything else, exactly like `userId` (see `model.defs.ts`'s own doc on that field).
@@ -32,16 +32,12 @@ const data = [{
   // Hashed automatically on insert (useDataPolicies: true) — verified at login via
   // `auth.password.verify(password)` (see `AuthService.loginWithPassword`).
   password: DEV_AUTH_PASSWORD,
-  // Links to the `users` slice's own dev profile — see that seeder's own doc for why this MUST be
+  // Links to the `users` domain's own dev profile — see that seeder's own doc for why this MUST be
   // a real hex ObjectId, exactly like this record's own `id` above.
   userId: DEV_USER_ID,
-  // Grants this bootstrap account the wildcard permission so a fresh environment's first login
-  // already has full administrative access, matching every other Zanix project's own dev-seed
-  // convention. `seedManyByIdIfMissing` only ever inserts (`$setOnInsert`) — it never updates an
-  // already-existing document — so this has no effect on an environment whose `auths` collection
-  // already seeded this record before this field existed; that environment needs a one-time manual
-  // backfill (e.g. via `RolesService.assignRole`, or a direct update of this record's `roleId` to
-  // `SUPERADMIN_ROLE_ID`) instead.
+  // The `superadmin` role (wildcard permission), so a fresh environment's first login has full
+  // administrative access. `seedManyByIdIfMissing` only inserts (`$setOnInsert`), so a record
+  // already seeded without `roleId` keeps lacking it; assign it with `RolesService.assignRole`.
   roleId: SUPERADMIN_ROLE_ID,
 }]
 

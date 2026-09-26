@@ -11,8 +11,7 @@ export function isPermission(value?: string): boolean {
  * shape (letters and hyphens only on each side of the colon) — the shape every `RBAC_PERMISSIONS`
  * value and `roles`/`permissions` catalog `code` is expected to follow.
  *
- * `@zanix/validator` ships no built-in equivalent (only `IsObjectID` is a catalog decorator today)
- * — hand-written here via the package's own public `defineValidationDecorator`, the same extension
+ * `@zanix/validator` ships no built-in equivalent — hand-written here via the package's own public `defineValidationDecorator`, the same extension
  * point its own JSDoc documents for a fully custom decorator. The options/return types below are
  * derived from `defineValidationDecorator`'s own signature (`Parameters`/`ReturnType`) rather than
  * imported by name, since `@zanix/validator`'s `mod.ts` doesn't re-export `ValidationOptions`/

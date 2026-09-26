@@ -13,14 +13,13 @@ import { GrantAccessRepository } from '../repositories/grant-access/entity.provi
 import { defaultEvaluateGrantAccess } from 'utils/grant-access.ts'
 
 /**
- * Business logic for the `grant-access` domain slice — fine-grained, per-resource access grants,
+ * Business logic for the `grant-access` domain — fine-grained, per-resource access grants,
  * independent from the `roles`/`permissions` RBAC catalog (see `model.defs.ts`'s own doc for the
- * distinction). This slice's own admin CRUD endpoints are gated by the ordinary
+ * distinction). Its own admin CRUD endpoints are gated by the ordinary
  * `RBAC_PERMISSIONS.grantAccessRead`/`grantAccessWrite` `AuthTokenValidation` mechanism (see
- * `GrantAccessController`) — deliberately NOT the grounding reference's own hand-rolled
- * `ENTITY_MANAGER_ROL`/`ORG_ADMIN_ROL`/session-embedded-`access`-array authorization: this
- * project already has a general-purpose RBAC catalog for admin-endpoint gating, so reusing it here
- * avoids a second, parallel authorization mechanism for the same kind of decision.
+ * `GrantAccessController`) rather than a separate, hand-rolled role check — reusing the
+ * general-purpose RBAC catalog avoids a second, parallel authorization mechanism for the same
+ * kind of decision.
  */
 @Interactor()
 export class GrantAccessService extends ZanixInteractor {
@@ -28,11 +27,9 @@ export class GrantAccessService extends ZanixInteractor {
    * Creates a new grant. `data.tenantId`, when given, scopes the `{userId, resourceId, tenantId}`
    * uniqueness check (and the unique index behind it — see `model.defs.ts`) to that tenant only.
    *
-   * **Deliberate deviation from this domain slice's own grounding reference**: `GrantAccessService
-   * #giveAccess` there silently returns the EXISTING grant on a collision (an idempotent
-   * find-or-create) rather than rejecting — this project instead throws `CONFLICT`, matching
-   * `RolesService.createRole`/`PermissionsService.createPermission`'s own, already-established
-   * convention in this project (a duplicate is a caller error to surface, not to paper over).
+   * A collision throws `CONFLICT` rather than returning the existing grant (no idempotent
+   * find-or-create), matching `RolesService.createRole`/`PermissionsService.createPermission`: a
+   * duplicate is a caller error to surface, not to paper over.
    *
    * @throws {HttpError} `CONFLICT` when a grant already exists for the same
    *   `{userId, resourceId, tenantId}` tuple.
@@ -80,12 +77,8 @@ export class GrantAccessService extends ZanixInteractor {
   /**
    * Revokes (deletes) a grant by `id`.
    *
-   * **Deliberate fix of a real inconsistency in this domain slice's own grounding reference**:
-   * that reference's own `removeAccess` deletes directly, with no prior existence check — unlike
-   * its own sibling methods (`giveAccess`'s idempotent `findOne`, `updateAccess`'s `findById` +
-   * `BAD_REQUEST`), so revoking an already-revoked/never-existing grant there silently reports
-   * success. This method checks existence first, the same way `RolesService.deleteRole` already
-   * does in this project, for a consistent, honest `NOT_FOUND` instead.
+   * Checks existence first, the same way `RolesService.deleteRole` does, so revoking an
+   * already-revoked/never-existing grant reports `NOT_FOUND` instead of silent success.
    *
    * @throws {HttpError} `NOT_FOUND` when no grant exists for `id`.
    */

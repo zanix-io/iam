@@ -163,3 +163,38 @@ Deno.test('checkAccess: forwards userId/resourceId/tenantId to the repository lo
   } as never)
   assertEquals(grantRepo.findOne.calls[0], ['user-1', 'billing:chargeInvoice', 'tenant-a'])
 })
+
+Deno.test('createGrant: a global-scope collision reports CONFLICT without a tenant qualifier', async () => {
+  const { service } = buildService({ grantRepo: { findOne: fn(() => baseGrant()) } })
+  const error = await assertRejects(
+    () =>
+      service.createGrant({
+        userId: 'user-1',
+        resourceId: 'billing:chargeInvoice',
+        accessLevel: 'READ',
+      } as never),
+    HttpError,
+  )
+  assertEquals(error.message, 'A grant already exists for this user/resource.')
+})
+
+Deno.test('createGrant: a tenant-scoped collision reports CONFLICT within this tenant', async () => {
+  const { service } = buildService({ grantRepo: { findOne: fn(() => baseGrant()) } })
+  const error = await assertRejects(
+    () =>
+      service.createGrant({
+        userId: 'user-1',
+        resourceId: 'billing:chargeInvoice',
+        accessLevel: 'READ',
+        tenantId: 'tenant-a',
+      } as never),
+    HttpError,
+  )
+  assertEquals(error.message, 'A grant already exists for this user/resource within this tenant.')
+})
+
+Deno.test('getGrantById: returns the grant when it exists', async () => {
+  const { service, grantRepo } = buildService()
+  assertEquals(await service.getGrantById('grant-1') as unknown, baseGrant())
+  assertEquals(grantRepo.findById.calls, [['grant-1']])
+})

@@ -5,6 +5,8 @@ import { Button, Field, Input, useIntl } from '@zanix/space-ui'
 // code is a short-lived, single-use value.
 import { SubmitGuard } from '@zanix/space/comet/react'
 import type { CreateElement } from 'ui/typings/renderer.ts'
+import { authHiddenFields } from 'ui/components/auth-hidden-fields/index.ts'
+import OtpResend from 'ui/components/otp-resend/index.ts'
 import { createOtpView } from './render.ts'
 import type { OtpViewDeps } from './render.ts'
 import type { OtpViewProps } from './types.ts'
@@ -13,7 +15,8 @@ export type { OtpViewProps }
 
 /**
  * `iam`'s OTP second-factor challenge view — a heading, the destination the code was sent to, a
- * single verification-code field, and a link back to sign-in.
+ * single verification-code field, a resend/alternate-channel affordance, and a link back to
+ * sign-in.
  *
  * React binding — import from `@zanix/iam/ui/pages/login-otp/preact` for the Preact one.
  */
@@ -25,5 +28,7 @@ export const OtpView: (props: OtpViewProps) => ReactElement = createOtpView<Reac
     Field,
     Input,
     SubmitGuard: SubmitGuard as unknown as OtpViewDeps<ReactElement>['SubmitGuard'],
+    authHiddenFields,
+    OtpResend: OtpResend as unknown as OtpViewDeps<ReactElement>['OtpResend'],
   },
 )

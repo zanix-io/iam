@@ -39,7 +39,7 @@ export function createOauthCallbackErrorView<E>(
       h('p', null, formatMessage('login/oauth/error-body')),
       h(
         'p',
-        null,
+        { 'data-space': 'auth-back-link' },
         h('a', { href: `/${lang}/login` }, formatMessage('common/back-to-sign-in')),
       ),
       h(Button, { onClick: reset }, formatMessage('common/try-again')),

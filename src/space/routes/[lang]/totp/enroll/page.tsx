@@ -21,15 +21,16 @@ const INVALID_CODE_ERROR = 'invalid_code'
  * a `@zanix/space` page (see that guard's own doc for why a page can't reuse
  * `AuthTokenValidation`/`jwtValidationGuard` directly). `roles: []` — enrollment is something ANY
  * authenticated account may do for itself, not gated behind a specific role/permission
- * (`scopeValidation([], ...)` always resolves `'OK'`, confirmed against `@zanix/auth`'s own
- * `utils/scope.ts`).
+ * (`@zanix/auth`'s `scopeValidation([], ...)` always resolves `'OK'`).
  *
- * `AuthService.totpEnroll()` is synchronous and never persists anything — safe to call from a plain
- * `GET` `loader` (unlike the OAuth2 callback's own token exchange, this has no one-time-use
- * side effect to protect).
+ * `AuthService.totpEnroll()` never persists anything — safe to call from a plain `GET` `loader`
+ * (unlike the OAuth2 callback's own token exchange, this has no one-time-use side effect to
+ * protect). It IS asynchronous, though (it looks up the account's real email to build the
+ * provisioning label — see its own doc for why `subject` alone isn't enough), so this loader
+ * awaits it rather than destructuring a `Promise` directly.
  *
- * Rendering now delegates to `@zanix/iam/ui/pages/totp-enroll`'s own factory-built view
- * (`createElement`-based, never JSX) — the loader logic below is unchanged.
+ * Renders `@zanix/iam/ui/pages/totp-enroll`'s own factory-built view
+ * (`createElement`-based, never JSX).
  */
 @Page({ Interactor: AuthService })
 @Guard(pageSessionGuard([]))
@@ -39,8 +40,8 @@ export default class TotpEnrollPage extends SpacePageController<EnrollParams, Au
 
   public override component = TotpEnrollView
 
-  public override loader = (ctx: PageContext<EnrollParams>) => {
-    const { secret, uri } = this.interactor.totpEnroll()
+  public override loader = async (ctx: PageContext<EnrollParams>) => {
+    const { secret, uri } = await this.interactor.totpEnroll()
     return {
       lang: ctx.params.lang,
       secret,

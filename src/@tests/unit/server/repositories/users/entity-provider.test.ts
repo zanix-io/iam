@@ -79,3 +79,39 @@ Deno.test('UsersRepository.searchUsers: filters by status only when given', () =
   repo.searchUsers({ status: 'ACTIVE' })
   assertEquals(paginate.calls[1][0].filter, { status: 'ACTIVE' })
 })
+
+Deno.test('UsersRepository: registerUser saves a new profile; findById targets the id', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls, created } = recordingModel()
+  const repo = buildRepository(Model)
+
+  assertEquals(await repo.registerUser({ firstName: 'Jane' }) as unknown, {
+    id: 'saved-1',
+    firstName: 'Jane',
+  })
+  assertEquals(created, [{ firstName: 'Jane' }])
+  await repo.findById('user-1')
+  assertEquals(calls.findById, [['user-1']])
+})
+
+Deno.test('UsersRepository.updateUser: forwards applyProtection as the data-policy switch, off by default', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls } = recordingModel()
+  const repo = buildRepository(Model)
+
+  await repo.updateUser({ id: 'user-1', phoneNumber: '+14155551234' }, { applyProtection: true })
+  await repo.updateUser({ id: 'user-1', firstName: 'Jane' })
+  assertEquals(calls.updateOne, [
+    [{ _id: 'user-1' }, { $set: { phoneNumber: '+14155551234' } }, { useDataPolicies: true }],
+    [{ _id: 'user-1' }, { $set: { firstName: 'Jane' } }, { useDataPolicies: undefined }],
+  ])
+})
+
+Deno.test('UsersRepository.findById: a falsy id short-circuits without querying the model', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls } = recordingModel()
+  const repo = buildRepository(Model)
+  assertEquals(repo.findById(undefined), undefined)
+  assertEquals(repo.findById(''), undefined)
+  assertEquals(calls.findById, undefined)
+})

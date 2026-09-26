@@ -13,6 +13,15 @@
 5. [Environment variables](#environment-variables)
 6. [Basic Usage](#basic-usage)
 7. [Documentation](#documentation)
+   - [Authentication flows](./docs/authentication-flows.md)
+   - [Authorization](./docs/authorization.md)
+   - [REST API reference](./docs/rest-api.md)
+   - [Configuration](./docs/configuration.md)
+   - [Customization](./docs/customization.md)
+   - [Deployment](./docs/deployment.md)
+   - [Consuming iam](./docs/consuming-iam.md)
+   - [API reference](./docs/api-reference.md)
+   - [See more](./docs/see-more.md)
 8. [Contributing](#contributing)
 9. [Changelog](#changelog)
 10. [License](#license)
@@ -22,83 +31,87 @@
 
 An identity service built on `@zanix/server`/`@zanix/space`/`@zanix/auth`: multi-user
 password/OTP/TOTP/OAuth2 login, refresh-token session management, and an RBAC catalog
-(roles/permissions) plus fine-grained per-resource access grants. `Zanix.start()` activates four
-named apps from one process (`mod.ts`): the project's own REST controllers (auto-discovered from the
-project root, covering both the `auth` and `grant-access` domain slices), the `auth` and
-`grant-access` Zanix Apps themselves (configuration/resources/overridable-behaviors composition only
-— `routes: false` on both, no HTTP surface of their own), and the `@zanix/space` frontend serving
-the real login/2FA/password-recovery UI. Primarily a deployable application, run directly from
-source (`deno task dev`/`deno task start`) or built for production (`zanix space build`) — but its
+(roles/permissions) plus fine-grained per-resource access grants. `Zanix.start()` serves everything
+from one process (`mod.ts`): the project's own REST controllers (auto-discovered from the project
+root, covering both the `auth` and `grant-access` domain slices), the `auth` and `grant-access`
+Zanix Apps themselves (configuration/resources/overridable-behaviors composition only —
+`routes: false` on both, no HTTP surface of their own), and the `@zanix/space` frontend serving the
+login/2FA/password-recovery UI. Primarily a deployable application, run directly from source
+(`deno task dev`/`deno task start`) or built for production (`zanix space build`) — but its
 `auth-app`/`grant-access-app` manifests and its `ui/` login pages/components/SDK are also consumable
 by another system directly. See [`Consuming iam`](./docs/consuming-iam.md) for the three integration
 levels.
 
 ## Features
 
-- **Password login** with optional OTP (email/SMS/WhatsApp) or TOTP (authenticator app) 2FA
-  challenge, and OAuth2 login (Google, GitHub — each enabled by setting its client
-  id/secret/redirect URI).
-- **Refresh-token session rotation** via `@zanix/auth`'s `session.refreshTokens()`, re-resolving the
-  account's current permissions on every refresh so a role reassignment takes effect on the very
-  next refresh, without a forced re-login.
-- **Password recovery** and **passwordless account invites**: a profile registered without a
-  password is sent straight into the recovery flow to set its own credential, instead of an admin
-  choosing one.
-- **RBAC catalog** (`roles`/`permissions`) — a role bundles a set of permission codes; a session's
-  effective permissions are flattened into its token's `aud` claim at login. The evaluation strategy
-  (`resolveEffectivePermissions`, `auth.app.ts`) is overridable per host without forking
-  `AuthService`.
-- **Grant Access** — fine-grained, per-resource access grants (`READ`/`WRITE`/`MANAGE`, optionally
-  tenant-scoped), independent from the RBAC catalog and gated by its own
-  `RBAC_PERMISSIONS.grantAccessRead`/`grantAccessWrite` permissions rather than a parallel
-  authorization mechanism.
-- **Users** — profile registration/self-service/admin management, kept as a collection separate from
-  `auth` (credentials/session state), always reached from `auth.userId`.
-- **Multi-tenancy** — SaaS-shaped, not multi-product: this deployment serves ONE product, and
-  `roles`/`grant-access` records may optionally carry a `tenantId` for per-customer/organization
-  scoping within it.
-- **Notification-template discovery** — exposes this project's in-code notification-template catalog
-  under `/.well-known/zanix/code-templates` (`codeTemplatesDiscovery: true`, `mod.ts`), and (with
-  `TEMPLATES_BACKEND=local`) a `/templates` CRUD API over database-backed template overrides.
-- **Cookie consent** — a project-wide consent dialog (composed once in the root layout) gates every
-  session-issuing page equally; declining still lets the app work, it just means no session cookie
-  is emitted until accepted.
+- **Sign-in**: password with an optional one-time-code (email/SMS/WhatsApp) or authenticator (TOTP)
+  second factor, passwordless one-time codes, a two-step email-first sign-in, and Google/GitHub
+  OAuth2. See [Authentication flows](./docs/authentication-flows.md).
+- **Self-registration** on a first one-time-code or OAuth2 sign-in, closable per instance, with an
+  optional default role.
+- **Sessions**: refresh-token rotation that re-resolves permissions on every refresh.
+- **Account self-service**: sign-in methods (OAuth2 link/unlink, password add/remove, TOTP, phone
+  and code channel), password recovery, deactivation with confirmed reactivation, and deletion.
+- **Invitations**: an account registered without a password receives a recovery code to set its own.
+- **Hosted OAuth2 provider** so another host can sign its visitors in on `iam`'s pages.
+- **Authorization**: an RBAC catalog resolved into each session token, plus per-resource Grant
+  Access, both optionally tenant-scoped. See [Authorization](./docs/authorization.md).
+- **Consumable UI and SDK**: every page and component in React and Preact, typed REST clients,
+  message catalogs and a default stylesheet. See [Consuming iam](./docs/consuming-iam.md).
+- **Notification templates**: in-code catalog discovery and a database-backed `/api/templates` API.
+- **Cookie consent** gating session cookies on the hosted pages.
 
 ## Structure
 
-- `mod.ts` / `space.app.ts` — the HTTP entrypoint (registers the `auth`/`grant-access`/`iam` Zanix
-  Apps and starts `Zanix.start()`) and the `@zanix/space` frontend app definition
-  (routes/messages/assets/global CSS), respectively. `worker.ts` is a separate entrypoint that
-  starts this same project as an AsyncMQ background-jobs worker instead of an HTTP server — always
-  run as its own process, never together with `mod.ts` in the same one.
+- `mod.ts` / `space.app.ts` — the HTTP entrypoint (registers the `auth`/`grant-access` Zanix Apps
+  and the `iam` space app, and starts `Zanix.start()`) and the `@zanix/space` frontend app
+  definition (routes/messages/assets/global CSS), respectively. `worker.ts` is a separate entrypoint
+  that starts this same project as an AsyncMQ background-jobs worker instead of an HTTP server —
+  always run as its own process, never together with `mod.ts` in the same one.
 - `src/server/apps/` — the `auth`/`grant-access` Zanix App manifests: resources (OAuth2 connectors,
   captcha provider), configuration, and overridable behaviors (`resolveEffectivePermissions`,
   `evaluateGrantAccess`, `passwordPolicy`, ...).
 - `src/server/handlers/` — REST controllers: `LoginController` (`/login`), `PasswordController`
   (`/pwd`), `RolesController` (`/roles`), `PermissionsController` (`/permissions`),
-  `UsersController` (`/users`), `GrantAccessController` (`/grant-access`), plus
-  `templates.handler.ts` (`/templates`, `@zanix/notifications`'s own controller with this project's
-  auth guard attached). `rtos/` holds the request/response shapes each route validates against.
+  `UsersController` (`/users`), `GrantAccessController` (`/grant-access`), `OAuthProviderController`
+  (`/oauth`, the hosted OAuth2 provider), plus `templates.handler.ts` (`/templates`,
+  `@zanix/notifications`'s own controller with this project's auth guard attached). `rtos/` holds
+  the request/response shapes each route validates against.
 - `src/server/interactors/` — business logic: `AuthService`, `PasswordService`, `RolesService`,
-  `PermissionsService`, `UsersService`, `GrantAccessService`.
+  `PermissionsService`, `UsersService`, `GrantAccessService`, `OAuthProviderService`.
 - `src/server/repositories/` — one folder per Mongoose-backed collection (`auth`, `users`, `roles`,
   `permissions`, `grant-access`), each with its own `model.defs.ts` (schema/attrs) and `seeders/`
-  (dev-only fixtures plus any production data migrations).
+  (production catalog and first administrator, plus development fixtures; see
+  [Deployment](./docs/deployment.md#seeders)).
 - `src/server/connectors/`, `src/server/jobs/` — starter/example files for this project's own future
   external-service connectors and AsyncMQ cron jobs (see their own doc comments for when to add a
   real one instead of using a companion package's connector).
 - `src/space/routes/[lang]/` — the frontend pages: `login` (password + OAuth2 entry points),
   `login/otp/[email]`, `login/totp/[email]`, `login/[oauth]`/`login/[oauth]/callback` (OAuth2
-  redirect flow), `totp/enroll`/`totp/confirm`, `password/recovery/[email]`/
+  redirect flow, with its `error.tsx` boundary), `login/reactivate/[token]` (account reactivation),
+  `totp/enroll`/`totp/confirm`, `phone/enroll`/`phone/confirm`, `password/recovery/[email]`/
   `password/recovery/callback`, `logout`, and `consent` (the cookie-consent decision endpoint).
 - `src/space/middleware.ts` — registers `langPreHandler`/`langGuard`/`populationGuard` for the
   `[lang]` route segment, imported from `space.app.ts` before `getUserPreHandler()` is read back.
+  `src/space/session-cookie.ts` and `src/space/comets/` hold the session-cookie presence check and
+  the cookie-consent dialog.
 - `src/utils/` — shared, framework-agnostic logic: `rbac.ts` (default permission-resolution
   strategy), `grant-access.ts` (default grant-evaluation strategy), `constants.ts` (env var names,
-  the RBAC permission catalog, access-level ordering), `qr-code.ts`/`cookie-consent.ts` (TOTP QR
+  the RBAC permission catalog, access-level ordering), `shared-enums.ts` (OAuth2 providers, OTP
+  channels, second-factor methods), `oauth-provider.ts` (the hosted OAuth2 provider's client
+  registry), `refresh-rate-limit-guard.ts`/`phone-confirm-rate-limit-guard.ts` (rate-limit guards
+  the declarative `@RateLimitGuard` cannot express), `qr-code.ts`/`cookie-consent.ts` (TOTP QR
   generation, consent-cookie helpers).
 - `src/shared/` — small primitives used across both the REST and Space surfaces (e.g.
-  `redirect-response.ts`'s stateless PRG response helper).
+  `redirect-response.ts`'s stateless PRG response helper), and `middlewares/` with starter
+  interceptor/pipe examples.
+- `ui/` — the published, consumable UI: `pages/` and `components/` (each in React and Preact),
+  `sdk/` (REST clients, validation, message catalogs, session guards, login-flow helpers),
+  `space/login-pages.ts` (page `loader`/`action` bodies) and `styles.ts` (the default stylesheet).
+  The hosted pages under `src/space/routes/` are built from these same exports. See the
+  [API reference](./docs/api-reference.md).
+- `scripts/generate-compiled-messages.ts` — compiles `ui/sdk/messages/` to ICU AST
+  (`deno task gen:messages`).
 
 ## Installation
 
@@ -134,16 +147,10 @@ deno install
 
 ## Environment variables
 
-Copy [`.env.example`](./.env.example) to `.env` and fill in real values before running
-`deno task dev`/`deno task start` — that file documents every variable this project reads, grouped
-by concern: database/cache, JWT signing keys, OAuth2 providers (Google/GitHub — both optional, each
-enabled by setting its full client id/secret/redirect-URI triplet), captcha, anonymous rate limits,
-session-token lifetimes, notification delivery (SMTP/SMS/WhatsApp), data-field encryption, and
-cookie-consent/terms-and-conditions display.
-
-`MONGO_URI` is the only variable `.env.example` marks as unconditionally required; every other group
-is either optional with a documented default (rate limits, session-token lifetimes, cookie consent)
-or feature-gated by its own presence (OAuth2 providers, captcha, SMS/WhatsApp delivery).
+Copy [`.env.example`](./.env.example) to `.env` and fill it in before running
+`deno task dev`/`deno task start`. `MONGO_URI` and the signing keys are required; every other group
+is optional or enabled by its own presence. Every variable, its default and its effect is listed in
+[Configuration](./docs/configuration.md).
 
 ## Basic Usage
 
@@ -168,19 +175,24 @@ deno task worker
 
 Once running, the frontend serves `/{lang}/login` (password + configured OAuth2 providers), with 2FA
 challenges continuing at `/{lang}/login/otp/:email` or `/{lang}/login/totp/:email`, and the REST API
-is available under `/login`, `/pwd`, `/roles`, `/permissions`, `/users`, `/grant-access`, and
-`/templates`.
+is available under the `/api` prefix (see the [REST API reference](./docs/rest-api.md)).
 
 ## Documentation
 
-For additional information, see:
-
-- [`See more`](./docs/see-more.md) — deeper implementation notes and links into the source's own doc
-  comments, organized by domain slice.
-- [`Consuming iam`](./docs/consuming-iam.md) — the three ways another system can integrate with this
-  service (a zero-code hosted login redirect, importing the real login pages/components directly in
-  React or Preact, or a headless SDK for any framework), plus backend-only auth/grant-access
-  composition.
+- [Authentication flows](./docs/authentication-flows.md) — every sign-in and account flow end to
+  end, with its security properties.
+- [Authorization](./docs/authorization.md) — roles, permissions, the permission catalog, Grant
+  Access and multi-tenancy.
+- [REST API reference](./docs/rest-api.md) — every endpoint: auth, permission, rate limit, request,
+  response and errors.
+- [Configuration](./docs/configuration.md) — every environment variable and runtime config.
+- [Customization](./docs/customization.md) — messages, styles and behavior overrides.
+- [Deployment](./docs/deployment.md) — standalone or composed, infrastructure, a second instance,
+  seeders.
+- [Consuming iam](./docs/consuming-iam.md) — the three ways another system integrates with this
+  service: hosted redirect, page/component import, or headless SDK.
+- [API reference](./docs/api-reference.md) — every published subpath and symbol.
+- [See more](./docs/see-more.md) — where each concern is implemented in the source.
 
 ## Contributing
 

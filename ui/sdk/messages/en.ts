@@ -1,62 +1,118 @@
 /**
- * English message catalog for a consumer building its own login/2FA/password-recovery UI —
- * mirrors `iam/src/space/messages/en/index.json`'s own login/OTP/TOTP/password-recovery/logout
- * strings verbatim (same keys, same text), minus its `consent/*` entries: cookie consent is a
- * page-level concern of `iam`'s own hosted UI (`POST /{lang}/consent`, backed by a `@zanix/space`
- * page action, not a REST endpoint any external host calls), out of this SDK's scope.
+ * The English message catalog of `iam`'s screens: every key its login, one-time-code, two-factor,
+ * password-recovery, phone, logout and consent views read, in wording that names no product.
  *
- * Plain data, renderer-agnostic — interpolate `{token}` placeholders (e.g. `{email}`, `{provider}`)
- * with whatever templating a consumer's own i18n layer already uses.
+ * Plain data, renderer-agnostic and free of any `@zanix/space` import, so a consumer that builds its
+ * own UI on the headless SDK can read it as well. Interpolate `{token}` placeholders (`{email}`,
+ * `{provider}`, ...) with whatever templating the consumer's own i18n layer uses. Values are plain
+ * strings with `{token}` placeholders, never ICU `select` or `plural`, so any templating engine reads
+ * them; an app that wants a richer message overrides the key.
+ *
+ * A consumer changes any message by defining the same key in its own catalog: with `@zanix/space`,
+ * declare {@linkcode iamMessages} in `messageSources` and the app's own `messagesDir` wins key by
+ * key.
  */
 export const IAM_UI_MESSAGES_EN: Readonly<Record<string, string>> = {
-  'login/invalid-credentials': 'Invalid email or password.',
-  'login/rate-limited': 'Too many attempts — please wait a minute and try again.',
-  'login/unexpected-error': 'Something went wrong signing you in. Please try again.',
-  'login/email-label': 'Email',
-  'login/password-label': 'Password',
-  'login/submit': 'Sign in',
-  'login/terms-link': 'Terms and Conditions',
-  'login/oauth-continue': 'Continue with {provider}',
-
   'common/back-to-sign-in': 'Back to sign in',
-  'common/verify': 'Verify',
   'common/invalid-or-expired-code': 'Invalid or expired code.',
   'common/try-again': 'Try again',
-
-  'login/otp/heading': 'Enter your verification code',
-  'login/otp/sent-to': 'A verification code was sent for {email}.',
+  'common/verify': 'Verify',
+  'consent/heading': 'Cookie consent',
+  'login/email-label': 'Email',
+  'login/email-placeholder': 'you@example.com',
+  'login/heading': 'Sign in or create an account',
+  'login/invalid-credentials': 'Invalid email or password.',
+  'login/legal-and': 'and',
+  'login/legal-prefix': 'By continuing, you agree to our',
+  'login/no-account': 'No account exists for that email.',
+  'login/oauth-continue': 'Continue with {provider}',
+  'login/oauth/callback-continue': 'Continue',
+  'login/oauth/callback-heading': 'Signed in',
+  'login/oauth/error-body':
+    'Something went wrong finishing sign-in. You can try again from the sign-in page.',
+  'login/oauth/error-heading': "Sign-in didn't complete",
+  'login/or-email': 'or continue with email',
   'login/otp/code-label': 'Verification code',
-
-  'login/totp/heading': 'Enter your authenticator code',
-  'login/totp/signing-in-as': 'Signing in as {email}.',
-  'login/totp/invalid-code': 'Invalid authenticator code.',
+  'login/otp/heading': 'Enter your verification code',
+  'login/otp/notifier-email': 'Email',
+  'login/otp/notifier-sms': 'SMS',
+  'login/otp/notifier-whatsapp': 'WhatsApp',
+  'login/otp/resend': "Didn't get it? Resend code",
+  'login/otp/resend-cooldown':
+    'We already sent you a code. Please wait a moment before requesting another.',
+  'login/otp/resend-notifier-label': 'Send by',
+  'login/otp/sent-to': 'A verification code was sent for {email}.',
+  'login/password-hide': 'Hide password',
+  'login/password-label': 'Password',
+  'login/password-show': 'Show password',
+  'login/password-step/forgot-password': 'Forgot your password?',
+  'login/password-step/heading': 'Enter your password',
+  'login/password-step/invalid-password': 'Incorrect password.',
+  'login/password-step/rate-limited': 'Too many attempts. Wait a minute before trying again.',
+  'login/password-step/rate-limited/body': 'You can try again in:',
+  'login/password-step/rate-limited/heading':
+    "For your security, we've paused sign-in attempts for a moment.",
+  'login/password-step/signing-in-as': 'Signing in as',
+  'login/password-step/use-another-email': 'Use another email',
+  'login/privacy-link': 'Privacy Notice',
+  'login/rate-limited': 'Too many attempts — please wait a minute and try again.',
+  'login/rate-limited/body': 'You can try again in:',
+  'login/rate-limited/heading': "For your security, we've paused sign-in attempts for a moment.",
+  'login/reactivate/body':
+    "If you continue, your account will be reactivated automatically and you'll be able to use it normally again.",
+  'login/reactivate/cancel': 'Cancel',
+  'login/reactivate/confirm': 'Yes, reactivate my account',
+  'login/reactivate/expired':
+    'This reactivation link is no longer valid or has expired. Sign in again to get a new one.',
+  'login/reactivate/heading': 'Your account is deactivated',
+  'login/session-expired': 'Your session expired. Sign in again to continue.',
+  'login/submit': 'Sign in',
+  'login/subtext': 'Enter your email, or continue with a provider below.',
+  'login/subtext-no-oauth': 'Enter your email to continue.',
+  'login/terms-link': 'Terms and Conditions',
   'login/totp/code-label': 'Authenticator code',
-
+  'login/totp/heading': 'Enter your authenticator code',
+  'login/totp/invalid-code': 'Invalid authenticator code.',
+  'login/totp/rate-limited': 'Too many attempts. Wait a minute before trying again.',
+  'login/totp/rate-limited/body': 'You can try again in:',
+  'login/totp/rate-limited/heading':
+    "For your security, we've paused sign-in attempts for a moment.",
+  'login/totp/signing-in-as': 'Signing in as {email}.',
+  'login/totp/unexpected-error':
+    'Something went wrong verifying your code. Please try again in a moment.',
+  'login/unexpected-error': 'Something went wrong signing you in. Please try again.',
+  'logout/cancel-link': 'Never mind',
+  'logout/confirm-description': "You'll need to sign in again on this device.",
+  'logout/heading': 'Sign out',
+  'logout/submit': 'Sign out',
+  'password/recovery/callback-heading': 'Reset your password',
+  'password/recovery/callback-subtext': 'We sent a recovery code to {email}.',
+  'password/recovery/code-label': 'Recovery code',
+  'password/recovery/confirm-label': 'Confirm password',
+  'password/recovery/have-code-link': 'I have my code',
+  'password/recovery/mismatch': "The passwords don't match.",
+  'password/recovery/password-hide': 'Hide password',
+  'password/recovery/password-label': 'New password',
+  'password/recovery/password-show': 'Show password',
+  'password/recovery/request-body':
+    'If an account exists for {email}, a recovery code has been sent.',
+  'password/recovery/request-heading': 'Check your email',
+  'password/recovery/submit': 'Reset password',
+  'password/recovery/weak-password': "This password doesn't meet the password requirements.",
+  'phone/confirm/code-label': 'Verification code',
+  'phone/confirm/heading': 'Enter the code we sent you',
+  'phone/confirm/sent-to': 'We sent a code to {phone}.',
+  'phone/enroll/body': "We'll text you a one-time code to confirm you own this number.",
+  'phone/enroll/heading': 'Verify your phone number',
+  'phone/enroll/phone-label': 'Phone number',
+  'phone/enroll/phone-placeholder': '+1 555 123 4567',
+  'phone/enroll/submit': 'Send code',
   'totp/confirm/heading': 'Confirm authenticator app',
-
+  'totp/enroll/code-label': 'Authenticator code',
   'totp/enroll/heading': 'Set up an authenticator app',
   'totp/enroll/invalid-code': 'Invalid authenticator code — scan the new code below.',
   'totp/enroll/scan-aria-label': 'Scan this QR code with your authenticator app',
   'totp/enroll/scan-instructions':
     'Scan this in your authenticator app, or enter the key manually:',
-  'totp/enroll/code-label': 'Authenticator code',
   'totp/enroll/submit': 'Confirm',
-
-  'login/oauth/callback-heading': 'Signed in',
-  'login/oauth/callback-continue': 'Continue',
-  'login/oauth/error-heading': "Sign-in didn't complete",
-  'login/oauth/error-body':
-    'Something went wrong finishing sign-in. You can try again from the sign-in page.',
-
-  'logout/heading': 'Sign out',
-  'logout/submit': 'Sign out',
-
-  'password/recovery/request-heading': 'Check your email',
-  'password/recovery/request-body':
-    'If an account exists for {email}, a recovery code has been sent.',
-  'password/recovery/have-code-link': 'I have my code',
-  'password/recovery/callback-heading': 'Reset your password',
-  'password/recovery/code-label': 'Recovery code',
-  'password/recovery/password-label': 'New password',
-  'password/recovery/submit': 'Reset password',
 }

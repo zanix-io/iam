@@ -4,8 +4,8 @@ import { seedManyByIdIfMissing } from '@zanix/datamaster'
  * Local-dev-only profile id, linked from `auth/seeders/seeders.dev.ts`'s own `DEV_AUTH_ID` via
  * `AuthenticationAttrs.userId`. Like `DEV_AUTH_ID` itself, this MUST be a real 24-character hex
  * ObjectId: it's assigned to `auth.userId`, a `Schema.Types.ObjectId`-typed field that fails to
- * cast anything else — the same constraint applies to every future `ref: 'users'`/`ref: 'roles'`
- * dev seed id.
+ * cast anything else — the same constraint applies to every `ref: 'users'`/`ref: 'roles'` dev
+ * seed id.
  */
 export const DEV_USER_ID = '693000000000000000000001'
 

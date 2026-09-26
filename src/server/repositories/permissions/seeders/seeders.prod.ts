@@ -3,15 +3,14 @@ import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
 /**
  * Wildcard permission — `@zanix/auth`'s own `scopeValidation` special-cases a session scope
- * containing `'*'` to grant access to every permission-gated route unconditionally (see
- * `auth-permissions-and-rate-limiting`). Seeded in PRODUCTION (not dev-only): with no seeded role
+ * containing `'*'` to grant access to every permission-gated route unconditionally. Seeded in PRODUCTION (not dev-only): with no seeded role
  * holding it, nothing could ever grant itself `role-write`/`permission-write` to build any other
  * role by hand — this is this project's only real bootstrap path for a first administrative
  * account. See the `superadmin` role in `roles/seeders/seeders.prod.ts`, the sole role assigned it.
  */
 export const WILDCARD_PERMISSION_ID = '693000000000000000000100'
 
-/** This domain slice's OWN admin-endpoint permissions — real, always-needed system data (not
+/** This project's OWN admin-endpoint permissions — real, always-needed system data (not
  * dev/test fixtures), so these live here rather than in `seeders.dev.ts`. */
 export const RBAC_PERMISSION_ROLE_READ_ID = '693000000000000000000101'
 /** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
@@ -24,8 +23,15 @@ export const RBAC_PERMISSION_PERMISSION_WRITE_ID = '693000000000000000000104'
 export const RBAC_PERMISSION_USER_READ_ID = '693000000000000000000105'
 /** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
 export const RBAC_PERMISSION_USER_WRITE_ID = '693000000000000000000106'
+/** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
+export const RBAC_PERMISSION_GRANT_ACCESS_READ_ID = '693000000000000000000107'
+/** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
+export const RBAC_PERMISSION_GRANT_ACCESS_WRITE_ID = '693000000000000000000108'
+/** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
+export const RBAC_PERMISSION_TEMPLATES_ACCESS_ID = '693000000000000000000109'
 
-const data = [
+/** Every seeded permission: the wildcard plus one entry per `RBAC_PERMISSIONS` code. */
+export const SEEDED_PERMISSIONS = [
   {
     id: WILDCARD_PERMISSION_ID,
     code: '*',
@@ -77,13 +83,34 @@ const data = [
     description: 'Register a new user profile, and edit/deactivate an existing one by id.',
     isActive: true,
   },
+  {
+    id: RBAC_PERMISSION_GRANT_ACCESS_READ_ID,
+    code: RBAC_PERMISSIONS.grantAccessRead,
+    name: 'Read access grants',
+    description: 'List/view per-resource access grants and check a grant.',
+    isActive: true,
+  },
+  {
+    id: RBAC_PERMISSION_GRANT_ACCESS_WRITE_ID,
+    code: RBAC_PERMISSIONS.grantAccessWrite,
+    name: 'Manage access grants',
+    description: 'Create/edit/revoke per-resource access grants.',
+    isActive: true,
+  },
+  {
+    id: RBAC_PERMISSION_TEMPLATES_ACCESS_ID,
+    code: RBAC_PERMISSIONS.templatesAccess,
+    name: 'Manage notification templates',
+    description: 'Use the `/templates` CRUD API over database-backed template overrides.',
+    isActive: true,
+  },
 ]
 
 /** This project's production-always permission catalog: the wildcard permission plus every
  * `RBAC_PERMISSIONS` entry, upserted on boot via `seedManyByIdIfMissing`. */
 export default [
   {
-    handler: seedManyByIdIfMissing(data),
-    options: { version: '1.0.0' },
+    handler: seedManyByIdIfMissing(SEEDED_PERMISSIONS),
+    options: { version: '1.1.0' },
   } as const,
 ] as never[]

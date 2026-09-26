@@ -4,6 +4,8 @@ import { Button, Field, Input, useIntl } from '@zanix/space-ui/preact'
 // A NAMED import — see `index.ts`'s own identical doc.
 import { SubmitGuard } from '@zanix/space/comet/preact'
 import type { CreateElement } from 'ui/typings/renderer.ts'
+import { authHiddenFields } from 'ui/components/auth-hidden-fields/index.preact.ts'
+import OtpResend from 'ui/components/otp-resend/index.preact.ts'
 import { createOtpView } from './render.ts'
 import type { OtpViewDeps } from './render.ts'
 import type { OtpViewProps } from './types.ts'
@@ -20,5 +22,7 @@ export const OtpView: (props: OtpViewProps) => VNode = createOtpView<VNode>(
     Field,
     Input,
     SubmitGuard: SubmitGuard as unknown as OtpViewDeps<VNode>['SubmitGuard'],
+    authHiddenFields,
+    OtpResend: OtpResend as unknown as OtpViewDeps<VNode>['OtpResend'],
   },
 )

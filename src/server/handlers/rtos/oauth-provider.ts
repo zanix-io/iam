@@ -20,9 +20,9 @@ export class OAuthAuthorizeRTO extends BaseRTO {
   @IsUrl({ expose: true })
   accessor redirect_uri!: string
 
-  /** Only the authorization-code grant is accepted — this project's OAuth2 connectors never
-   * implement the weaker implicit flow on the CONSUMER side either (see `auth-oauth2`'s own
-   * reasoning), and the PROVIDER role built here follows the identical preference. */
+  /** Only the authorization-code grant is accepted — this project's OAuth2 connectors never use
+   * the weaker implicit flow on the CONSUMER side either, and the PROVIDER role follows the same
+   * preference. */
   @IsEnum(['code'], { expose: true })
   accessor response_type!: 'code'
 

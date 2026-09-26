@@ -1,5 +1,5 @@
 /** Both `iam`'s OTP and TOTP codes are 6-digit numeric strings (`@zanix/auth`'s own OTP/TOTP
- * defaults — see `auth-otp-and-totp`), so one shared shape validates either. */
+ * defaults), so one shared shape validates either. */
 const VERIFICATION_CODE_PATTERN = /^\d{6}$/
 
 /**

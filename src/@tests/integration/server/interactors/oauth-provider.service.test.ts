@@ -143,7 +143,7 @@ Deno.test('authorize: no session cookie redirects to the hosted login page, pres
     const returnTo = new URL(location, 'http://iam.internal').searchParams.get('redirect_to')
     assert(returnTo, 'a redirect_to param carrying the original request must be present')
     const returnToUrl = new URL(returnTo, 'http://iam.internal')
-    assertEquals(returnToUrl.pathname, '/oauth/authorize')
+    assertEquals(returnToUrl.pathname, '/api/oauth/authorize')
     assertEquals(returnToUrl.searchParams.get('client_id'), CLIENT.clientId)
     assertEquals(returnToUrl.searchParams.get('redirect_uri'), CLIENT.redirectUris[0])
     assertEquals(returnToUrl.searchParams.get('state'), 'xyz-state')

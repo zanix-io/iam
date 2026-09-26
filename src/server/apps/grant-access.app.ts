@@ -6,12 +6,12 @@ import { defaultEvaluateGrantAccess } from 'utils/grant-access.ts'
 import { GrantAccessService } from '../interactors/grant-access.interactor.ts'
 
 /**
- * The `grant-access` domain slice's own Zanix App — the customization/exposure layer for its
+ * The `grant-access` domain's own Zanix App — the customization/exposure layer for its
  * fine-grained, per-resource access grants (see `repositories/grant-access/model.defs.ts`'s own
  * doc for the full shape).
  *
- * **Why this gets its OWN manifest, rather than living on `auth.app.ts`** (the same question
- * `roles`' own RBAC evaluation already answered differently): `resolveEffectivePermissions`
+ * **Why this gets its OWN manifest, rather than living on `auth.app.ts`** (where `roles`' own RBAC
+ * evaluation lives): `resolveEffectivePermissions`
  * (`auth.app.ts`) is a LOGIN-time concern — evaluated once, embedded into a session token,
  * naturally owned by the app that mints that token. `evaluateGrantAccess` here is the opposite
  * shape: a PER-REQUEST, potentially CROSS-APP question ("does user X have access to resource Z
@@ -22,9 +22,8 @@ import { GrantAccessService } from '../interactors/grant-access.interactor.ts'
  * cross-PRODUCT isolation — see `RolesAttrs`'s own doc, `../repositories/roles/model.defs.ts`, for
  * that distinction). Bundling it onto `auth.app.ts` would
  * force every consumer of grant checks to depend on the login-time manifest too, and would misname
- * the concern. A second Zanix App, composed alongside `auth`, is the correct mechanism per the
- * Configuration/Extension/Override table (`app-behaviors-and-overrides`) — this is "new behavior
- * that doesn't replace anything existing", not a variation of an existing slot.
+ * the concern. A second Zanix App, composed alongside `auth`, fits because this is new behavior
+ * that doesn't replace anything existing, not a variation of an existing slot.
  *
  * `routes: false` deliberately, same reasoning as `auth.app.ts`: this app's job is
  * behavior/operation composition only. The real admin CRUD HTTP surface
@@ -46,7 +45,7 @@ const grantAccessApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
      *
      * Override to swap in an entirely different evaluation strategy — a different hierarchy, a
      * wildcard-expansion policy, an external policy engine — without forking
-     * `GrantAccessService`. See `app-behaviors-and-overrides` for the general mechanism.
+     * `GrantAccessService`.
      */
     evaluateGrantAccess: {
       default: defaultEvaluateGrantAccess,
@@ -60,10 +59,10 @@ const grantAccessApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
     /**
      * Exposes `GrantAccessService.checkAccess` to OTHER Zanix Apps — including ones running in a
      * different process — via `ctx.remote('grant-access').call('checkAccess', payload,
-     * {timeoutMs})` (`app-remote-calls-and-control-plane`). This is the actual point of exposing
-     * grant checks as a shared operation: a service composed alongside `zanix-iam` (or reachable
-     * from it over the Control Plane) can ask "does this caller have access to my own resource"
-     * without `zanix-iam` ever needing to know what that resource looks like — it only ever sees the
+     * {timeoutMs})` (`@zanix/app`'s remote calls). This is the point of exposing grant checks as
+     * a shared operation: a service composed alongside this one (or reachable from it over the
+     * Control Plane) can ask "does this caller have access to my own resource" without this
+     * service ever needing to know what that resource looks like — it only ever sees the
      * opaque `resourceId` string (see that field's own doc for the default
      * `"${appName}:${operationName}"` naming convention a caller checking one of ITS OWN
      * operations is expected to use).

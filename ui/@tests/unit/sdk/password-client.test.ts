@@ -68,3 +68,30 @@ Deno.test('PasswordClient.confirmRecovery: an invalid/expired code surfaces a 40
     )
   })
 })
+
+Deno.test('PasswordClient.addPassword: posts only the new password to pwd/add with a bearer header', async () => {
+  await withMockFetch([{ status: 200, body: { response: 'password added' } }], async (calls) => {
+    await new PasswordClient({ baseUrl: BASE_URL }).addPassword('access-token-value', 'FirstPass1')
+    assertEquals([calls[0].method, calls[0].url], ['POST', `${BASE_URL}/pwd/add`])
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+    assertEquals(bodyJson(calls[0]), { newPassword: 'FirstPass1' })
+  })
+})
+
+Deno.test('PasswordClient.addPassword: an already-set password surfaces the 409 as a RestClientError', async () => {
+  await withMockFetch([{ status: 409 }], async () => {
+    const error = await assertRejects(
+      () => new PasswordClient({ baseUrl: BASE_URL }).addPassword('access-token-value', 'x'),
+      RestClientError,
+    )
+    assertEquals(error.realHttpStatus, 409)
+  })
+})
+
+Deno.test('PasswordClient.removePassword: deletes pwd/remove with a bearer header', async () => {
+  await withMockFetch([{ status: 200, body: { response: 'password removed' } }], async (calls) => {
+    await new PasswordClient({ baseUrl: BASE_URL }).removePassword('access-token-value')
+    assertEquals([calls[0].method, calls[0].url], ['DELETE', `${BASE_URL}/pwd/remove`])
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+  })
+})

@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert@0.224'
+import { IAM_UI_MESSAGES_EN } from '../../../../../ui/sdk/messages/en.ts'
 import { mockPageContext } from '@zanix/space/testing'
 
 import LangLayout, { loader } from 'space/routes/[lang]/layout.tsx'
@@ -45,29 +46,20 @@ Deno.test(
 )
 
 Deno.test("LangLayout's own loader: forwards ctx.cspNonce", async () => {
-  // `mockPageContext` doesn't forward `cspNonce` from its own overrides (a real, confirmed gap in
-  // `@zanix/space/testing` — filed via `zanix report-issue`) — built here directly instead of
-  // through that helper for this one field.
+  // `mockPageContext` doesn't forward `cspNonce` from its overrides, so that one field is set
+  // directly on the context it returns.
   const ctx = { ...mockPageContext<LangParams>({ params: { lang: 'en' } }), cspNonce: 'abc123' }
   assertEquals((await loader(ctx)).cspNonce, 'abc123')
 })
 
 /**
- * `loadMessages()` itself — resolving `en/index.json` for real — is `@zanix/space`'s own already-
- * tested behavior, not re-verified here. It ALSO can't resolve a real file in a plain `deno test`
- * run for this project specifically: `space.app.ts` declares `clientBuildDir`, so `resolve()`
- * (outside `zanix space dev`) looks for the COMPILED catalog under `.dist/client/messages/...`,
- * which only exists after a real `zanix space build` — see `loadMessages`'s own doc for that
- * dev/prod split. What IS this project's own responsibility, and what these two tests actually
- * cover: the catalog FILE'S real content (read directly, independent of the resolution pipeline),
- * and that `IAM_MESSAGES` overrides make it into `data.messages` regardless of what the base
- * catalog resolved to.
+ * `loadMessages()` itself is `@zanix/space`'s own already-tested behavior, not re-verified here.
+ * What these two tests cover is this project's own responsibility: the shared catalog's real
+ * content, and that `IAM_MESSAGES` overrides make it into `data.messages` regardless of what the
+ * base catalog resolved to.
  */
-Deno.test("en/index.json (the base catalog) contains the real login/* keys LoginView's own useIntl() calls reference", async () => {
-  const raw = await Deno.readTextFile(
-    new URL('../../../../space/messages/en/index.json', import.meta.url),
-  )
-  const catalog = JSON.parse(raw) as Record<string, string>
+Deno.test("the shared catalog contains the real login/* keys LoginView's own useIntl() calls reference", () => {
+  const catalog = IAM_UI_MESSAGES_EN
   assertEquals(catalog['login/invalid-credentials'], 'Invalid email or password.')
   assertEquals(catalog['login/email-label'], 'Email')
   assertEquals(catalog['login/password-label'], 'Password')
@@ -89,7 +81,7 @@ Deno.test("LangLayout's own loader: an IAM_MESSAGES override reaches data.messag
   }
 })
 
-/** `LangLayout` now delegates its actual rendering to `@zanix/iam/ui/pages/lang-layout`'s own
+/** `LangLayout` delegates its actual rendering to `@zanix/iam/ui/pages/lang-layout`'s own
  * factory-built view (`createElement`-based, never JSX) — its returned `ReactElement`'s own `P`
  * generic is therefore genuinely `unknown` (no JSX literal for the type-checker to infer concrete
  * props from), unlike a plain JSX-authored component. This cast is this test's own accommodation

@@ -12,7 +12,7 @@ import { AddPasswordRTO, PwdRecoveryCbRTO, PwdRTO } from '../rtos/password.ts'
  *
  * @example
  * ```ts
- * const password = new PasswordClient({ baseUrl: 'https://iam.example.com' })
+ * const password = new PasswordClient({ baseUrl: 'https://iam.example.com/api' })
  *
  * // Forgot password:
  * await password.requestRecovery('user@example.com')

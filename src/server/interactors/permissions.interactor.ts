@@ -9,7 +9,7 @@ import { Interactor, ZanixInteractor } from '@zanix/server'
 import { PermissionsRepository } from '../repositories/permissions/entity.provider.ts'
 
 /**
- * Business logic for the `permissions` domain slice — managing the flat permission-code catalog
+ * Business logic for the `permissions` domain — managing the flat permission-code catalog
  * `roles` documents reference. See `PermissionsRepository`/`model.defs.ts` for the reserved `'*'`
  * wildcard code.
  */

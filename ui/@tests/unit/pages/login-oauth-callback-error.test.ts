@@ -24,6 +24,9 @@ Deno.test('OauthCallbackErrorView: renders the error heading/body and a back-to-
   assertStringIncludes(html, 'complete</h1>')
   assertStringIncludes(html, 'href="/en/login"')
   assertStringIncludes(html, 'Try again')
+  // The back link carries a `data-space` hook so themes style it; a bare `<a>` would fall back to
+  // the browser's default link styling (same reason as `totp-enroll.test.ts`'s `otpauth-link`).
+  assertStringIncludes(html, 'data-space="auth-back-link"')
 })
 
 Deno.test('OauthCallbackErrorView: falls back to "en" when params carries no lang', () => {

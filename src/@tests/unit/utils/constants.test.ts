@@ -341,3 +341,21 @@ Deno.test('withRedirectToParam: a no-op when the given url carries no safe redir
     '/en/login/otp/jane%40example.com',
   )
 })
+
+Deno.test('rate-limit tiers: default to 3 (free), 1 (critical) and 2 (login methods) with no env override', async () => {
+  const { criticalRateLimit, freeRateLimit, loginMethodsRateLimit } = await import(
+    'utils/constants.ts'
+  )
+  assertEquals(freeRateLimit, 3)
+  assertEquals(criticalRateLimit, 1)
+  assertEquals(loginMethodsRateLimit, 2)
+})
+
+Deno.test('resolvePostLoginRedirect: an absolute-looking but unparseable redirect_to is never trusted', () => {
+  withEnv(TRUSTED_REDIRECT_ORIGINS_ENV, 'https://app.example', () => {
+    withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/home', () => {
+      const url = new URL(`https://iam.example/en/login?${REDIRECT_TO_PARAM}=https://`)
+      assertEquals(resolvePostLoginRedirect(url), '/home')
+    })
+  })
+})

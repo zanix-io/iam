@@ -23,17 +23,13 @@ const CONSENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
  * `../layout.tsx`'s own doc for why this is a single, project-wide gate rather than one
  * special-cased per login/OTP/TOTP/recovery/OAuth2 flow.
  *
- * A real Space page action, deliberately, NOT a REST handler (`@zanix/server` `Controller`) —
- * confirmed live against `zanix space dev`: this project's own REST handlers
- * (`login.handler.ts`/`password.handler.ts`/...) are auto-discovered only by `mod.ts`'s own
- * `Zanix.start()` call, which `zanix space dev` never runs — a REST-handler-shaped consent endpoint
- * would be entirely unreachable under the exact dev loop this project (and its own live
- * verification) actually runs. A Space page action, by contrast, is served identically under both
- * `zanix space dev` and production `mod.ts`, the same way every other real page in this project
- * already is.
+ * A Space page action, deliberately, NOT a REST handler (`@zanix/server` `Controller`): this
+ * project's own REST handlers (`login.handler.ts`/`password.handler.ts`/...) are auto-discovered
+ * only by `mod.ts`'s own `Zanix.start()` call, which `zanix space dev` never runs, so a REST-shaped
+ * consent endpoint would be unreachable under `zanix space dev`. A Space page action is served
+ * identically under both `zanix space dev` and production `mod.ts`.
  *
- * No `csrfGuard()`, matching `../logout/page.tsx`'s own identical reasoning for the same class of
- * low-stakes action: the worst a forged cross-site `POST` here can do is record a consent decision
+ * No `csrfGuard()` — a low-stakes action: the worst a forged cross-site `POST` here can do is record a consent decision
  * the operator didn't actually make — a real but low-severity, bounded concern (a false "declined"
  * fails safe, emitting no session cookies at all; a false "accepted" only permits a LATER,
  * otherwise-legitimate login to emit real session cookies, which still requires the genuine account

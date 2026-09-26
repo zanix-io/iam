@@ -14,6 +14,11 @@ const TEST_MESSAGES = {
   'login/otp/heading': 'Enter your verification code',
   'login/otp/sent-to': 'A verification code was sent for {email}.',
   'login/otp/code-label': 'Verification code',
+  'login/otp/resend': "Didn't get it? Resend code",
+  'login/otp/resend-cooldown': 'We already sent you a code.',
+  'login/otp/resend-via-email': 'Send it by email instead',
+  'login/otp/resend-via-sms': 'Send it by SMS instead',
+  'login/otp/resend-via-whatsapp': 'Send it by WhatsApp instead',
   'common/invalid-or-expired-code': 'Invalid or expired code.',
   'common/verify': 'Verify',
   'common/back-to-sign-in': 'Back to sign in',
@@ -30,24 +35,38 @@ function renderOtpView(props: Parameters<InstanceType<typeof LoginOtpPage>['comp
   return renderComponentWithIntl(page.component, props, TEST_MESSAGES)
 }
 
-Deno.test('LoginOtpPage.loader: decodes the email param and surfaces the error flag', () => {
+Deno.test('LoginOtpPage.loader: decodes the email param and surfaces the error flag', async () => {
   const page = new LoginOtpPage(mockHandlerContext())
   const ctx = mockPageContext<OtpParams>({
     params: { lang: 'en', email: 'jane%40example.com' },
     request: new Request('http://localhost/en/login/otp/jane%40example.com?error=invalid_code'),
   })
-  const data = page.loader?.(ctx) as { email: string; invalidCode: boolean }
+  const data = await page.loader?.(ctx) as { email: string; invalidCode: boolean }
   assertEquals(data.email, 'jane@example.com')
   assertEquals(data.invalidCode, true)
 })
 
-Deno.test('LoginOtpPage.loader: a malformed percent-sequence email param falls back to the raw value', () => {
+Deno.test('LoginOtpPage.loader: no resolveLoginMethods on the interactor degrades to the safe default, never throws', async () => {
+  // The real, common shape a test double takes — no `resolveLoginMethods` at all — confirms the
+  // loader's own `try`/`catch` actually catches a SYNCHRONOUS throw (calling `undefined` as a
+  // function), not just a rejected promise a `.catch()` chain alone would have caught.
+  const page = new LoginOtpPage(mockHandlerContext())
+  const ctx = mockPageContext<OtpParams>({
+    params: { lang: 'en', email: 'jane@example.com' },
+    request: new Request('http://localhost/en/login/otp/jane@example.com'),
+  })
+  const data = await page.loader?.(ctx) as { otpNotifier: unknown; hasVerifiedPhone: unknown }
+  assertEquals(data.otpNotifier, null)
+  assertEquals(data.hasVerifiedPhone, false)
+})
+
+Deno.test('LoginOtpPage.loader: a malformed percent-sequence email param falls back to the raw value', async () => {
   const page = new LoginOtpPage(mockHandlerContext())
   const ctx = mockPageContext<OtpParams>({
     params: { lang: 'en', email: '%E0%A4%A' },
     request: new Request('http://localhost/en/login/otp/%25E0%25A4%25A'),
   })
-  const data = page.loader?.(ctx) as { email: string }
+  const data = await page.loader?.(ctx) as { email: string }
   assertEquals(data.email, '%E0%A4%A')
 })
 
@@ -85,6 +104,22 @@ Deno.test('LoginOtpPage.action: redirects home once the code verifies', async ()
   assertEquals(response?.headers.get('location'), '/')
 })
 
+Deno.test(
+  'LoginOtpPage.action: a reactivation challenge redirects to the reactivate page instead of finishing login',
+  async () => {
+    const page = pageWithInteractor(() => ({
+      needsReactivationConfirm: true,
+      reactivationToken: 'r-token',
+    }))
+    const ctx = mockActionContext<OtpParams, { email: string; code: string }>({
+      params: { lang: 'en', email: 'jane@example.com' },
+      body: { email: 'jane@example.com', code: '123456' },
+    })
+    const response = await page.action?.(ctx as never)
+    assertEquals(response?.headers.get('location'), '/en/login/reactivate/r-token')
+  },
+)
+
 Deno.test('LoginOtpPage.action: PRGs back with an error flag on a rejected code', async () => {
   const page = pageWithInteractor(() => {
     throw new HttpError('FORBIDDEN', { message: 'Invalid email or code.' })
@@ -109,4 +144,18 @@ Deno.test('LoginOtpPage.action: a real server-side fault propagates unchanged', 
     body: { email: 'jane@example.com', code: '123456' },
   })
   await assertRejects(() => page.action?.(ctx as never) as Promise<Response>)
+})
+
+Deno.test("LoginOtpPage.loader: surfaces the account's own OTP channel and verified-phone flag when the lookup succeeds", async () => {
+  const page = new LoginOtpPage(mockHandlerContext())
+  mockAccessor(page, 'interactor', {
+    resolveLoginMethods: () => Promise.resolve({ otpNotifier: 'sms', hasVerifiedPhone: true }),
+  })
+  const ctx = mockPageContext<OtpParams>({
+    params: { lang: 'en', email: 'jane@example.com' },
+    request: new Request('http://localhost/en/login/otp/jane@example.com'),
+  })
+  const data = await page.loader?.(ctx) as { otpNotifier: unknown; hasVerifiedPhone: unknown }
+  assertEquals(data.otpNotifier, 'sms')
+  assertEquals(data.hasVerifiedPhone, true)
 })

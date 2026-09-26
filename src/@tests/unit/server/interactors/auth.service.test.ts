@@ -1,14 +1,19 @@
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
 import { HttpError } from '@zanix/errors'
-import { ZanixAuthProvider } from '@zanix/auth'
+import { createJWT, ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
+import { setConfigOverride } from '@zanix/app/runtime'
 
 import { AuthService } from 'server/interactors/auth.interactor.ts'
 import { PasswordService } from 'server/interactors/password.interactor.ts'
 import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
 import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
 import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
-import { ACCESS_TOKEN_EXPIRATION_ENV, REFRESH_TOKEN_EXPIRATION_ENV } from 'utils/constants.ts'
+import {
+  ACCESS_TOKEN_EXPIRATION_ENV,
+  REACTIVATION_TOKEN_PURPOSE,
+  REFRESH_TOKEN_EXPIRATION_ENV,
+} from 'utils/constants.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
 
 async function withEnv(
@@ -80,6 +85,7 @@ const defaultAuthProvider = () => ({
     authenticate: fn((..._args: unknown[]) => ({ accessToken: 'access', refreshToken: 'refresh' })),
   },
   otp: {
+    generate: fn((..._args: unknown[]) => '123456'),
     verify: fn((..._args: unknown[]) => true),
     authenticate: fn((..._args: unknown[]) => ({ accessToken: 'access', refreshToken: 'refresh' })),
   },
@@ -87,6 +93,7 @@ const defaultAuthProvider = () => ({
 
 const defaultNotifier = () => ({
   email: fn((..._args: unknown[]) => {}),
+  sendMessage: fn((..._args: unknown[]) => {}),
 })
 
 const defaultUsersRepo = () => ({
@@ -175,6 +182,8 @@ Deno.test('loginWithPassword: short-circuits into OTP dispatch when 2FA triggers
   const result = await service.loginWithPassword('jane@example.com', 'secret')
   assertEquals(result, {
     message: 'Two-factor authentication is enabled. A verification code has been sent.',
+    email: 'jane@example.com',
+    method: 'email',
   })
   assertEquals(passwordService.recovery.calls[0], [
     'jane@example.com',
@@ -193,6 +202,8 @@ Deno.test('loginWithPassword: TOTP 2FA returns a distinct message, never an OTP 
   const result = await service.loginWithPassword('jane@example.com', 'secret')
   assertEquals(result, {
     message: 'Two-factor authentication is enabled. Enter your authenticator code.',
+    email: 'jane@example.com',
+    method: 'totp',
   })
   assertEquals(passwordService.recovery.calls.length, 0)
 })
@@ -371,11 +382,49 @@ Deno.test('loginWithOTPCallback: no existing account self-provisions via a verif
   assertEquals(result.accessToken, 'access')
 })
 
+Deno.test("loginWithOTPCallback: self-provisioning assigns auth.app.ts's configured defaultRoleId, so a new account starts with that role's permissions", async () => {
+  setConfigOverride('auth', 'defaultRoleId', 'role-default-member')
+  try {
+    let lookups = 0
+    const { service, authRepo } = buildService({
+      authRepo: {
+        findByEmail: fn((..._args: unknown[]): unknown =>
+          lookups++ === 0 ? undefined : baseAuth({ id: 'auth-new', userId: 'user-1' })
+        ),
+      },
+    })
+
+    await service.loginWithOTPCallback('new@example.com', '123456')
+
+    const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
+    assertEquals(registered.roleId, 'role-default-member')
+  } finally {
+    setConfigOverride('auth', 'defaultRoleId', '')
+  }
+})
+
+Deno.test('loginWithOTPCallback: with no defaultRoleId configured, self-provisioning passes roleId undefined', async () => {
+  let lookups = 0
+  const { service, authRepo } = buildService({
+    authRepo: {
+      findByEmail: fn((..._args: unknown[]): unknown =>
+        lookups++ === 0 ? undefined : baseAuth({ id: 'auth-new', userId: 'user-1' })
+      ),
+    },
+  })
+
+  await service.loginWithOTPCallback('new@example.com', '123456')
+
+  const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
+  assertEquals(registered.roleId, undefined)
+})
+
 Deno.test('loginWithOTPCallback: no existing account, invalid code, never provisions anything', async () => {
   const { service, authProvider, usersRepo, authRepo } = buildService({
     authRepo: { findByEmail: fn((..._args: unknown[]): unknown => undefined) },
     authProvider: {
       otp: {
+        generate: fn((..._args: unknown[]) => '123456'),
         verify: fn(() => false),
         authenticate: fn(() => ({ accessToken: '', refreshToken: '' })),
       },
@@ -392,24 +441,31 @@ Deno.test('loginWithOTPCallback: no existing account, invalid code, never provis
   assertEquals(authProvider.otp.authenticate.calls.length, 0)
 })
 
-Deno.test('loginWithOTPCallback: a VALID code reactivates an INACTIVE existing account', async () => {
-  const { service, usersRepo } = buildService({
-    authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1' })) },
-    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
-  })
-  const result = await service.loginWithOTPCallback('jane@example.com', '123456') as Record<
-    string,
-    unknown
-  >
-  assertEquals(usersRepo.reactivate.calls[0], ['user-1'])
-  assertEquals(result.accessToken, 'access')
-})
+Deno.test(
+  'loginWithOTPCallback: a VALID code against an INACTIVE account returns a reactivation ' +
+    'challenge instead of reactivating or finishing login',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1', id: 'auth-1' })) },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      const result = await service.loginWithOTPCallback('jane@example.com', '123456')
+      assertEquals(result, {
+        needsReactivationConfirm: true,
+        reactivationToken: (result as { reactivationToken: string }).reactivationToken,
+      })
+      assert(typeof (result as { reactivationToken: string }).reactivationToken === 'string')
+      // Never reactivated, never finished login — only `confirmReactivation` (given this exact
+      // token back) does either.
+      assertEquals(usersRepo.reactivate.calls.length, 0)
+    })
+  },
+)
 
-Deno.test('loginWithOTPCallback: an INVALID code never reactivates an INACTIVE account — the real probe-vector regression test', async () => {
-  // Critical regression guard for the reorder `loginWithOTPCallback` needed: reactivation must
-  // only ever happen AFTER `otp.authenticate` verifies a real code, never before/regardless of it
-  // — otherwise anyone could reactivate (or probe the status of) an inactive account by supplying
-  // its email with no valid code at all.
+Deno.test('loginWithOTPCallback: an INVALID code never reactivates (or reveals the status of) an INACTIVE account', async () => {
+  // Reactivation happens only AFTER `otp.authenticate` verifies the code; otherwise anyone could
+  // reactivate (or probe the status of) an inactive account with just its email.
   const { service, usersRepo } = buildService({
     authRepo: { findByEmail: fn(() => baseAuth({ userId: 'user-1' })) },
     usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
@@ -442,6 +498,134 @@ Deno.test('loginWithOTPCallback: still hard-blocks a DELETED existing account, n
   assertEquals(authProvider.otp.authenticate.calls.length, 0)
   assertEquals(usersRepo.reactivate.calls.length, 0)
 })
+
+// -- loginWithOTPCallback: 2FA enforcement ------------------------------------------------------
+// A direct OTP login honors `twoFactorAuthConfig` the same way `loginWithPassword`/
+// `confirmReactivation` do through `finishLogin`: when a second factor different from the OTP
+// channel is configured for login, it returns that challenge instead of tokens. These mirror
+// `finishLogin`'s 2FA tests above.
+
+Deno.test(
+  'loginWithOTPCallback: TOTP 2FA returns the challenge message, never tokens, never persists a session',
+  async () => {
+    const { service, authRepo } = buildService({
+      authRepo: {
+        findByEmail: fn(() =>
+          baseAuth({
+            userId: 'user-1',
+            twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] },
+          })
+        ),
+      },
+    })
+    const result = await service.loginWithOTPCallback('jane@example.com', '123456')
+    assertEquals(result, {
+      message: 'Two-factor authentication is enabled. Enter your authenticator code.',
+      email: 'jane@example.com',
+      method: 'totp',
+    })
+    assertEquals(authRepo.updateAuth.calls.length, 0)
+  },
+)
+
+Deno.test(
+  "loginWithOTPCallback: a notifier-based 2FA method DIFFERENT from the account's own otpNotifier " +
+    'preference (default email) short-circuits into a fresh OTP dispatch through that 2FA channel',
+  async () => {
+    const { service, authRepo, passwordService } = buildService({
+      authRepo: {
+        findByEmail: fn(() =>
+          baseAuth({
+            userId: 'user-1',
+            twoFactorAuthConfig: { method: 'whatsapp', triggerOn: ['login'] },
+          })
+        ),
+      },
+    })
+    const result = await service.loginWithOTPCallback('jane@example.com', '123456')
+    assertEquals(result, {
+      message: 'Two-factor authentication is enabled. A verification code has been sent.',
+      email: 'jane@example.com',
+      method: 'whatsapp',
+    })
+    assertEquals(passwordService.recovery.calls[0], [
+      'jane@example.com',
+      { isLogin: true, notifier: 'whatsapp' },
+    ])
+    assertEquals(authRepo.updateAuth.calls.length, 0)
+  },
+)
+
+Deno.test(
+  "loginWithOTPCallback: a notifier-based 2FA method THE SAME AS the account's own otpNotifier " +
+    'is never asked again — the code just verified already proves control of that channel',
+  async () => {
+    const { service, authRepo, passwordService } = buildService({
+      authRepo: {
+        findByEmail: fn(() =>
+          baseAuth({
+            userId: 'user-1',
+            otpNotifier: 'sms',
+            twoFactorAuthConfig: { method: 'sms', triggerOn: ['login'] },
+          })
+        ),
+      },
+    })
+    const result = await service.loginWithOTPCallback('jane@example.com', '123456') as Record<
+      string,
+      unknown
+    >
+    assertEquals(result.accessToken, 'access')
+    assertEquals(passwordService.recovery.calls.length, 0)
+    assertEquals(authRepo.updateAuth.calls.length, 1)
+  },
+)
+
+Deno.test(
+  "loginWithOTPCallback: 2FA not configured to trigger on 'login' is never asked, even with a " +
+    'different method configured',
+  async () => {
+    const { service, authRepo } = buildService({
+      authRepo: {
+        findByEmail: fn(() =>
+          baseAuth({
+            userId: 'user-1',
+            twoFactorAuthConfig: { method: 'totp', triggerOn: ['refresh'] },
+          })
+        ),
+      },
+    })
+    const result = await service.loginWithOTPCallback('jane@example.com', '123456') as Record<
+      string,
+      unknown
+    >
+    assertEquals(result.accessToken, 'access')
+    assertEquals(authRepo.updateAuth.calls.length, 1)
+  },
+)
+
+Deno.test(
+  'loginWithOTPCallback: an INACTIVE account with TOTP 2FA configured still returns the ' +
+    "reactivation challenge first — 2FA is re-checked later, by confirmReactivation's own finishLogin call",
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, authRepo } = buildService({
+        authRepo: {
+          findByEmail: fn(() =>
+            baseAuth({
+              userId: 'user-1',
+              twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] },
+            })
+          ),
+        },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      const result = await service.loginWithOTPCallback('jane@example.com', '123456')
+      assert('needsReactivationConfirm' in (result as Record<string, unknown>))
+      assertEquals(authRepo.updateAuth.calls.length, 0)
+    })
+  },
+)
 
 Deno.test('loginWithTOTPCallback: embeds the resolved role permissions', async () => {
   const { service, authProvider } = buildService({
@@ -568,8 +752,8 @@ Deno.test('loginWithPassword: throws FORBIDDEN when the linked users profile is 
     HttpError,
     'deactivated',
   )
-  // Regression guard: the OTP/OAuth2 reactivation carve-out (see `AuthService`'s own header doc)
-  // must never leak into this path — still a hard, unmodified `assertActive` block.
+  // The OTP/OAuth2 reactivation carve-out (see `AuthService`'s header doc) does not apply to
+  // password login: an inactive profile is a hard `assertActive` block here.
   assertEquals(usersRepo.reactivate.calls.length, 0)
 })
 
@@ -590,24 +774,44 @@ Deno.test('loginWithTOTPCallback: throws FORBIDDEN when the linked users profile
   assertEquals(usersRepo.reactivate.calls.length, 0)
 })
 
-Deno.test('totpEnroll: throws UNAUTHORIZED with no session', () => {
+Deno.test('totpEnroll: throws UNAUTHORIZED with no session', async () => {
   const { service } = buildService({ session: {} })
-  let threw = false
-  try {
-    service.totpEnroll()
-  } catch (error) {
-    threw = error instanceof HttpError
-  }
-  assertEquals(threw, true)
+  await assertRejects(() => service.totpEnroll(), HttpError, 'Authentication required')
 })
 
-Deno.test('totpEnroll: returns a secret and provisioning URI, persisting nothing', () => {
+Deno.test('totpEnroll: returns a secret and provisioning URI, persisting nothing', async () => {
   const { service, authRepo } = buildService()
-  const result = service.totpEnroll()
+  const result = await service.totpEnroll()
   assertEquals(result.secret, 'SECRET')
   assertEquals(result.uri, 'otpauth://totp/...')
   assertEquals(authRepo.updateAuth.calls.length, 0)
 })
+
+/** The provisioning label is built from the account's email, looked up with
+ * `AuthRepository.findById(subject)`, never from `subject` itself (the JWT `sub`, an internal id):
+ * `totpProvisioningLabel`'s default is the identity function `(email) => email`, so whatever it
+ * receives is what the authenticator app shows. */
+Deno.test("totpEnroll: resolves the account's real email (never the raw subject id) for the provisioning label", async () => {
+  const { service, authRepo, authProvider } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ id: 'auth-1' })) },
+  })
+  await service.totpEnroll()
+  const label = authProvider.totp.getProvisioningUri.calls[0]?.[1]
+  assertEquals(label, 'jane@example.com')
+  assertEquals(authRepo.findById.calls[0]?.[0], 'auth-1')
+})
+
+Deno.test(
+  'totpEnroll: falls back to the raw subject id when the account lookup finds nothing',
+  async () => {
+    const { service, authProvider } = buildService({
+      authRepo: { findById: fn(() => undefined) },
+    })
+    await service.totpEnroll()
+    const label = authProvider.totp.getProvisioningUri.calls[0]?.[1]
+    assertEquals(label, 'auth-1')
+  },
+)
 
 Deno.test('totpConfirm: throws FORBIDDEN when the code does not verify', async () => {
   const { service, authRepo } = buildService({
@@ -630,6 +834,185 @@ Deno.test('totpConfirm: on success persists the secret and sends the totp-enable
   assertEquals(notifier.email.calls.length, 1)
   assertEquals((notifier.email.calls[0]?.[0] as { to: string }).to, 'jane@example.com')
 })
+
+Deno.test('disableTotp: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.disableTotp(), HttpError, 'Authentication required')
+})
+
+Deno.test('disableTotp: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.disableTotp(), HttpError, 'Account not found')
+})
+
+Deno.test('disableTotp: clears totpSecret/twoFactorAuthConfig when TOTP is the configured method', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: {
+      findById: fn(() =>
+        baseAuth({ twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] } })
+      ),
+    },
+  })
+  const result = await service.disableTotp()
+  assertEquals(result, { response: 'TOTP disabled' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1' },
+    { unset: ['totpSecret', 'twoFactorAuthConfig'] },
+  ])
+})
+
+Deno.test('disableTotp: not the configured method is a no-op write', async () => {
+  const { service, authRepo } = buildService()
+  const result = await service.disableTotp()
+  assertEquals(result, { response: 'TOTP disabled' })
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})
+
+Deno.test('disableTotp: a different (OTP) 2FA method is never cleared', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: {
+      findById: fn(() =>
+        baseAuth({ twoFactorAuthConfig: { method: 'email', triggerOn: ['login'] } })
+      ),
+    },
+  })
+  const result = await service.disableTotp()
+  assertEquals(result, { response: 'TOTP disabled' })
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})
+
+Deno.test('phoneEnroll: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(
+    () => service.phoneEnroll('+15551234567'),
+    HttpError,
+    'Authentication required',
+  )
+})
+
+Deno.test('phoneEnroll: generates an OTP against a namespaced target and sends it via sms', async () => {
+  const { service, authProvider, notifier } = buildService()
+  const result = await service.phoneEnroll('+15551234567')
+  assertEquals(result, { response: 'notification sent' })
+  assertEquals(authProvider.otp.generate.calls[0]?.[0], { target: 'phone-enroll:auth-1', exp: 300 })
+  const [channel, message] = notifier.sendMessage.calls[0] as [
+    string,
+    { zanixTemplate: string; to: string; data: { code: string; ttl: number } },
+  ]
+  assertEquals(channel, 'sms')
+  assertEquals(message.to, '+15551234567')
+  assertEquals(message.zanixTemplate, 'otp')
+  assertEquals(message.data, { code: '123456', ttl: 5 })
+})
+
+Deno.test('phoneConfirm: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(
+    () => service.phoneConfirm('+15551234567', '123456'),
+    HttpError,
+    'Authentication required',
+  )
+})
+
+Deno.test('phoneConfirm: throws FORBIDDEN when the code does not verify — never persists phone', async () => {
+  const { service, authRepo, authProvider } = buildService({
+    authProvider: { otp: { ...defaultAuthProvider().otp, verify: fn(() => false) } },
+  })
+  await assertRejects(
+    () => service.phoneConfirm('+15551234567', 'wrong'),
+    HttpError,
+    'Invalid or expired code',
+  )
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+  assertEquals(authProvider.otp.verify.calls[0], ['phone-enroll:auth-1', 'wrong'])
+})
+
+Deno.test('phoneConfirm: a verified code persists phone, never otpNotifier', async () => {
+  const { service, authRepo } = buildService()
+  const result = await service.phoneConfirm('+15551234567', '123456')
+  assertEquals(result, { response: 'Phone verified' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1', phone: '+15551234567' },
+    { applyProtection: true },
+  ])
+})
+
+Deno.test('disablePhone: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.disablePhone(), HttpError, 'Authentication required')
+})
+
+Deno.test('disablePhone: throws FORBIDDEN when the session subject no longer resolves', async () => {
+  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.disablePhone(), HttpError, 'Account not found')
+})
+
+Deno.test('disablePhone: clears phone and otpNotifier together, unconditionally', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: {
+      findById: fn(() => baseAuth({ phone: { unmask: () => '+15551234567' }, otpNotifier: 'sms' })),
+    },
+  })
+  const result = await service.disablePhone()
+  assertEquals(result, { response: 'Phone removed' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1' },
+    { unset: ['phone', 'otpNotifier'] },
+  ])
+})
+
+Deno.test('setOtpNotifier: throws UNAUTHORIZED with no session', async () => {
+  const { service } = buildService({ session: {} })
+  await assertRejects(() => service.setOtpNotifier('sms'), HttpError, 'Authentication required')
+})
+
+Deno.test('setOtpNotifier: throws BAD_REQUEST for sms/whatsapp with no verified phone on file', async () => {
+  const { service } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ phone: undefined })) },
+  })
+  await assertRejects(
+    () => service.setOtpNotifier('sms'),
+    HttpError,
+    'Verify a phone number',
+  )
+})
+
+Deno.test('setOtpNotifier: sets sms/whatsapp once a phone is already verified', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ phone: { unmask: () => '+15551234567' } })) },
+  })
+  const result = await service.setOtpNotifier('whatsapp')
+  assertEquals(result, { response: 'OTP delivery preference updated' })
+  assertEquals(authRepo.updateAuth.calls[0], [{ id: 'auth-1', otpNotifier: 'whatsapp' }])
+})
+
+Deno.test('setOtpNotifier: omitted notifier resets back to email, even with a phone on file', async () => {
+  const { service, authRepo } = buildService({
+    authRepo: {
+      findById: fn(() => baseAuth({ phone: { unmask: () => '+15551234567' }, otpNotifier: 'sms' })),
+    },
+  })
+  const result = await service.setOtpNotifier()
+  assertEquals(result, { response: 'OTP delivery preference updated' })
+  assertEquals(authRepo.updateAuth.calls[0], [{ id: 'auth-1' }, { unset: ['otpNotifier'] }])
+})
+
+Deno.test(
+  "setOtpNotifier: '' (a plain <select>'s own \"Email\" option value) resets back to email, " +
+    'exactly like omitted — never rejected as an invalid notifier',
+  async () => {
+    const { service, authRepo } = buildService({
+      authRepo: {
+        findById: fn(() =>
+          baseAuth({ phone: { unmask: () => '+15551234567' }, otpNotifier: 'sms' })
+        ),
+      },
+    })
+    const result = await service.setOtpNotifier('')
+    assertEquals(result, { response: 'OTP delivery preference updated' })
+    assertEquals(authRepo.updateAuth.calls[0], [{ id: 'auth-1' }, { unset: ['otpNotifier'] }])
+  },
+)
 
 Deno.test('loginWithOauth: throws BAD_REQUEST when the provider is not configured', () => {
   const { service } = buildService()
@@ -660,7 +1043,7 @@ Deno.test('loginWithOauth: forwards an explicit state into generateAuthUrl', () 
 
   service.loginWithOauth('google', 'caller-supplied-state')
 
-  assertEquals(generateAuthUrl.calls[0], [{ state: 'caller-supplied-state' }])
+  assertEquals(generateAuthUrl.calls[0], [{ state: 'caller-supplied-state', loginHint: undefined }])
 })
 
 Deno.test('loginWithOauth: forwards undefined when called with no state', () => {
@@ -673,7 +1056,22 @@ Deno.test('loginWithOauth: forwards undefined when called with no state', () => 
 
   service.loginWithOauth('google')
 
-  assertEquals(generateAuthUrl.calls[0], [{ state: undefined }])
+  assertEquals(generateAuthUrl.calls[0], [{ state: undefined, loginHint: undefined }])
+})
+
+Deno.test('loginWithOauth: forwards loginHint into generateAuthUrl', () => {
+  const { service } = buildService()
+  const generateAuthUrl = fn((..._args: unknown[]) => ({
+    url: 'https://provider/auth',
+    state: 'x',
+  }))
+  mockAccessor(service, 'getOauthConnector', fn(() => ({ generateAuthUrl })))
+
+  service.loginWithOauth('google', 'caller-supplied-state', 'jane@example.com')
+
+  assertEquals(generateAuthUrl.calls[0], [
+    { state: 'caller-supplied-state', loginHint: 'jane@example.com' },
+  ])
 })
 
 function withOauthConnector(service: AuthService, validateCode: (...args: unknown[]) => unknown) {
@@ -746,6 +1144,29 @@ Deno.test('loginWithOauthCallback: no existing account self-provisions a new pro
   assertEquals(result.accessToken, 'access')
 })
 
+Deno.test("loginWithOauthCallback: self-provisioning assigns auth.app.ts's configured defaultRoleId — symmetric with loginWithOTPCallback's own identical resolution", async () => {
+  setConfigOverride('auth', 'defaultRoleId', 'role-default-member')
+  try {
+    let lookups = 0
+    const { service, authRepo } = buildService({
+      authRepo: {
+        findByEmail: fn((..._args: unknown[]): unknown =>
+          lookups++ === 0 ? undefined : baseAuth({ userId: 'user-1' })
+        ),
+        registerAuth: fn((..._args: unknown[]) => ({})),
+      },
+    })
+    withOauthConnector(service, () => ({ email: 'new@example.com', verified_email: true }))
+
+    await service.loginWithOauthCallback('code', 'google')
+
+    const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
+    assertEquals(registered.roleId, 'role-default-member')
+  } finally {
+    setConfigOverride('auth', 'defaultRoleId', '')
+  }
+})
+
 Deno.test('loginWithOauthCallback: an email already linked to a DIFFERENT sign-in method is a CONFLICT, never auto-linked', async () => {
   const { service, authRepo } = buildService({
     authRepo: { findByEmail: fn(() => baseAuth({ oauthProvider: 'github' })) },
@@ -774,18 +1195,29 @@ Deno.test('loginWithOauthCallback: an existing ACTIVE account already linked to 
   assertEquals(result.accessToken, 'access')
 })
 
-Deno.test('loginWithOauthCallback: reactivates an INACTIVE account and completes the login', async () => {
-  const { service, usersRepo } = buildService({
-    authRepo: { findByEmail: fn(() => baseAuth({ oauthProvider: 'google', userId: 'user-1' })) },
-    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
-  })
-  withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: true }))
+Deno.test(
+  'loginWithOauthCallback: an INACTIVE account returns a reactivation challenge instead of ' +
+    'reactivating or finishing login',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: {
+          findByEmail: fn(() =>
+            baseAuth({ id: 'auth-1', oauthProvider: 'google', userId: 'user-1' })
+          ),
+        },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      withOauthConnector(service, () => ({ email: 'jane@example.com', verified_email: true }))
 
-  const result = await service.loginWithOauthCallback('code', 'google') as Record<string, unknown>
+      const result = await service.loginWithOauthCallback('code', 'google')
 
-  assertEquals(usersRepo.reactivate.calls[0], ['user-1'])
-  assertEquals(result.accessToken, 'access')
-})
+      assert('needsReactivationConfirm' in result && result.needsReactivationConfirm === true)
+      assert(typeof (result as { reactivationToken: string }).reactivationToken === 'string')
+      assertEquals(usersRepo.reactivate.calls.length, 0)
+    })
+  },
+)
 
 Deno.test('loginWithOauthCallback: still hard-blocks a DELETED account with the unchanged error, never reactivating', async () => {
   const { service, usersRepo } = buildService({
@@ -838,7 +1270,7 @@ Deno.test('refreshTokens: throws FORBIDDEN when the linked users profile is dele
 })
 
 Deno.test('refreshTokens: two near-simultaneous requests presenting the SAME original token both succeed', async () => {
-  // Regression guard for the rotation-grace window `@zanix/auth@1.1.2` ships
+  // Covers the rotation-grace window `@zanix/auth` provides
   // (`getRotationGraceTokens`/`setRotationGraceTokens` in that package's own
   // `utils/sessions/block-list.ts`/`refresh.ts`) — a browser prefetching a link on hover then
   // navigating it, a double click, or two tabs on one session can all legitimately present the
@@ -953,6 +1385,8 @@ Deno.test('getOwnAuthMethods: returns a plain sanitized summary, never the raw p
     hasPassword: true,
     oauthProvider: 'google',
     totpEnabled: true,
+    phone: null,
+    otpNotifier: null,
   })
 })
 
@@ -966,8 +1400,115 @@ Deno.test('getOwnAuthMethods: no password/oauth/totp reports the falsy shape', a
     hasPassword: false,
     oauthProvider: null,
     totpEnabled: false,
+    phone: null,
+    otpNotifier: null,
   })
 })
+
+Deno.test('resolveLoginMethods: an email with a password configured reports hasPassword true', async () => {
+  const { service } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ password: { verify: () => true } })) },
+  })
+  const result = await service.resolveLoginMethods('jane@example.com')
+  assertEquals(result, {
+    hasPassword: true,
+    oauthProviders: [],
+    otpNotifier: null,
+    hasVerifiedPhone: false,
+  })
+})
+
+Deno.test('resolveLoginMethods: an email with an OAuth2 provider linked reports it', async () => {
+  const { service } = buildService({
+    authRepo: {
+      findByEmail: fn(() => baseAuth({ password: undefined, oauthProvider: 'google' })),
+    },
+  })
+  const result = await service.resolveLoginMethods('jane@example.com')
+  assertEquals(result, {
+    hasPassword: false,
+    oauthProviders: ['google'],
+    otpNotifier: null,
+    hasVerifiedPhone: false,
+  })
+})
+
+Deno.test('resolveLoginMethods: an existing email with no password/OAuth2 method falls back to the safe default', async () => {
+  const { service } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ password: undefined })) },
+  })
+  const result = await service.resolveLoginMethods('jane@example.com')
+  assertEquals(result, {
+    hasPassword: false,
+    oauthProviders: [],
+    otpNotifier: null,
+    hasVerifiedPhone: false,
+  })
+})
+
+Deno.test('resolveLoginMethods: a NONEXISTENT email returns the IDENTICAL default — never reveals the email does not exist', async () => {
+  // The real security property this method exists for: a caller must not be able to tell an
+  // unregistered email apart from a registered one with no password/OAuth2 method configured —
+  // see `AuthService.resolveLoginMethods`'s own doc for the full email-enumeration rationale.
+  const noAccount = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
+  const noPasswordAccount = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ password: undefined })) },
+  })
+
+  const resultForMissingEmail = await noAccount.service.resolveLoginMethods('nobody@example.com')
+  const resultForNoPassword = await noPasswordAccount.service.resolveLoginMethods(
+    'jane@example.com',
+  )
+
+  assertEquals(resultForMissingEmail, {
+    hasPassword: false,
+    oauthProviders: [],
+    otpNotifier: null,
+    hasVerifiedPhone: false,
+  })
+  assertEquals(resultForMissingEmail, resultForNoPassword)
+})
+
+Deno.test('resolveLoginMethods: never throws for a nonexistent email', async () => {
+  const { service } = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
+  // No `assertRejects` here on purpose — the whole point is this call resolves normally.
+  const result = await service.resolveLoginMethods('nobody@example.com')
+  assertEquals(result, {
+    hasPassword: false,
+    oauthProviders: [],
+    otpNotifier: null,
+    hasVerifiedPhone: false,
+  })
+})
+
+Deno.test(
+  "resolveLoginMethods: reports the account's own configured otpNotifier and a verified phone",
+  async () => {
+    const { service } = buildService({
+      authRepo: {
+        findByEmail: fn(() => baseAuth({ otpNotifier: 'whatsapp', phone: { unmask: () => '+1' } })),
+      },
+    })
+    const result = await service.resolveLoginMethods('jane@example.com')
+    assertEquals(result.otpNotifier, 'whatsapp')
+    assertEquals(result.hasVerifiedPhone, true)
+  },
+)
+
+Deno.test(
+  'resolveLoginMethods: no configured otpNotifier reports null (the real "email" default), never the literal string',
+  async () => {
+    const { service } = buildService({
+      authRepo: { findByEmail: fn(() => baseAuth({ phone: { unmask: () => '+1' } })) },
+    })
+    const result = await service.resolveLoginMethods('jane@example.com')
+    assertEquals(result.otpNotifier, null)
+    // A verified phone alone (no explicit otpNotifier override) still reports true here — the two
+    // fields are independent: one says WHICH channel is CURRENT, the other says whether an
+    // alternate is even deliverable at all.
+    assertEquals(result.hasVerifiedPhone, true)
+  },
+)
 
 Deno.test('linkOauth: throws UNAUTHORIZED with no session', async () => {
   const { service } = buildService({ session: {} })
@@ -1041,3 +1582,151 @@ Deno.test('unlinkOauth: connected to a DIFFERENT provider is a no-op write', asy
   assertEquals(result, { response: 'google disconnected' })
   assertEquals(authRepo.updateAuth.calls.length, 0)
 })
+
+Deno.test(
+  'confirmReactivation: a valid token reactivates the INACTIVE account and finishes login',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      const token = await createJWT(
+        { sub: 'auth-1', purpose: REACTIVATION_TOKEN_PURPOSE },
+        'test-secret',
+        { expiration: '5m' },
+      )
+
+      const result = await service.confirmReactivation(token) as Record<string, unknown>
+
+      assertEquals(usersRepo.reactivate.calls[0], ['user-1'])
+      assertEquals(result.accessToken, 'access')
+    })
+  },
+)
+
+Deno.test(
+  'confirmReactivation: an already-ACTIVE account (reactivated by a second, earlier confirm) ' +
+    'still finishes login without a redundant reactivate write',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+        usersRepo: { findById: fn(() => ({ status: 'ACTIVE' })) },
+      })
+      const token = await createJWT(
+        { sub: 'auth-1', purpose: REACTIVATION_TOKEN_PURPOSE },
+        'test-secret',
+        { expiration: '5m' },
+      )
+
+      const result = await service.confirmReactivation(token) as Record<string, unknown>
+
+      assertEquals(usersRepo.reactivate.calls.length, 0)
+      assertEquals(result.accessToken, 'access')
+    })
+  },
+)
+
+Deno.test('confirmReactivation: a DELETED account still hard-blocks, never reactivating', async () => {
+  await withEnv('JWT_KEY', 'test-secret', async () => {
+    const { service, usersRepo } = buildService({
+      authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+      usersRepo: { findById: fn(() => ({ status: 'DELETED' })) },
+    })
+    const token = await createJWT(
+      { sub: 'auth-1', purpose: REACTIVATION_TOKEN_PURPOSE },
+      'test-secret',
+      { expiration: '5m' },
+    )
+
+    await assertRejects(() => service.confirmReactivation(token), HttpError, 'no longer exists')
+    assertEquals(usersRepo.reactivate.calls.length, 0)
+  })
+})
+
+Deno.test('confirmReactivation: a garbage/malformed token is rejected, never reactivating', async () => {
+  await withEnv('JWT_KEY', 'test-secret', async () => {
+    const { service, usersRepo } = buildService({
+      usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+    })
+    await assertRejects(
+      () => service.confirmReactivation('not-a-real-token'),
+      HttpError,
+      'invalid or has expired',
+    )
+    assertEquals(usersRepo.reactivate.calls.length, 0)
+  })
+})
+
+Deno.test('confirmReactivation: an expired token is rejected, never reactivating', async () => {
+  await withEnv('JWT_KEY', 'test-secret', async () => {
+    const { service, usersRepo } = buildService({
+      authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+      usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+    })
+    const token = await createJWT(
+      {
+        sub: 'auth-1',
+        purpose: REACTIVATION_TOKEN_PURPOSE,
+        exp: Math.floor(Date.now() / 1000) - 60,
+      },
+      'test-secret',
+    )
+
+    await assertRejects(
+      () => service.confirmReactivation(token),
+      HttpError,
+      'invalid or has expired',
+    )
+    assertEquals(usersRepo.reactivate.calls.length, 0)
+  })
+})
+
+Deno.test(
+  'confirmReactivation: a token minted for a DIFFERENT purpose is rejected, never reactivating',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      const token = await createJWT(
+        { sub: 'auth-1', purpose: 'something-else' },
+        'test-secret',
+        { expiration: '5m' },
+      )
+
+      await assertRejects(
+        () => service.confirmReactivation(token),
+        HttpError,
+        'invalid or has expired',
+      )
+      assertEquals(usersRepo.reactivate.calls.length, 0)
+    })
+  },
+)
+
+Deno.test(
+  'confirmReactivation: a token signed with the WRONG secret is rejected, never reactivating',
+  async () => {
+    await withEnv('JWT_KEY', 'test-secret', async () => {
+      const { service, usersRepo } = buildService({
+        authRepo: { findById: fn(() => baseAuth({ id: 'auth-1', userId: 'user-1' })) },
+        usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+      })
+      const token = await createJWT(
+        { sub: 'auth-1', purpose: REACTIVATION_TOKEN_PURPOSE },
+        'a-completely-different-secret',
+        { expiration: '5m' },
+      )
+
+      await assertRejects(
+        () => service.confirmReactivation(token),
+        HttpError,
+        'invalid or has expired',
+      )
+      assertEquals(usersRepo.reactivate.calls.length, 0)
+    })
+  },
+)

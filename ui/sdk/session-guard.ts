@@ -9,21 +9,15 @@
  * `@zanix/auth`'s own `pageSessionGuard`/`optionalSessionGuard` are the wrong tool for this shape
  * of consumer: both are pure composition over `deriveSessionToken`, which verifies and ROTATES a
  * session TOKEN PAIR LOCALLY, against a copy of the same signing key `iam` itself holds — correct
- * for an app that genuinely IS its own session issuer (`iam` itself, `@zanix/console`), wrong for
- * one that already delegates that decision to a real `iam` deployment over its REST API. Calling
- * `iam`'s real `POST /login/refresh` on every request re-verifies the linked account is still
- * active and re-resolves the caller's CURRENT role on every call — a guarantee a local rotation
- * structurally cannot offer (there is no database to re-check against). `docs/ARCHITECTURE.md`'s
- * own governing decision for this ecosystem is "never re-verify a session locally" for exactly this
- * reason — see `requireSession`'s own doc in any real Tier 2/3 consumer for the fuller reasoning
- * this module generalizes away from having to hand-roll again.
+ * for an app that genuinely IS its own session issuer (`iam` itself), wrong for one that
+ * delegates that decision to a real `iam` deployment over its REST API. Calling `iam`'s real
+ * `POST /login/refresh` re-verifies the linked account is still active and re-resolves the
+ * caller's CURRENT role on every call — a guarantee a local rotation structurally cannot offer
+ * (there is no database to re-check against).
  *
- * Extracted from `@presenza/web`'s own `require-session.ts`/`resolve-optional-session.ts`/
- * `session-refresh-cache.ts` (12 sep 2026) after that consumer's own migration attempt to
- * `@zanix/auth`'s native guards surfaced this exact architectural mismatch — the real motivation
- * for a THIRD guard shape, owned by `iam` itself (the one party positioned to know its own real
- * rate-limit/rotation contract) rather than `@zanix/auth` (which has no opinion on any specific
- * external issuer) or left for every Tier 2/3 consumer to keep re-inventing.
+ * These guards live in `iam` itself — the one party that knows its own rate-limit/rotation
+ * contract — rather than in `@zanix/auth` (which has no opinion on any specific external issuer)
+ * or in every Tier 2/3 consumer.
  */
 
 import type {
@@ -62,7 +56,7 @@ export interface IamSessionGuardOptions {
    * `iam`'s own real access-token lifetime (its default is around an hour) rather than reading the
    * exact `expiresAt` value back from a real refresh call — a fixed, short window never risks
    * serving a token past its own real expiry, and stays comfortably inside `iam`'s own per-subject
-   * `criticRateLimit` (`docs/consuming-iam.md`'s "Rate limiting" section) for a normal multi-page
+   * `criticalRateLimit` (`docs/consuming-iam.md`'s "Rate limiting" section) for a normal multi-page
    * browsing session. Defaults to 5 minutes. */
   cacheTtlSeconds?: number
   /** Cache the refreshed pair across replicas via a real `cache:redis` core connector instead of
@@ -110,7 +104,7 @@ function writeCachedTokens(
  * completion — without this, the FIRST guarded page view right after a successful sign-in is
  * always a cache MISS for {@link getOrRefreshIamTokens} (nothing is cached yet for a refresh token
  * this young), forcing an immediate, unneeded real `POST /login/refresh` call for a token that's
- * still perfectly valid — and if THAT call lands inside `iam`'s own `criticRateLimit` per-subject
+ * still perfectly valid — and if THAT call lands inside `iam`'s own `criticalRateLimit` per-subject
  * window (a real, reproduced case: two tabs, a near-simultaneous double refresh sharing the same
  * subject's one-request budget), the caller is bounced back to the login page moments after a
  * genuinely successful sign-in. Call this right after applying a fresh login/OTP/TOTP result onto
@@ -138,9 +132,9 @@ const inFlightRefreshes = new Map<string, Promise<RefreshResult>>()
 
 /**
  * Returns the presented refresh token's already-cached pair when one is still fresh enough, or
- * calls `refresh()` and caches its result — the real fix for a guard otherwise calling `iam`'s real
- * `POST /login/refresh` on every single guarded page view, which exhausts `criticRateLimit` for
- * real, legitimate traffic almost immediately (`docs/consuming-iam.md`'s "Rate limiting" section).
+ * calls `refresh()` and caches its result — without the cache, a guard would call `iam`'s real
+ * `POST /login/refresh` on every single guarded page view, which exhausts `criticalRateLimit` for
+ * legitimate traffic almost immediately (`docs/consuming-iam.md`'s "Rate limiting" section).
  *
  * **Keyed by `(subject, tokenId)`, never `subject` alone** — the SAME real user can hold TWO
  * genuinely independent sessions at once (two tabs, two devices), each with its own legitimately
@@ -151,7 +145,7 @@ const inFlightRefreshes = new Map<string, Promise<RefreshResult>>()
  * two requests landing within the same instant (an Orbit prefetch racing the real navigation, an
  * SSR render racing a client-side fetch) both see a cache MISS on the identical, still-valid,
  * not-yet-rotated token before either write lands, and BOTH call `iam`'s real refresh endpoint —
- * the second one squarely inside `criticRateLimit`'s window, failing with a real `429` even though
+ * the second one squarely inside `criticalRateLimit`'s window, failing with a real `429` even though
  * the first call's result was already on its way to this very cache. Only closes the same-replica
  * case; a genuinely independent second guarded request (or a second replica without
  * `options.preferRedis`) still relies on the caller's own `429` handling (see
@@ -277,7 +271,16 @@ export function iamSessionGuard(
     const refreshToken = readRefreshCookie(scopedCtx)
 
     if (!refreshToken) {
-      throw new HttpError('UNAUTHORIZED', { message: 'No session cookie present.' })
+      // `code: 'NO_SESSION_COOKIE'` — a real, deliberate discriminator from the OTHER `UNAUTHORIZED`
+      // thrown below: a consumer's own login-redirect wiring (see this SDK's own
+      // `redirect-unauthorized.ts`) needs to tell "never had a session" apart from "had one,
+      // it expired/was revoked" to avoid showing a "your session expired" message for a session
+      // that never existed (e.g. a fresh private-window visit). Both cases still carry the identical HTTP status
+      // and generic shape otherwise; only the `code` differs.
+      throw new HttpError('UNAUTHORIZED', {
+        message: 'No session cookie present.',
+        code: 'NO_SESSION_COOKIE',
+      })
     }
 
     let tokens: RefreshResult
@@ -289,6 +292,7 @@ export function iamSessionGuard(
       }
       throw new HttpError('UNAUTHORIZED', {
         message: 'Session refresh failed — the refresh token is expired, invalid, or revoked.',
+        code: 'SESSION_REFRESH_FAILED',
         cause: error,
       })
     }

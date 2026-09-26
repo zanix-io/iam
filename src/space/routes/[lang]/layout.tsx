@@ -53,22 +53,17 @@ export const loader = async (ctx: PageContext<LangParams>): Promise<LangLayoutDa
  * real render reaching this layout, so it's never actually `undefined` here in practice.
  *
  * {@linkcode CookieConsentModal} is composed HERE, once, project-wide — not per login/OTP/TOTP/
- * password-recovery/OAuth2 page. Real, confirmed bug this closes: `@zanix/auth`'s own
- * `checkAcceptedCookies` defaults to `false` unless a request already carries an accepted-cookies
- * signal, so with no consent mechanism at all, `sessionHeadersInterceptor` never emitted ANY session
- * `Set-Cookie` on a real login — the login itself succeeded (correct response headers, correct
- * redirect), but no session ever actually persisted in the browser.
+ * password-recovery/OAuth2 page. `@zanix/auth`'s own `checkAcceptedCookies` resolves `false` unless
+ * a request already carries an accepted-cookies signal, and without it `sessionHeadersInterceptor`
+ * emits no session `Set-Cookie` — a login succeeds but no session persists in the browser.
  *
- * This project diverges from `@zanix/console`'s own reference (a per-login-form dialog whose
- * "Accept" flow attaches `X-Znx-Cookies-Accepted: true` as a real header on that ONE form's own
- * `fetch()`-driven submit) because this project has SEVERAL session-issuing entry points, one of
- * which — `login/[oauth]/callback/page.tsx` — mints a session from a plain `GET` the OAuth2
- * provider's own browser redirect delivers, with no form for a per-form interception trick to
- * attach to at all. A single, project-wide gate shown before the user ever reaches ANY of those
- * flows (this layout wraps every one of them) persists the decision as a real cookie
- * (`./consent/page.tsx`) BEFORE that point is ever reached, so
- * `checkAcceptedCookies`'s own cookie fallback picks it up uniformly for every later request,
- * OAuth2's plain `GET` included — with no per-form special-casing anywhere.
+ * A per-form mechanism (attaching `X-Znx-Cookies-Accepted: true` as a header on one form's own
+ * `fetch()`-driven submit) can't cover this project: one of its session-issuing entry points —
+ * `login/[oauth]/callback/page.tsx` — mints a session from a plain `GET` the OAuth2 provider's own
+ * browser redirect delivers, with no form to attach to. A single, project-wide gate shown before
+ * the user reaches ANY of those flows (this layout wraps every one of them) persists the decision
+ * as a real cookie (`./consent/page.tsx`), so `checkAcceptedCookies`'s own cookie fallback picks it
+ * up uniformly for every later request, OAuth2's plain `GET` included.
  *
  * {@linkcode CookieConsentModal} only mounts while `isCookieConsentEnabled()`
  * (`utils/constants.ts`'s own `COOKIE_CONSENT_ENABLED_ENV`) says so — the default. A deployment

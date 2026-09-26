@@ -215,3 +215,14 @@ Deno.test('searchUsers: returns paginated, adapted profiles', async () => {
   assertEquals(result.total, 1)
   assertEquals(result.docs[0].id, 'user-1')
 })
+
+Deno.test('getOwnProfile: throws NOT_FOUND when the linked profile id resolves to no document', async () => {
+  const { service } = buildService({ usersRepo: { findById: fn(() => undefined) } })
+  await assertRejects(() => service.getOwnProfile(), HttpError, 'User not found.')
+})
+
+Deno.test('getUserById: returns the profile when it exists', async () => {
+  const { service, usersRepo } = buildService()
+  assertEquals(await service.getUserById('user-1') as unknown, baseUser())
+  assertEquals(usersRepo.findById.calls, [['user-1']])
+})

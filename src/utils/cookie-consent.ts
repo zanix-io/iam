@@ -8,13 +8,7 @@
  * browser involved.
  *
  * This project composes its cookie-consent gate ONCE, project-wide, in the root `[lang]/layout.tsx`
- * — not per-form, the way `@zanix/console`'s own `src/auth/cookie-consent.ts` does for its single
- * login form. See that layout file's own doc for the full reasoning: this project has several
- * session-issuing entry points (password login, OTP/TOTP callbacks, password-recovery callback),
- * including one — the OAuth2 GET callback (`login/[oauth]/callback/page.tsx`) — reached via a plain
- * browser redirect the provider itself initiates, with no form for a per-form interception trick to
- * attach to at all. A single, project-wide gate shown before the user ever reaches any of those
- * covers all of them uniformly, with no per-flow special-casing.
+ * — see that layout's own doc for why it is project-wide rather than per-form.
  */
 
 /**
@@ -22,8 +16,7 @@
  * (`GENERAL_HEADERS.cookiesAcceptedHeader`, `@zanix/server`'s own `utils/constants.ts`) read and
  * write — hardcoded here rather than imported: this module is imported by a Comet
  * (`../space/comets/cookie-consent-modal.comet.tsx`), which client-bundles, and pulling the whole
- * `@zanix/server` dependency graph into that bundle for one string constant is unnecessary weight
- * (same reasoning `@zanix/console`'s own `cookie-consent.ts` documents for its identical constant).
+ * `@zanix/server` dependency graph into that bundle for one string constant is unnecessary weight.
  * Keep this in sync with `@zanix/server`'s own constant if it ever changes.
  */
 export const COOKIES_ACCEPTED_COOKIE = 'X-Znx-Cookies-Accepted'
@@ -76,10 +69,9 @@ export function hasAcceptedCookiesCookie(cookieHeader: string | null | undefined
  * than a re-implementation the test could drift from.
  *
  * Targets `/{lang}/consent` — a real `@zanix/space` PAGE action
- * (`../space/routes/[lang]/consent/page.tsx`), not an unprefixed REST endpoint: confirmed live
- * against `zanix space dev` that this project's own REST handlers are never auto-discovered under
- * that dev loop at all (only `mod.ts`'s own `Zanix.start()` call does that), so a REST-shaped
- * consent endpoint would be unreachable there. `lang` must be the CURRENT page's own resolved
+ * (`../space/routes/[lang]/consent/page.tsx`), not an unprefixed REST endpoint: `zanix space dev`
+ * never auto-discovers this project's own REST handlers (only `mod.ts`'s own `Zanix.start()` call
+ * does), so a REST-shaped consent endpoint would be unreachable there. `lang` must be the CURRENT page's own resolved
  * language segment (e.g. `[lang]/layout.tsx`'s own `data.lang`) — this project's `langPreHandler`
  * 301-redirects any unprefixed path, so a hardcoded or missing prefix would never reach this route.
  *

@@ -5,8 +5,7 @@ import { Provider, ZanixProvider } from '@zanix/server'
 
 /**
  * Provider for the `grant_accesses` model — fine-grained, per-resource access grants. See
- * `model.defs.ts` for the full shape and its deliberate deviations from this domain slice's own
- * grounding reference.
+ * `model.defs.ts` for the full shape.
  *
  * @class
  * @extends ZanixProvider

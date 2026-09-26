@@ -7,12 +7,13 @@ import { TotpConfirmRTO } from '../rtos/password.ts'
 
 /**
  * Thin REST client over `iam`'s real authenticator-app (TOTP) endpoints: login verification
- * (`POST /login/totp/callback`) and enrollment (`GET /login/totp/enroll`,
- * `POST /login/totp/confirm`) — distinct from `OtpClient`'s out-of-band codes.
+ * (`POST /login/totp/callback`), enrollment (`GET /login/totp/enroll`,
+ * `POST /login/totp/confirm`), and disabling (`DELETE /login/totp`) — distinct from `OtpClient`'s
+ * out-of-band codes.
  *
  * @example
  * ```ts
- * const totp = new TotpClient({ baseUrl: 'https://iam.example.com' })
+ * const totp = new TotpClient({ baseUrl: 'https://iam.example.com/api' })
  *
  * // Enrollment (requires an authenticated session):
  * const { secret, uri } = await totp.enroll(accessToken) // render `uri` as a QR code
@@ -20,6 +21,9 @@ import { TotpConfirmRTO } from '../rtos/password.ts'
  *
  * // Login verification (no session yet — TOTP itself is the second factor):
  * const { accessToken: newAccessToken } = await totp.verifyLogin('user@example.com', '123456')
+ *
+ * // Disabling (requires an authenticated session):
+ * await totp.disable(accessToken)
  * ```
  */
 export class TotpClient extends IamApiClient {
@@ -67,6 +71,14 @@ export class TotpClient extends IamApiClient {
     body.code = code
     return this.http.post<MessageResponse>('login/totp/confirm', {
       body: JSON.stringify(body),
+      headers: this.authHeaders(accessToken),
+    })
+  }
+
+  /** Disables TOTP 2FA for the caller's own account. A no-op (not an error) if it wasn't enabled
+   * in the first place. Requires an authenticated access token. */
+  public disable(accessToken: string): Promise<MessageResponse> {
+    return this.http.delete<MessageResponse>('login/totp', {
       headers: this.authHeaders(accessToken),
     })
   }

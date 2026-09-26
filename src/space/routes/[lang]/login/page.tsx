@@ -3,11 +3,16 @@ import type { PageActionContext, PageContext } from '@zanix/space'
 import { Guard } from '@zanix/server'
 import { csrfGuard, Page, SpacePageController } from '@zanix/space'
 import { HttpError } from '@zanix/errors'
-import { GITHUB_OAUTH2_CLIENT_ID_ENV, GOOGLE_OAUTH2_CLIENT_ID_ENV } from '@zanix/auth'
+import {
+  GITHUB_OAUTH2_CLIENT_ID_ENV,
+  GOOGLE_OAUTH2_CLIENT_ID_ENV,
+  rateLimitGuard,
+} from '@zanix/auth'
 import { LoginView } from 'ui/pages/login/index.ts'
 import type { LoginViewProps } from 'ui/pages/login/index.ts'
 import { AuthService } from 'server/interactors/auth.interactor.ts'
 import { LoginRTO } from 'server/handlers/rtos/login.ts'
+import { freeRateLimit } from 'utils/constants.ts'
 import {
   OAUTH_PROVIDERS,
   postLoginRedirectUrl,
@@ -25,24 +30,16 @@ type LoginParams = { lang: string }
  * below, surfaced by `LoginView` as a plain, static error message. Not a flash/session mechanism: a
  * real, stateless PRG (post-redirect-get) query param. */
 const INVALID_CREDENTIALS_ERROR = 'invalid_credentials'
-/** Query param this page's own `action` WOULD redirect back with on a rate-limited attempt — kept
- * for parity with a Tier-2 consumer (`docs/consuming-iam.md`) calling this SAME `LoginView` after
- * catching a real `429` from `POST /login/login` over HTTP. This page's own `action` calls
- * `AuthService.loginWithPassword` directly (an in-process interactor call, never an HTTP round
- * trip through this project's own REST layer), which never runs `freeRateLimit`'s own
- * `@RateLimitGuard` at all — that's HTTP-request middleware, not something a direct method call
- * passes through — so this branch is currently unreachable from here in practice. Wired anyway so
- * `loader` can supply the (now required) `LoginViewProps.rateLimited` the same principled way
- * `invalidCredentials` already is, rather than a hardcoded `false` that would silently stop being
- * true the moment this action's own call path ever changes. */
+/** Query param a rate-limited attempt is surfaced with — kept for parity with a Tier-2 consumer
+ * (`docs/consuming-iam.md`) calling this SAME `LoginView` after catching a `429` from
+ * `POST /login/login` over HTTP. This page's own `@Guard(rateLimitGuard(...))` (below) answers a
+ * rejection directly with the guard's own `TOO_MANY_REQUESTS` response, before `loader`/`action`
+ * run, so this page itself never redirects with it; `loader` still reads it to supply
+ * `LoginViewProps.rateLimited` from the URL rather than a hardcoded `false`. */
 const RATE_LIMITED_ERROR = 'rate_limited'
-/** Same parity reasoning as {@link RATE_LIMITED_ERROR}'s own doc: this page's own `action` never
- * actually redirects with this (its `catch` below only ever distinguishes `FORBIDDEN`, `throw`ing
- * anything else unchanged rather than disguising a real interactor fault as a generic message) —
- * wired anyway so `loader` can supply the (now required) `LoginViewProps.unexpectedError` the same
- * principled way, for a Tier-2 consumer calling this SAME `LoginView` after catching a real
- * non-`403`/`429` upstream failure over HTTP (see `docs/consuming-iam.md`'s own `login/page.tsx`
- * reference for that consumer-side shape). */
+/** Same parity role as {@link RATE_LIMITED_ERROR}, for `LoginViewProps.unexpectedError` (a
+ * non-`403`/`429` upstream failure): this page's own `action` never redirects with it — its `catch`
+ * below only distinguishes `FORBIDDEN` and rethrows anything else unchanged. */
 const UNEXPECTED_ERROR = 'unexpected_error'
 
 /**
@@ -65,24 +62,36 @@ function configuredOauthProviders(): typeof OAUTH_PROVIDERS[number][] {
 
 /**
  * This project's own password-login page — a NORMAL `@zanix/space` route with an `action` calling
- * `AuthService.loginWithPassword` directly (this project OWNS a real, already-tested multi-user
- * `AuthService`, unlike `console`'s own single-bootstrap-operator `LoginInteractor`, so this page
- * needs no bespoke bootstrap-operator handling of its own). `HttpOnly`,
+ * `AuthService.loginWithPassword` directly. `HttpOnly`,
  * `SameSite=Strict` session cookies, exactly like any other `@zanix/space` page — no bespoke cookie
  * handling anywhere in this file: `sessionHeadersInterceptor` (registered globally via `mod.ts`'s
  * own `import '@zanix/auth/core'`) writes them onto the response on its own, once
  * `AuthService.loginWithPassword` has set the session through `ZanixAuthProvider`'s own
  * request-scoped context — the SAME context resolution `LoginController.login` (the REST endpoint
- * calling this identical interactor method) already relies on, confirmed by reading
- * `AuthService`'s own source: neither call site threads an explicit `ctx`, both resolve through
+ * calling this identical interactor method) relies on: neither call site threads an explicit `ctx`,
+ * both resolve through
  * `ContextualBaseClass`'s own per-request `this.context`, populated by `@zanix/server`'s
  * `contextSettingPipe` before ANY handler (REST or SSR) runs.
  *
  * `@Guard(csrfGuard())` below `@Page()` issues a token on this page's `GET` (rendered into the
- * hidden `_csrf` field above) and requires it back on the `POST`.
+ * hidden `_csrf` field) and requires it back on the `POST`.
  */
+// This page's own `action` calls `AuthService.loginWithPassword` directly (an in-process
+// interactor call, never an HTTP round trip), so `LoginController.login`'s own
+// `@RateLimitGuard({ app: 'login:password', ... })` (`login.handler.ts`) never runs for a visitor
+// reaching this route — this guard is what protects it. A distinct `app` key
+// (`login:password-page`, not `'login:password'`) keeps its own bucket, isolated from the REST
+// endpoint's — the same "every anonymous `@RateLimitGuard` carries its own `app` value" rule
+// `login.handler.ts`'s own doc establishes, extended across the REST/native-page boundary.
 @Page({ Interactor: AuthService, action: { Body: LoginRTO } })
 @Guard(csrfGuard())
+@Guard(
+  rateLimitGuard({
+    app: 'login:password-page',
+    anonymousLimit: freeRateLimit,
+    trustProxyHeader: true,
+  }),
+)
 export default class LoginPage extends SpacePageController<LoginParams, AuthService> {
   public static override head = { title: 'Sign in' }
 
@@ -92,10 +101,10 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
    * still redirects away from here, which is harmless: the destination has no session-derived data
    * of its own to protect either).
    *
-   * Redirects to the plain, UNPREFIXED `/` — this project has no dashboard/account page yet, so
-   * `langPreHandler` picks the follow-up GET back up and redirects it again to `/{lang}/`, which
-   * currently has no page of its own either and renders the built-in default not-found view.
-   * Harmless and expected until a real landing page exists; replace this target once one does.
+   * Redirects to {@linkcode postLoginRedirectUrl} (`POST_LOGIN_REDIRECT_URL`, default `/`). This
+   * project ships no dashboard/account page, so with the default, `langPreHandler` redirects the
+   * follow-up GET to `/{lang}/`, which renders the built-in not-found view — set
+   * `POST_LOGIN_REDIRECT_URL` to the host's own landing page.
    *
    * `code: 302` — this redirect's own condition is session-state-dependent (fires only while
    * logged in); the framework's own default (`301`, Permanent) would let a browser cache "GET
@@ -155,16 +164,9 @@ export default class LoginPage extends SpacePageController<LoginParams, AuthServ
       return redirectResponse(resolvePostLoginRedirect(ctx.url))
     }
 
-    // 2FA required. `finishLogin`'s two challenge branches return the SAME `{ message }` shape
-    // with no machine-checkable discriminator field of their own — the authenticator-app (TOTP)
-    // branch's message is the only one containing "authenticator", so that substring is what
-    // distinguishes it from every notifier-delivered OTP method (email/SMS/WhatsApp), which all
-    // share the other message. `'message' in result` also structurally covers `loginWithOTP`'s
-    // third, `{ response: string }` shape (unreachable from THIS call path, but part of
-    // `loginWithPassword`'s own declared return type) by falling back to the OTP challenge for it.
-    const challengePath = 'message' in result && result.message.includes('authenticator')
-      ? 'totp'
-      : 'otp'
+    // 2FA required: `method` names the step — `'totp'` for an authenticator code, a notifier for a
+    // code just sent through it.
+    const challengePath = 'method' in result && result.method === 'totp' ? 'totp' : 'otp'
     return redirectResponse(
       withRedirectToParam(
         `/${lang}/login/${challengePath}/${encodeURIComponent(body.email)}`,

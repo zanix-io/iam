@@ -25,8 +25,8 @@ const INVALID_CODE_ERROR = 'invalid_code'
  * all is, by definition, already authenticated — an unauthenticated request never gets past the
  * guard to run `loader`/`component` in the first place, it is rejected with `401` first. There is
  * therefore no scenario where a direct visit here should render a "start from enrollment" message
- * implying the visitor might not be logged in: `redirect` below sends every one of them to `/`
- * instead, matching `login/page.tsx`'s own "an already-authenticated visitor has no reason to see
+ * implying the visitor might not be logged in: `redirect` below sends every one of them to
+ * `postLoginRedirectUrl()` instead, matching `login/page.tsx`'s own "an already-authenticated visitor has no reason to see
  * this form" `static redirect` — same `code: 302` reasoning (a session-state-dependent redirect
  * must never be cached as permanent, see that page's own doc). Unlike `login/page.tsx`, this
  * page's own redirect needs no `condition` of its own: the guard has already done that filtering

@@ -1,9 +1,12 @@
 import type { PageContext } from '@zanix/space'
 
+import { Guard } from '@zanix/server'
 import { Page, SpacePageController } from '@zanix/space'
+import { rateLimitGuard } from '@zanix/auth'
 import { RecoveryRequestView } from 'ui/pages/password-recovery-request/index.ts'
 import type { RecoveryRequestViewProps } from 'ui/pages/password-recovery-request/index.ts'
 import { PasswordService } from 'server/interactors/password.interactor.ts'
+import { criticalRateLimit } from 'utils/constants.ts'
 
 type RecoveryParams = { lang: string; email: string }
 
@@ -19,18 +22,27 @@ function decodeEmailParam(raw: string): string {
 /**
  * The password-recovery REQUEST step — dispatches a recovery code for `:email` on `GET`, the same
  * project convention `PasswordController.recovery` (the matching REST endpoint) already treats as
- * an anonymous-rate-limited `GET` side effect (`RateLimitGuard({ anonymousLimit: criticRateLimit,
+ * an anonymous-rate-limited `GET` side effect (`RateLimitGuard({ anonymousLimit: criticalRateLimit,
  * ... })`), rather than something requiring a `POST`. `../callback/page.tsx` is the separate
- * confirmation-form step (code + new password) — split the same way the task's own two REST
- * endpoints (`recovery` / `recoveryCallback`) already are.
+ * confirmation-form step (code + new password) — split the same way the two REST endpoints
+ * (`recovery` / `recoveryCallback`) are.
  *
- * `PasswordService.recovery` throws `FORBIDDEN` for an email with no account — left to propagate
- * to this route's own error boundary/default error view rather than silently swallowed, matching
- * this project's existing, already-tested interactor behavior as-is (an email-enumeration hardening
- * choice, if wanted, belongs to `PasswordService` itself, not something this page should
- * reinterpret on its own).
+ * `PasswordService.recovery` answers the same confirmation for every email (see its doc), so this
+ * page renders the same view whether or not an account exists.
  */
+// This page's own `loader` calls `PasswordService.recovery` directly (an
+// in-process interactor call, fired on a plain `GET`), so `PasswordController.recovery`'s own
+// `@RateLimitGuard` (`password.handler.ts`) never runs for a visitor reaching this route. A
+// distinct `app` key (`pwd:recovery-page`) keeps its own bucket, isolated from the REST endpoint's
+// own.
 @Page({ Interactor: PasswordService })
+@Guard(
+  rateLimitGuard({
+    app: 'pwd:recovery-page',
+    anonymousLimit: criticalRateLimit,
+    trustProxyHeader: true,
+  }),
+)
 export default class PasswordRecoveryRequestPage
   extends SpacePageController<RecoveryParams, PasswordService> {
   public static override head = { title: 'Check your email' }

@@ -60,9 +60,9 @@ const data = await resolveFirstAdminAuthData()
 
 /** This project's production-always `auth` fixtures: the opt-in first-admin bootstrap account (see
  * {@linkcode FIRST_ADMIN_AUTH_ID}'s own doc), upserted on boot via `seedManyByIdIfMissing` when
- * configured — otherwise empty, exactly like this file's own prior state. Every other real `auth`
- * account is either registered through `UsersService.registerUser`/`AuthService.loginWithOauth`,
- * or (dev-only) `seeders.dev.ts`'s own bootstrap account. */
+ * configured — otherwise empty. Every other `auth` account is registered through
+ * `UsersService.registerUser`, OTP/OAuth2 self-registration (`AuthService.loginWithOTPCallback`/
+ * `loginWithOauthCallback`), or (dev-only) `seeders.dev.ts`'s own bootstrap account. */
 export default (data.length
   ? [
     {

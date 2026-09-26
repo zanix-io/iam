@@ -24,8 +24,8 @@ export class CreateRoleRTO extends BaseRTO {
 /** `PATCH /roles/:id` body — every field optional, `code`/`tenantId` are immutable once created
  * (mirroring `code`'s own immutability — moving a role between tenants, or between tenant-scoped
  * and global, would need to re-validate the `{code, tenantId}` uniqueness tuple against a
- * different key than the one this endpoint's own `id` param already identifies; not supported by
- * this slice). Create a new role under the desired `tenantId` instead. */
+ * different key than the one this endpoint's own `id` param already identifies; not supported).
+ * Create a new role under the desired `tenantId` instead. */
 export class EditRoleRTO extends BaseRTO {
   @IsString({ expose: true, optional: true })
   accessor name: string | undefined

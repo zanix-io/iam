@@ -5,24 +5,19 @@ import seeders from './seeders/main.ts'
 
 /**
  * The `roles` collection — a named, reusable bundle of `permissions` (see that model's own doc)
- * assignable to an `auth` account via its single `roleId` ref (`AuthenticationAttrs.roleId` —
- * already fixed by the `auth` domain slice, not something this one changes).
+ * assignable to an `auth` account via its single `roleId` ref (`AuthenticationAttrs.roleId`).
  *
- * **What "multi-tenancy" means here — SaaS-shaped, not multi-product**: `zanix-iam` serves ONE
- * product per deployment, the same product `ms-iam` (this domain slice's own grounding reference)
- * serves. `tenantId` below is that ONE product's own multi-customer/multi-organization
- * partitioning — the same shape `ms-iam`'s own `organizationId` gives it — never a mechanism for
+ * **What "multi-tenancy" means here — SaaS-shaped, not multi-product**: this project serves ONE
+ * product per deployment. `tenantId` below is that ONE product's own
+ * multi-customer/multi-organization partitioning — never a mechanism for
  * isolating several UNRELATED products sharing one deployment (an Auth0/Okta-shaped
  * identity-provider-as-a-service, which would additionally need per-product OAuth2 redirect URIs,
  * per-product JWT `aud`/`iss` claims, a tenant-scoped `RBAC_PERMISSIONS` catalog, and more — a
  * separate, much bigger design this project doesn't take on).
  *
- * `tenantId` (a plain, opaque, unowned foreign id — no `ref:`; this project has no tenants
- * collection of its own and never will, exactly like the real reference architecture where
- * `ms-iam` never owns `organizations` either — a separate microservice does) gives real, optional,
- * per-customer/organization scoping for this one product, without reusing `ms-iam`'s own
- * `organizationId`/`{code, organizationId}` shape: this project owns no `organizations` collection,
- * and `auth.roleId` (a SINGLE ref) still only ever points at ONE role at a time — a `tenantId`
+ * `tenantId` (a plain, opaque, unowned foreign id — no `ref:`; tenants/organizations are owned by
+ * another system, never this project) gives optional per-customer/organization scoping for this
+ * one product. `auth.roleId` (a SINGLE ref) still only ever points at ONE role at a time — a `tenantId`
  * absent means a global/system role (assignable regardless of tenant), present means a
  * tenant-scoped one, so `auth.roleId`'s single-ref shape simply widens what "one role" can mean
  * per code, without needing a tenant-scoped catalog structure of its own. `permissions` stays
@@ -36,7 +31,7 @@ export type RolesAttrs = {
   code: string
   description: string
   /**
-   * Plain, opaque, unowned foreign id — `zanix-iam` never validates or interprets its shape,
+   * Plain, opaque, unowned foreign id — this project never validates or interprets its shape,
    * beyond using it for equality-scoped filtering (`RolesRepository.findByCode`/`searchRoles`).
    * Absent = a global/system role, usable by any tenant; present = scoped to that one tenant only
    * (see the unique index below). Owned and managed entirely by whatever the consuming system uses
@@ -59,8 +54,7 @@ registerModel<RolesAttrs>({
       type: String,
       required: true,
     },
-    // No field-level `unique: true` here anymore — uniqueness is now the compound
-    // `{code, tenantId}` index below, so the same `code` may exist once per tenant plus once
+    // No field-level `unique: true` — uniqueness is the compound `{code, tenantId}` index below, so the same `code` may exist once per tenant plus once
     // globally (`tenantId` absent).
     code: {
       type: String,
@@ -92,8 +86,7 @@ registerModel<RolesAttrs>({
   },
   callback: (schema) => {
     // A document with no `tenantId` is indexed as `tenantId: null` by MongoDB, so this also
-    // enforces at most one GLOBAL role per `code` — mirrors the grounding reference's own
-    // `{code, organizationId}` unique-index shape, generalized and renamed.
+    // enforces at most one GLOBAL role per `code`.
     schema.index({ code: 1, tenantId: 1 }, { unique: true })
     return schema
   },

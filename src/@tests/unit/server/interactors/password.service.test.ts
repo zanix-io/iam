@@ -56,6 +56,7 @@ const defaultNotifier = () => ({
 
 const defaultUsersRepo = () => ({
   assertActive: fn((..._args: unknown[]) => {}),
+  findById: fn((..._args: unknown[]): unknown => ({ status: 'ACTIVE' })),
 })
 
 const defaultRolesRepo = () => ({
@@ -126,9 +127,55 @@ Deno.test({
   },
 })
 
-Deno.test('recovery: throws FORBIDDEN when no account exists for the email', async () => {
+Deno.test('recovery: an unknown email answers the generic confirmation and sends nothing', async () => {
+  const { service, authProvider, notifier } = buildService({
+    authRepo: { findByEmail: fn(() => undefined) },
+  })
+  assertEquals(await service.recovery('nobody@example.com'), { response: 'notification sent' })
+  assertEquals(authProvider.otp.generate.calls.length, 0)
+  assertEquals(notifier.sendMessage.calls.length, 0)
+})
+
+Deno.test('recovery: a deactivated or deleted account answers the generic confirmation and sends nothing', async () => {
+  await Promise.all(['INACTIVE', 'DELETED'].map(async (status) => {
+    const { service, authProvider, notifier } = buildService({
+      usersRepo: { findById: fn(() => ({ status })) },
+    })
+    assertEquals(await service.recovery('jane@example.com'), { response: 'notification sent' })
+    assertEquals(authProvider.otp.generate.calls.length, 0)
+    assertEquals(notifier.sendMessage.calls.length, 0)
+  }))
+})
+
+Deno.test('recovery: an OTP-login request for an unknown email self-registration refuses throws FORBIDDEN', async () => {
   const { service } = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
-  await assertRejects(() => service.recovery('nobody@example.com'), HttpError, 'No account')
+  await assertRejects(
+    () => service.recovery('nobody@example.com', { isLogin: true, notifier: 'sms' }),
+    HttpError,
+    'No account',
+  )
+})
+
+Deno.test('recovery: an OTP-login request for a deactivated account still sends the code', async () => {
+  const { service, notifier } = buildService({
+    usersRepo: { findById: fn(() => ({ status: 'INACTIVE' })) },
+  })
+  assertEquals(await service.recovery('jane@example.com', { isLogin: true }), {
+    response: 'notification sent',
+  })
+  assertEquals(notifier.sendMessage.calls.length, 1)
+})
+
+Deno.test('recovery: an OTP-login request for a deleted account throws FORBIDDEN', async () => {
+  const { service, notifier } = buildService({
+    usersRepo: { findById: fn(() => ({ status: 'DELETED' })) },
+  })
+  await assertRejects(
+    () => service.recovery('jane@example.com', { isLogin: true }),
+    HttpError,
+    'no longer exists',
+  )
+  assertEquals(notifier.sendMessage.calls.length, 0)
 })
 
 Deno.test('recovery: no account, isLogin set, self-registration dispatch generates against the email itself and never checks the account active', async () => {
@@ -143,19 +190,10 @@ Deno.test('recovery: no account, isLogin set, self-registration dispatch generat
   })
   // No account exists yet — nothing to assert active, and definitely no row written here (account
   // creation itself is `AuthService.loginWithOTPCallback`'s job, only once the code verifies).
-  assertEquals(usersRepo.assertActive.calls.length, 0)
+  assertEquals(usersRepo.findById.calls.length, 0)
   const message = notifier.sendMessage.calls[0]?.[1] as { zanixTemplate: string; to: string }
   assertEquals(message.zanixTemplate, 'login-otp')
   assertEquals(message.to, 'newcomer@example.com')
-})
-
-Deno.test('recovery: no account, isLogin unset (real password recovery), still FORBIDDEN — self-registration never applies here', async () => {
-  const { service } = buildService({ authRepo: { findByEmail: fn(() => undefined) } })
-  await assertRejects(
-    () => service.recovery('nobody@example.com'),
-    HttpError,
-    'No account',
-  )
 })
 
 Deno.test('recovery: no account, isLogin set but notifier is sms — no phone to target, still FORBIDDEN', async () => {
@@ -194,21 +232,6 @@ Deno.test('recovery: throws BAD_REQUEST for sms when the account has no phone on
   )
 })
 
-Deno.test('recovery: throws FORBIDDEN when the linked users profile is deactivated', async () => {
-  const { service } = buildService({
-    usersRepo: {
-      assertActive: fn(() => {
-        throw new HttpError('FORBIDDEN', { message: 'This account has been deactivated.' })
-      }),
-    },
-  })
-  await assertRejects(
-    () => service.recovery('jane@example.com'),
-    HttpError,
-    'deactivated',
-  )
-})
-
 Deno.test('recovery: dispatches the otp template to the unmasked phone for sms', async () => {
   const phone = { unmask: () => '+15551234567' }
   const { service, notifier } = buildService({
@@ -224,6 +247,35 @@ Deno.test('recovery: dispatches the otp template to the unmasked phone for sms',
   assertEquals(message.to, '+15551234567')
 })
 
+Deno.test(
+  "recovery: no explicit notifier honors the account's own otpNotifier preference, never both " +
+    'channels for the same code',
+  async () => {
+    const phone = { unmask: () => '+15551234567' }
+    const { service, notifier } = buildService({
+      authRepo: { findByEmail: fn(() => baseAuth({ phone, otpNotifier: 'whatsapp' })) },
+    })
+    await service.recovery('jane@example.com', { isLogin: true })
+    assertEquals(notifier.sendMessage.calls.length, 1)
+    const [channel, message] = notifier.sendMessage.calls[0] as [string, { to: string }]
+    assertEquals(channel, 'whatsapp')
+    assertEquals(message.to, '+15551234567')
+  },
+)
+
+Deno.test(
+  'recovery: an explicit notifier (a real 2FA challenge) always wins over otpNotifier',
+  async () => {
+    const phone = { unmask: () => '+15551234567' }
+    const { service, notifier } = buildService({
+      authRepo: { findByEmail: fn(() => baseAuth({ phone, otpNotifier: 'whatsapp' })) },
+    })
+    await service.recovery('jane@example.com', { isLogin: true, notifier: 'email' })
+    const [channel] = notifier.sendMessage.calls[0] as [string]
+    assertEquals(channel, 'email')
+  },
+)
+
 Deno.test('recoveryCallback: sets the new password and unsets mustChangePassword when given one', async () => {
   const { service, authRepo } = buildService()
   const result = await service.recoveryCallback('jane@example.com', '123456', 'NewPass1') as Record<
@@ -237,6 +289,30 @@ Deno.test('recoveryCallback: sets the new password and unsets mustChangePassword
   ]
   assertEquals(update.password, 'NewPass1')
   assertEquals(options.unset, ['mustChangePassword'])
+})
+
+Deno.test('recoveryCallback: a password the policy rejects throws BAD_REQUEST before the code is consumed', async () => {
+  const { service, authProvider, authRepo } = buildService()
+  const assertPasswordPolicy = fn((password: unknown) => {
+    throw new HttpError('BAD_REQUEST', { message: `rejected ${password}` })
+  })
+  mockAccessor(service, 'assertPasswordPolicy', assertPasswordPolicy)
+  await assertRejects(
+    () => service.recoveryCallback('jane@example.com', '123456', 'weak'),
+    HttpError,
+    'rejected weak',
+  )
+  assertEquals(assertPasswordPolicy.calls[0], ['weak'])
+  assertEquals(authProvider.otp.authenticate.calls.length, 0)
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+})
+
+Deno.test('recoveryCallback: without a password never applies the password policy', async () => {
+  const { service } = buildService()
+  const assertPasswordPolicy = fn(() => {})
+  mockAccessor(service, 'assertPasswordPolicy', assertPasswordPolicy)
+  await service.recoveryCallback('jane@example.com', '123456')
+  assertEquals(assertPasswordPolicy.calls.length, 0)
 })
 
 Deno.test('recoveryCallback: without a password only consumes the OTP, no password/unset written', async () => {

@@ -9,8 +9,8 @@ import { Button, Field, Input, useIntl } from '@zanix/space-ui'
 import { ManagedForm } from '@zanix/space/comet/react'
 // These are this project's own Comets (not shipped by `@zanix/space`) — see each one's own
 // `render.ts` doc for why it needed one.
-import PasswordToggleField from './password-toggle-field/index.ts'
-import RateLimitCountdown from './rate-limit-countdown/index.ts'
+import PasswordToggleField from 'ui/components/password-toggle-field/index.ts'
+import { RateLimitCard } from 'ui/components/rate-limit-card/index.ts'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createLoginView } from './render.ts'
 import type { LoginViewDeps } from './render.ts'
@@ -46,9 +46,9 @@ export const LoginView: (props: LoginViewProps) => ReactElement = createLoginVie
     PasswordToggleField: PasswordToggleField as unknown as LoginViewDeps<
       ReactElement
     >['PasswordToggleField'],
-    RateLimitCountdown: RateLimitCountdown as unknown as LoginViewDeps<
+    RateLimitCard: RateLimitCard as unknown as LoginViewDeps<
       ReactElement
-    >['RateLimitCountdown'],
+    >['RateLimitCard'],
     ManagedForm: ManagedForm as unknown as LoginViewDeps<ReactElement>['ManagedForm'],
   },
 )

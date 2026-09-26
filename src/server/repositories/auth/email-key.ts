@@ -2,7 +2,7 @@ import { generateHash } from '@zanix/helpers'
 
 /**
  * Computes a deterministic digest of `email` — the real lookup key `AuthRepository.findByEmail`
- * (and `registerAuth`) use now that `email` itself is stored masked (see `model.defs.ts`'s own
+ * (and `registerAuth`) use, since `email` itself is stored masked (see `model.defs.ts`'s own
  * doc for why: a masked value isn't directly equality-queryable without a separate deterministic
  * index alongside it).
  *

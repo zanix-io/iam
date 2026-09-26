@@ -18,15 +18,19 @@ import {
 } from 'utils/constants.ts'
 import { resolveEffectivePermissions as defaultResolveEffectivePermissions } from 'utils/rbac.ts'
 
+/** The generic confirmation `PasswordService.recovery` answers with after a dispatch, and for a
+ * password-recovery request it declines to send, so the two are indistinguishable. */
+const RECOVERY_RESPONSE = 'notification sent'
+
 /**
- * Password change/recovery flows — split from `AuthService` (login/session/2FA-enrollment) the
- * same way the real, deployed sibling project this domain slice is grounded on splits them; the
+ * Password change/recovery flows — split from `AuthService` (login/session/2FA-enrollment); the
  * OTP-generation mechanism is genuinely shared (`recovery`/`recoveryCallback` back both password
  * recovery AND `AuthService.loginWithOTP`'s own OTP-login flow, AND `UsersService.registerUser`'s
  * own no-password invite path).
  *
- * `recovery`/`recoveryCallback`/`changePwd` all gate on `UsersRepository.assertActive` the same
- * way `AuthService`'s own login paths do — see that file's own header doc.
+ * `recoveryCallback`/`changePwd`/`addPassword` gate on `UsersRepository.assertActive` the same way
+ * `AuthService`'s login paths do (see that file's header doc); `recovery` reads the profile status
+ * itself — see its doc.
  */
 @Interactor()
 export class PasswordService extends ZanixInteractor {
@@ -49,13 +53,7 @@ export class PasswordService extends ZanixInteractor {
     }
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
-    const policyResult = resolveBehavior<(password: string) => true | string>(
-      'auth',
-      'passwordPolicy',
-    )?.(newPassword) ?? true
-    if (policyResult !== true) {
-      throw new HttpError('BAD_REQUEST', { message: policyResult })
-    }
+    this.assertPasswordPolicy(newPassword)
 
     await this.providers.get(AuthRepository).updateAuth(
       { id, password: newPassword },
@@ -73,9 +71,9 @@ export class PasswordService extends ZanixInteractor {
   }
 
   /**
-   * Sets a password for the caller's own account, ONLY when it doesn't already have one — screen
-   * 08's "Añadir contraseña" (add, never change), reachable only from an already-authenticated
-   * "Métodos de acceso" settings screen, never during signup. Deliberately never asks for a
+   * Sets a password for the caller's own account, ONLY when it doesn't already have one (add, never
+   * change) — meant for an already-authenticated sign-in-methods settings screen, never signup.
+   * Deliberately never asks for a
    * current password, unlike {@link changePwd}: there genuinely isn't one to prove knowledge of
    * yet. An account that already has a password must go through `changePwd` instead — this method
    * refuses outright rather than silently overwriting one.
@@ -97,13 +95,7 @@ export class PasswordService extends ZanixInteractor {
     }
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
-    const policyResult = resolveBehavior<(password: string) => true | string>(
-      'auth',
-      'passwordPolicy',
-    )?.(newPassword) ?? true
-    if (policyResult !== true) {
-      throw new HttpError('BAD_REQUEST', { message: policyResult })
-    }
+    this.assertPasswordPolicy(newPassword)
 
     await this.providers.get(AuthRepository).updateAuth(
       { id, password: newPassword },
@@ -121,8 +113,7 @@ export class PasswordService extends ZanixInteractor {
   }
 
   /**
-   * Removes the caller's own password entirely — screen 07's "Quitar" action on the password row.
-   * No "last remaining method" guard, same reasoning as `AuthService.unlinkOauth`'s own doc:
+   * Removes the caller's own password entirely. No "last remaining method" guard, same reasoning as `AuthService.unlinkOauth`'s own doc:
    * email+OTP always works regardless of `password`/`oauthProvider`, so there's no real lockout
    * scenario this could cause.
    *
@@ -149,7 +140,7 @@ export class PasswordService extends ZanixInteractor {
    * Generates an OTP (5-minute TTL) for `email`'s account and dispatches it through `notifier`
    * via `@zanix/notifications`' `NotifierProvider` — email uses this package's built-in
    * `login-otp`/`password-recovery` templates, SMS/WhatsApp use its built-in `otp` template
-   * (shared across both, see `notifications-connectors`). Shared by both the OTP-login flow
+   * (shared across both). Shared by both the OTP-login flow
    * (`AuthService.loginWithOTP`) and a direct password-recovery request — only the delivered
    * template differs (`isLogin`), the underlying OTP generation is identical.
    *
@@ -161,32 +152,60 @@ export class PasswordService extends ZanixInteractor {
    * here** — this only reserves a code the recipient can later prove receipt of;
    * `AuthService.loginWithOTPCallback` is what actually provisions the account, and only once that
    * code verifies (see its own doc for why account creation waits for a verified identity rather
-   * than happening at dispatch time). **Gated on `isLogin` alone** — a genuine password-recovery
-   * request (`isLogin` unset/false) for an unrecognized email still falls straight through to the
-   * `FORBIDDEN` below, exactly as before. Recovery's own caller is expected to mask that rejection
-   * into the same generic "if an account exists…" response regardless of outcome (real
-   * account-enumeration prevention lives there, not here) — this flag never touches that path.
+   * than happening at dispatch time).
    *
-   * @throws {HttpError} `FORBIDDEN` when no account exists for `email` and this isn't an
-   *   eligible self-registration dispatch; `BAD_REQUEST` when `notifier` is `'sms'`/`'whatsapp'`
-   *   and the account has no `phone` on file.
+   * A password-recovery request (`isLogin` unset) answers the same generic confirmation for every
+   * email, and sends nothing when the account is unknown, deactivated or deleted, so the response
+   * never reveals whether an account exists. An OTP-login request (`isLogin: true`) still rejects
+   * an unknown email that self-registration refuses; a deactivated account gets its code, since
+   * `AuthService.loginWithOTPCallback` answers a verified code with a reactivation challenge.
+   *
+   * `options.notifier` omitted (the plain OTP-login request `AuthService.loginWithOTP` makes with
+   * no `is2FA`) resolves to the account's own `otpNotifier` preference
+   * (`AuthService.setOtpNotifier`) when one is set, `'email'` otherwise — a real 2FA challenge
+   * (`AuthService.finishLogin`) always passes an explicit `notifier` instead, which wins
+   * unconditionally. Either way this dispatches through exactly ONE channel, never both.
+   *
+   * @throws {HttpError} With `isLogin` only: `FORBIDDEN` when no account exists for `email` and
+   *   this isn't an eligible self-registration dispatch, or when the account is deleted.
+   *   `BAD_REQUEST` when the resolved notifier is `'sms'`/`'whatsapp'` and the account has no
+   *   `phone` on file.
    * @returns A generic dispatch confirmation, never the OTP code itself.
    */
   public async recovery(
     email: string,
     options: { isLogin?: boolean; notifier?: typeof NOTIFIERS[number] } = {},
   ): Promise<{ response: string }> {
-    const { notifier = NOTIFIERS[0], isLogin } = options
+    const { isLogin } = options
 
     const auth = await this.providers.get(AuthRepository).findByEmail(
       email,
     ) as unknown as HydratedAuth
+    const notifier = options.notifier ?? auth?.otpNotifier ?? NOTIFIERS[0]
+
     const selfRegistrationDispatch = !auth && isLogin && notifier === 'email' &&
       (resolveConfig<boolean>('auth', 'selfRegistrationViaOTP') ?? true)
-    if (!auth && !selfRegistrationDispatch) {
-      throw new HttpError('FORBIDDEN', { message: 'No account for this email.' })
+    const profile = auth
+      ? await this.providers.get(UsersRepository).findById(auth.userId)
+      : undefined
+
+    if (!isLogin) {
+      // Password recovery answers identically whether or not a usable account exists, so the
+      // response never reveals which emails are registered: nothing is sent for an unknown,
+      // deactivated or deleted account.
+      if (!auth || profile?.status === 'INACTIVE' || profile?.status === 'DELETED') {
+        return { response: RECOVERY_RESPONSE }
+      }
+    } else {
+      if (!auth && !selfRegistrationDispatch) {
+        throw new HttpError('FORBIDDEN', { message: 'No account for this email.' })
+      }
+      // An `'INACTIVE'` account still gets its login code: `AuthService.loginWithOTPCallback`
+      // answers a verified code with a reactivation challenge. `'DELETED'` never signs in again.
+      if (profile?.status === 'DELETED') {
+        throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
+      }
     }
-    if (auth) await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     const ttl = 300
     const code = await this.providers.get(ZanixAuthProvider).otp.generate({
@@ -217,23 +236,24 @@ export class PasswordService extends ZanixInteractor {
       data,
     } as never, { useWorker: 'one-time' })
 
-    return { response: 'notification sent' }
+    return { response: RECOVERY_RESPONSE }
   }
 
   /**
    * Verifies a recovery/OTP-login `code` for `email` and issues session tokens on success. When
    * `password` is also given, it's persisted for the account first (the password-recovery case);
-   * omitted, only the OTP is consumed (the plain OTP-login case) — the same shared shape the
-   * real, deployed sibling project's own `recoveryCallback` uses.
+   * omitted, only the OTP is consumed (the plain OTP-login case).
    *
    * Issues the same configured `accessExpiration`/`refreshExpiration` as `AuthService.finishLogin`
    * (see that method's own doc for why).
    *
-   * @throws {HttpError} `FORBIDDEN` when no account exists for `email`, or when `code` is
+   * @throws {HttpError} `BAD_REQUEST` when `password` fails the active password policy (checked
+   *   before `code` is consumed); `FORBIDDEN` when no account exists for `email`, or when `code` is
    *   invalid/expired (`ZanixAuthProvider.otp.authenticate`), or when the linked `users` profile
    *   is deactivated/deleted (`UsersRepository.assertActive`).
    */
   public async recoveryCallback(email: string, code: string, password?: string) {
+    if (password !== undefined) this.assertPasswordPolicy(password)
     const auth = await this.providers.get(AuthRepository).findByEmail(
       email,
     ) as unknown as HydratedAuth
@@ -262,6 +282,21 @@ export class PasswordService extends ZanixInteractor {
     }, { applyProtection: true, unset: password ? ['mustChangePassword'] : undefined })
 
     return { ...tokens, expiresAt: TOKEN_EXPIRATION }
+  }
+
+  /**
+   * Applies `passwordPolicy` (`auth.app.ts`'s overridable `behaviors` slot) to a new password.
+   *
+   * @throws {HttpError} `BAD_REQUEST` carrying the policy's own message when it rejects `password`.
+   */
+  private assertPasswordPolicy(password: string): void {
+    const policyResult = resolveBehavior<(password: string) => true | string>(
+      'auth',
+      'passwordPolicy',
+    )?.(password) ?? true
+    if (policyResult !== true) {
+      throw new HttpError('BAD_REQUEST', { message: policyResult })
+    }
   }
 
   /**

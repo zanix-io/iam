@@ -15,6 +15,20 @@ if [ -z "$STAGED_FMT_FILES" ] && [ -z "$STAGED_LINT_FILES" ]; then
   exit 0
 fi
 
+# The compiled (ICU AST) message catalogs are generated from the plain ones. Regenerate them when a
+# catalog, the generator or a compiled file is staged, so a commit never carries a stale AST.
+STAGED_CATALOG_FILES=$(echo "$STAGED_FILES" | grep -E '^ui/sdk/messages/(en|es)\.ts$|^ui/sdk/messages/compiled/|^scripts/generate-compiled-messages\.ts$')
+if [ -n "$STAGED_CATALOG_FILES" ]; then
+  echo "\033[0;33minfo[pre-commit]\033[0m: Regenerating the compiled message catalogs..."
+  GEN_OUTPUT=$(deno task gen:messages 2>&1)
+  if [ $? -ne 0 ]; then
+    echo "$GEN_OUTPUT"
+    echo "\033[1;31merror[pre-commit]\033[0m: Generating the compiled message catalogs failed!"
+    exit 1
+  fi
+  git add ui/sdk/messages/compiled
+fi
+
 # Run formatting only on staged files that need it.
 if [ -n "$STAGED_FMT_FILES" ]; then
   echo "\033[0;33minfo[pre-commit]\033[0m: Running formatting on staged files..."

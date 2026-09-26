@@ -21,9 +21,9 @@ function withEnv(name: string, value: string | undefined, run: () => void) {
 /**
  * `seedersProd`'s own default export reads `resolveFirstAdminUserData()` once, at module-load
  * time (same limitation `constants.test.ts`'s `TOKEN_EXPIRATION` tests already document) — this
- * test process never sets either env var, so it's the real, current default path. Everything env
- * -var-dependent is instead exercised directly against `resolveFirstAdminUserData()`, a pure
- * function of the CURRENT environment, callable again under a temporarily mutated one.
+ * test file loads it with neither env var set (the empty default). The configured default export
+ * is covered in `../first-admin-seeders-configured.test.ts`; everything else runs directly against
+ * `resolveFirstAdminUserData()`, a pure function of the current environment.
  */
 Deno.test('seeders.prod (users): empty when FIRST_ADMIN_EMAIL/FIRST_ADMIN_PASSWORD are unset', () => {
   assertEquals(Deno.env.get(FIRST_ADMIN_EMAIL_ENV), undefined)

@@ -239,3 +239,26 @@ Deno.test('assignRole: on success sets roleId, without forcing a refresh-token r
   // making a revoke unnecessary. See `RolesService.assignRole`'s own doc.
   assertEquals(authRepo.updateAuth.calls, [[{ id: 'auth-1', roleId: 'role-1' }]])
 })
+
+Deno.test('editRole: a permissions list referencing a missing permission is BAD_REQUEST, nothing updated', async () => {
+  const { service, rolesRepo } = buildService({
+    permissionsRepo: { findManyByIds: fn((_ids: string[]) => [{ id: 'perm-1' }]) },
+  })
+  await assertRejects(
+    () => service.editRole('role-1', { permissions: ['perm-1', 'perm-missing'] } as never),
+    HttpError,
+    'One or more permissions do not exist.',
+  )
+  assertEquals(rolesRepo.updateRole.calls.length, 0)
+})
+
+Deno.test('editRole: a permissions list whose ids all exist is validated, then applied', async () => {
+  const { service, rolesRepo, permissionsRepo } = buildService({
+    permissionsRepo: {
+      findManyByIds: fn((_ids: string[]) => [{ id: 'perm-1' }, { id: 'perm-2' }]),
+    },
+  })
+  await service.editRole('role-1', { permissions: ['perm-1', 'perm-2'] } as never)
+  assertEquals(permissionsRepo.findManyByIds.calls[0], [['perm-1', 'perm-2']])
+  assertEquals(rolesRepo.updateRole.calls[0], [{ permissions: ['perm-1', 'perm-2'], id: 'role-1' }])
+})

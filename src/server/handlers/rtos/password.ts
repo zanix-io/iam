@@ -1,4 +1,16 @@
-import { BaseRTO, IsEmail, IsString } from '@zanix/validator'
+import { BaseRTO, IsEmail, IsEnum, IsString, Match } from '@zanix/validator'
+import { NOTIFIERS } from 'utils/constants.ts'
+
+/** E.164 phone shape (`/^\+?[1-9]\d{1,14}$/`) — same regex `@zanix/validator`'s own `@IsPhone`
+ * enforces. `transform: normalizePhone` strips the punctuation a human naturally types (spaces,
+ * hyphens, parentheses) BEFORE validating, so `"+1 (415) 555-1234"` passes the same strict
+ * digits-only check a raw E.164 string does, and the value actually persisted
+ * (`AuthService.phoneConfirm` → `auth.phone`) is always the normalized form. */
+const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/
+
+function normalizePhone(value?: string): string {
+  return (value ?? '').replace(/[\s()-]/g, '')
+}
 
 /** `POST /pwd` body — self-service password change, authenticated session required. */
 export class PwdRTO extends BaseRTO {
@@ -55,4 +67,34 @@ export class TotpConfirmRTO extends BaseRTO {
 
   @IsString({ expose: true })
   accessor code!: string
+}
+
+/** `POST /login/phone/enroll` body — starts phone verification (see `AuthService.phoneEnroll`). */
+export class PhoneEnrollRTO extends BaseRTO {
+  @Match(PHONE_REGEX, { expose: true, transform: normalizePhone })
+  accessor phone!: string
+}
+
+/** `POST /login/phone/confirm` body — proves the caller received the SMS code `phoneEnroll` sent
+ * to `phone`, before it's persisted (see `AuthService.phoneConfirm`). */
+export class PhoneConfirmRTO extends BaseRTO {
+  @Match(PHONE_REGEX, { expose: true, transform: normalizePhone })
+  accessor phone!: string
+
+  @IsString({ expose: true })
+  accessor code!: string
+}
+
+/** `POST /login/otp-notifier` body — the caller's own login-OTP delivery-channel preference (see
+ * `AuthService.setOtpNotifier`). `notifier` omitted OR `''` both reset to the `'email'` default —
+ * `''` is accepted explicitly, not just `optional`'s own "key absent" case, because a plain HTML
+ * `<select>` always submits SOME value for the chosen option — a form's "Email" option submits an
+ * empty string rather than omitting the field. `AuthService.setOtpNotifier` treats `''` and
+ * `undefined` the same. */
+export class OtpNotifierRTO extends BaseRTO {
+  @IsEnum([...NOTIFIERS.filter((notifier) => notifier !== 'email'), ''], {
+    expose: true,
+    optional: true,
+  })
+  accessor notifier: 'sms' | 'whatsapp' | '' | undefined
 }

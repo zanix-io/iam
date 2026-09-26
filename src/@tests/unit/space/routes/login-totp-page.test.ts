@@ -24,6 +24,8 @@ function pageWithInteractor(loginWithTOTPCallback: (...args: unknown[]) => unkno
   return page
 }
 
+const BASE_VIEW_PROPS = { rateLimited: false, unexpectedError: false } as const
+
 function renderTotpView(props: Parameters<InstanceType<typeof LoginTotpPage>['component']>[0]) {
   const page = new LoginTotpPage(mockHandlerContext())
   return renderComponentWithIntl(page.component, props, TEST_MESSAGES)
@@ -52,6 +54,7 @@ Deno.test('LoginTotpPage.loader: a malformed percent-sequence email param falls 
 
 Deno.test('LoginTotpPage.component: renders the flattened code field errors when present', () => {
   const html = renderTotpView({
+    ...BASE_VIEW_PROPS,
     lang: 'en',
     email: 'jane@example.com',
     invalidCode: false,
@@ -61,12 +64,22 @@ Deno.test('LoginTotpPage.component: renders the flattened code field errors when
 })
 
 Deno.test('LoginTotpPage.component: renders no field error when fieldErrors is unset', () => {
-  const html = renderTotpView({ lang: 'en', email: 'jane@example.com', invalidCode: false })
+  const html = renderTotpView({
+    ...BASE_VIEW_PROPS,
+    lang: 'en',
+    email: 'jane@example.com',
+    invalidCode: false,
+  })
   assertEquals(html.includes('Code must be 6 digits.'), false)
 })
 
 Deno.test('LoginTotpPage.component: renders every message-catalog string for real, through IntlProvider', () => {
-  const html = renderTotpView({ lang: 'en', email: 'jane@example.com', invalidCode: true })
+  const html = renderTotpView({
+    ...BASE_VIEW_PROPS,
+    lang: 'en',
+    email: 'jane@example.com',
+    invalidCode: true,
+  })
   assertStringIncludes(html, 'Enter your authenticator code')
   assertStringIncludes(html, 'Signing in as jane@example.com.')
   assertStringIncludes(html, 'Invalid authenticator code.')

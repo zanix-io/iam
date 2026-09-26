@@ -3,6 +3,8 @@ import type { VNode } from 'preact'
 import { Button, Field, Input, useIntl } from '@zanix/space-ui/preact'
 // A NAMED import — see `index.ts`'s own identical doc.
 import { SubmitGuard } from '@zanix/space/comet/preact'
+import { RateLimitCard } from 'ui/components/rate-limit-card/index.preact.ts'
+import { authHiddenFields } from 'ui/components/auth-hidden-fields/index.preact.ts'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createTotpLoginView } from './render.ts'
 import type { TotpViewDeps } from './render.ts'
@@ -21,5 +23,7 @@ export const TotpLoginView: (props: TotpViewProps) => VNode = createTotpLoginVie
     Field,
     Input,
     SubmitGuard: SubmitGuard as unknown as TotpViewDeps<VNode>['SubmitGuard'],
+    RateLimitCard: RateLimitCard as unknown as TotpViewDeps<VNode>['RateLimitCard'],
+    authHiddenFields,
   },
 )

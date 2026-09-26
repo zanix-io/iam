@@ -15,13 +15,14 @@ import type { CreateElement } from 'ui/typings/renderer.ts'
 import { createLoginView } from 'ui/pages/login/render.ts'
 import type { LoginViewDeps } from 'ui/pages/login/render.ts'
 import type { LoginViewProps } from 'ui/pages/login/types.ts'
-import { createPasswordToggleField } from 'ui/pages/login/password-toggle-field/render.ts'
-import { createRateLimitCountdown } from 'ui/pages/login/rate-limit-countdown/render.ts'
+import { createPasswordToggleField } from 'ui/components/password-toggle-field/render.ts'
+import { createRateLimitCountdown } from 'ui/components/rate-limit-countdown/render.ts'
+import { createRateLimitCard } from 'ui/components/rate-limit-card/render.ts'
 
 // Same behavior as `login.test.ts` (the React binding), verified independently against the Preact
 // one — this pair is what actually proves `createLoginView`'s shared logic (`render.ts`) behaves
 // identically regardless of which renderer it's bound to. Built directly from `render.ts` with a
-// `null`-rendering `ManagedForm` stand-in and `PasswordToggleField`/`RateLimitCountdown` each built
+// `null`-rendering `ManagedForm` stand-in and `PasswordToggleField`/`RateLimitCard` each built
 // from their own raw, un-wrapped factory (same reasoning `login.test.ts` documents in full), never
 // the real `@zanix/space/comet/preact` Comet boundary: this file deliberately never registers the
 // Preact renderer with `@zanix/space` at all (see `login.test.ts`'s own doc on `ManagedForm` — the
@@ -58,10 +59,15 @@ const LoginViewForContent = createLoginView<VNode>(
       h as unknown as CreateElement<VNode>,
       { PasswordInput: PasswordInput as unknown as (props: Record<string, unknown>) => VNode },
     ) as unknown as LoginViewDeps<VNode>['PasswordToggleField'],
-    RateLimitCountdown: createRateLimitCountdown<VNode>(
+    RateLimitCard: createRateLimitCard<VNode>(
       h as unknown as CreateElement<VNode>,
-      { Countdown: Countdown as unknown as (props: Record<string, unknown>) => VNode },
-    ) as unknown as LoginViewDeps<VNode>['RateLimitCountdown'],
+      {
+        RateLimitCountdown: createRateLimitCountdown<VNode>(
+          h as unknown as CreateElement<VNode>,
+          { Countdown: Countdown as unknown as (props: Record<string, unknown>) => VNode },
+        ) as unknown as (props: Record<string, unknown>) => VNode,
+      },
+    ) as unknown as LoginViewDeps<VNode>['RateLimitCard'],
     ManagedForm: () => null,
   },
 )
@@ -108,7 +114,7 @@ Deno.test('LoginView (preact): renders every message-catalog string for real, th
   assertStringIncludes(html, 'Too many attempts')
   assertStringIncludes(html, 'Something went wrong signing you in.')
   assertStringIncludes(html, 'Sign in</button>')
-  assertStringIncludes(html, 'Continue with google')
+  assertStringIncludes(html, 'Continue with Google')
 })
 
 Deno.test('LoginView (preact): renders a Terms and Conditions link once termsUrl is set', () => {

@@ -12,9 +12,9 @@ import { PermissionsRepository } from '../repositories/permissions/entity.provid
 import { RolesRepository } from '../repositories/roles/entity.provider.ts'
 
 /**
- * Business logic for the `roles` domain slice — creating/editing/deleting named permission
+ * Business logic for the `roles` domain — creating/editing/deleting named permission
  * bundles, and assigning one to an `auth` account. The permission catalog itself (`permissions`)
- * is a sibling slice, `PermissionsService` — this service only ever validates that a role's own
+ * is a sibling domain, `PermissionsService` — this service only ever validates that a role's own
  * referenced permission ids exist, via `PermissionsRepository`.
  */
 @Interactor()

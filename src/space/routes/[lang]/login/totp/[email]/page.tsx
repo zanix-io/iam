@@ -3,11 +3,12 @@ import type { PageActionContext, PageContext } from '@zanix/space'
 import { Guard } from '@zanix/server'
 import { csrfGuard, Page, SpacePageController } from '@zanix/space'
 import { HttpError } from '@zanix/errors'
+import { rateLimitGuard } from '@zanix/auth'
 import { TotpLoginView } from 'ui/pages/login-totp/index.ts'
 import { AuthService } from 'server/interactors/auth.interactor.ts'
 import { TotpLoginRTO } from 'server/handlers/rtos/login.ts'
 import { redirectResponse } from 'shared/redirect-response.ts'
-import { resolvePostLoginRedirect } from 'utils/constants.ts'
+import { freeRateLimit, resolvePostLoginRedirect } from 'utils/constants.ts'
 
 type TotpParams = { lang: string; email: string }
 
@@ -32,11 +33,20 @@ function decodeEmailParam(raw: string): string {
  * requires the opposite, an already-authenticated session (see those pages' own doc for why they,
  * uniquely among this feature's pages, need `pageSessionGuard`).
  *
- * Rendering now delegates to `@zanix/iam/ui/pages/login-totp`'s own factory-built view
- * (`createElement`-based, never JSX) — the loader/action logic below is unchanged.
+ * Renders `@zanix/iam/ui/pages/login-totp`'s own factory-built view
+ * (`createElement`-based, never JSX).
  */
+// This page's own `action` calls `AuthService.loginWithTOTPCallback` directly
+// (an in-process interactor call), so `LoginController.loginTotpCallback`'s own `@RateLimitGuard`
+// (`login.handler.ts`) never runs for a visitor reaching this route. A distinct `app` key
+// (`login:totp-callback-page`) keeps its own bucket, isolated from the REST endpoint's own.
 @Page({ Interactor: AuthService, action: { Body: TotpLoginRTO } })
 @Guard(csrfGuard())
+@Guard(
+  rateLimitGuard(
+    { app: 'login:totp-callback-page', anonymousLimit: freeRateLimit, trustProxyHeader: true },
+  ),
+)
 export default class LoginTotpPage extends SpacePageController<TotpParams, AuthService> {
   public static override head = { title: 'Enter your authenticator code' }
 

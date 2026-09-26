@@ -75,3 +75,20 @@ Deno.test('GrantAccessRepository.findById: a falsy id short-circuits without que
   assertEquals(repo.findById(undefined), undefined)
   assertEquals(findById.calls.length, 0)
 })
+
+Deno.test('GrantAccessRepository: createGrant saves a new document; findById/updateGrant/deleteGrant target the id', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls, created } = recordingModel()
+  const repo = buildRepository(Model)
+  const data = { userId: 'user-1', resourceId: 'r', accessLevel: 'read', grantedBy: 'admin-1' }
+
+  assertEquals(await repo.createGrant(data) as unknown, { id: 'saved-1', ...data })
+  assertEquals(created, [data])
+
+  await repo.findById('grant-1')
+  await repo.updateGrant({ id: 'grant-1', isActive: false })
+  await repo.deleteGrant('grant-1')
+  assertEquals(calls.findById, [['grant-1']])
+  assertEquals(calls.updateOne, [[{ _id: 'grant-1' }, { $set: { isActive: false } }]])
+  assertEquals(calls.deleteOne, [[{ _id: 'grant-1' }]])
+})

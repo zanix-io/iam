@@ -9,11 +9,10 @@ import authApp from 'server/apps/auth.app.ts'
  * `zanix-test-tier-conventions`' Pattern A) — nothing mocked here, unlike the unit-tier
  * interactor tests, which deliberately can't exercise this module-load-time wiring in isolation.
  *
- * Deliberately NOT covered here: `authApp.definition.setup(ctx)` end-to-end (it makes a real
- * `TemplatesAdminRepository.create()` database call to seed the `totp-enabled` template — see
- * `auth.app.ts`'s own doc — requiring a live Mongo connection this fast/isolated test suite
- * doesn't have). The manifest's own pure `behaviors.*.default` functions are covered directly, as
- * plain functions, in `unit/server/apps/auth-app-behaviors.test.ts`.
+ * Related coverage: `setup` (template seeding through an injected `ctx.resolve`) in
+ * `unit/server/apps/auth-app-setup.test.ts`; the `behaviors.*.default` functions in
+ * `unit/server/apps/auth-app-behaviors.test.ts`; behaviors/config reaching the interactors in
+ * `auth-app-wiring.test.ts`; env-configured resources in `auth-app-configured-resources.test.ts`.
  */
 
 Deno.test('auth.app.ts: manifest shape — no HTTP surface, only the declared slots', () => {
@@ -21,26 +20,15 @@ Deno.test('auth.app.ts: manifest shape — no HTTP surface, only the declared sl
   assertEquals(def.name, 'auth')
   assertEquals(def.routesPrefix, null)
   assertEquals(Object.keys(def.dependencies).sort(), ['captcha', 'githubOAuth2', 'googleOAuth2'])
-  // `totpToleranceSteps`/`selfRegistrationViaOAuth`/`selfRegistrationViaOTP` moved from
-  // `behaviors` to `config` — all three are plain values with no override-time logic of their own,
-  // per the Configuration/Extension/Override table (`app-behaviors-and-overrides`) — leaving only
-  // the two real strategy functions.
+  // `totpToleranceSteps`/`selfRegistrationViaOAuth`/`selfRegistrationViaOTP` are `config` (plain
+  // values), not `behaviors`; `behaviors` holds only the swappable strategy functions.
   assertEquals(
     Object.keys(def.behaviors).sort(),
     ['passwordPolicy', 'resolveEffectivePermissions', 'totpProvisioningLabel'],
   )
   assertEquals(
     Object.keys(def.config).sort(),
-    [
-      'criticRateLimit',
-      'freeRateLimit',
-      'ipAllowlist',
-      'otpRequired',
-      'selfRegistrationViaOAuth',
-      'selfRegistrationViaOTP',
-      'totpRequired',
-      'totpToleranceSteps',
-    ],
+    ['defaultRoleId', 'selfRegistrationViaOAuth', 'selfRegistrationViaOTP', 'totpToleranceSteps'],
   )
   assertEquals(def.config.totpToleranceSteps.default, 1)
   assertEquals(def.config.selfRegistrationViaOAuth.default, true)

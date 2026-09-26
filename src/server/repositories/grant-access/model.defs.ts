@@ -8,32 +8,23 @@ import seeders from './seeders/main.ts'
  * at-least-level-Y access to THIS specific resource). See `grant-access.app.ts`'s own
  * `evaluateGrantAccess` behavior for how a grant is actually evaluated against a required level.
  *
- * **Deliberate deviations from this domain slice's own grounding reference**
- * (`ms-iam`'s `GrantAccessAttrs`):
- * - No `type` field. The reference's only real value (`'subsidiary'`) is domain-specific to that
- *   product, not generic — `resourceId` alone is enough to disambiguate what's being granted
- *   access to; a consumer wanting a "kind" distinction can already encode it into `resourceId`
- *   itself (see that field's own doc below).
- * - `organizationId` (required, `ObjectId`, this project's own tenant/org service) is renamed and
- *   generalized to `tenantId` (optional, plain `string`) — see `roles.tenantId`'s own doc
- *   (`../roles/model.defs.ts`) for the identical reasoning, applied here to grants instead of
- *   roles.
- * - `resourceId`/`userId`/`grantedBy` are NOT `Schema.Types.ObjectId` the way the reference typed
- *   `resourceId` — see `resourceId`'s own doc for why it's a plain, unvalidated `string` here.
- *   `userId`/`grantedBy` DO stay `ObjectId`-refs to `users`, matching this project's own real
- *   collection (the reference's `users` ref is the same idea, just now backed by a real sibling
- *   slice instead of an assumption).
+ * Shape notes:
+ * - No `type` field — `resourceId` alone disambiguates what's being granted access to; a consumer
+ *   wanting a "kind" distinction encodes it into `resourceId` itself (see that field's own doc).
+ * - `tenantId` is optional and a plain `string` — see `roles.tenantId`'s own doc
+ *   (`../roles/model.defs.ts`) for the identical reasoning.
+ * - `resourceId` is a plain, unvalidated `string` (see its own doc); `userId`/`grantedBy` are
+ *   `ObjectId` refs to `users`.
  */
 export type GrantAccessAttrs = {
   id: string
   /** Ref to `users` — the account this grant applies to. */
   userId: string
   /**
-   * Fully generic, unvalidated string — `zanix-iam` never interprets or validates what it names.
+   * Fully generic, unvalidated string — this project never interprets or validates what it names.
    * DEFAULT convention for a resource that is an operation on another `@zanix/app`-composed
    * service: `"${appName}:${operationName}"` — the exact same qualified-key shape
-   * `@zanix/app`'s own Control Plane/operation registry already uses internally (see
-   * `app-hot-install-and-multitenancy`/`app-remote-calls-and-control-plane`), so a grant checked
+   * `@zanix/app`'s own Control Plane/operation registry uses internally, so a grant checked
    * from inside that operation's own handler can reuse `ctx`'s own app/operation names verbatim
    * to build this value, with no separate naming scheme to invent. This is a DOCUMENTED
    * convention only, never enforced by a schema constraint — a consumer not modeling resources as
@@ -90,11 +81,8 @@ registerModel<GrantAccessAttrs>({
     seeders,
   },
   options: {
-    // Renaming `createdAt` to `grantedAt` (matching the grounding reference), but — unlike that
-    // reference, whose own `GrantAccessAttrs` type never declares an `updatedAt` field at all even
-    // though Mongoose still tracks one under its default name when only `createdAt` is
-    // renamed — this model's own type above DOES declare `updatedAt`, so an `updateAccess` call
-    // always has a real, typed field to report a fresh value from.
+    // `createdAt` is renamed to `grantedAt`; Mongoose still tracks `updatedAt` under its default
+    // name, which the type above declares too.
     timestamps: { createdAt: 'grantedAt' },
   },
   callback: (schema) => {

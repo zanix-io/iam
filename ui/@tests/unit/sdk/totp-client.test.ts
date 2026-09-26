@@ -55,3 +55,22 @@ Deno.test('TotpClient.confirmEnrollment: posts secret and code with a bearer hea
     assertEquals(result.response, 'TOTP enabled')
   })
 })
+
+Deno.test('TotpClient.disable: deletes login/totp with a bearer header', async () => {
+  await withMockFetch([{ status: 200, body: { response: 'TOTP disabled' } }], async (calls) => {
+    const client = new TotpClient({ baseUrl: BASE_URL })
+    const result = await client.disable('access-token-value')
+    assertEquals(calls[0].method, 'DELETE')
+    assertEquals(calls[0].url, `${BASE_URL}/login/totp`)
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+    assertEquals(result.response, 'TOTP disabled')
+  })
+})
+
+Deno.test('TotpClient.disable: no session surfaces a 401 RestClientError', async () => {
+  await withMockFetch([{ status: 401 }], async () => {
+    const client = new TotpClient({ baseUrl: BASE_URL })
+    const error = await assertRejects(() => client.disable(''), RestClientError)
+    assertEquals(error.realHttpStatus, 401)
+  })
+})

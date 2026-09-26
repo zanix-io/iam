@@ -1,27 +1,15 @@
 /**
- * Shared constants for the `auth` domain slice (and, by convention, for every future domain
- * slice added to this project — `roles`/`permissions`/`users`/`grant-access`).
+ * Shared constants for every server-side domain of this project — `auth`, `roles`/`permissions`,
+ * `users`, and `grant-access`.
  */
 
 import { InternalError } from '@zanix/errors'
 import { parseTTL } from '@zanix/helpers'
 
-/** OAuth2 providers this project wires (see `zanix-iam`'s `auth` app manifest resources). */
-export const OAUTH_PROVIDERS = ['google', 'github'] as const
-
-/**
- * Delivery channels `@zanix/auth`'s OTP mechanism can dispatch a one-time code through — matches
- * `@zanix/notifications`'s own `Notifiers` union exactly, so every value here is a real,
- * independently-registerable channel (`SmtpClient`/`SmsClient`/`WhatsappClient`), not aspirational.
- */
-export const NOTIFIERS = ['email', 'sms', 'whatsapp'] as const
-
-/**
- * Every supported second-factor method — the delivery-based `NOTIFIERS` (OTP) plus the
- * authenticator-app method (`'totp'`, no delivery involved — the code is generated locally on
- * the user's device from a shared secret).
- */
-export const TWO_FACTOR_METHODS = [...NOTIFIERS, 'totp'] as const
+/** `OAUTH_PROVIDERS`/`NOTIFIERS`/`TWO_FACTOR_METHODS` live in `./shared-enums.ts`, a leaf module
+ * with zero imports of its own, and are re-exported here for server-side callers — see that
+ * module's own doc for why they live there. */
+export { NOTIFIERS, OAUTH_PROVIDERS, TWO_FACTOR_METHODS } from './shared-enums.ts'
 
 /** Which login actions can require a second factor (see `AuthenticationAttrs.twoFactorAuthConfig`). */
 export const LOGIN_ACTIONS = ['login', 'refresh'] as const
@@ -29,7 +17,7 @@ export const LOGIN_ACTIONS = ['login', 'refresh'] as const
 /**
  * Env var name for the access token's lifetime issued on login (see `AuthService.finishLogin`),
  * as a human-readable duration (`'30m'`, `'1h'`) or a bare number of seconds — the same format
- * `@zanix/auth`'s own `AuthSessionOptions.accessExpiration` accepts. Unset keeps today's behavior:
+ * `@zanix/auth`'s own `AuthSessionOptions.accessExpiration` accepts. Unset falls back to
  * `@zanix/auth`'s own `'1h'` default. `@zanix/auth`'s `createAccessToken` enforces a hard 1-hour
  * ceiling on whatever this resolves to — a longer value throws an `InternalError` at the next
  * login, not at boot, so a misconfiguration here surfaces as a real login failure.
@@ -38,8 +26,8 @@ export const ACCESS_TOKEN_EXPIRATION_ENV = 'ACCESS_TOKEN_EXPIRATION'
 
 /**
  * Env var name for the refresh token's lifetime issued on login — same format as
- * {@linkcode ACCESS_TOKEN_EXPIRATION_ENV}. Unset keeps today's behavior: `@zanix/auth`'s own
- * `'1y'` default. `@zanix/auth`'s `generateSessionTokens` requires this to resolve to at least
+ * {@linkcode ACCESS_TOKEN_EXPIRATION_ENV}. Unset falls back to `@zanix/auth`'s own `'1y'`
+ * default. `@zanix/auth`'s `generateSessionTokens` requires this to resolve to at least
  * `MIN_REFRESH_TO_ACCESS_RATIO` (3) times whatever the access token's own lifetime resolves to —
  * a narrower margin throws an `InternalError` at the next login.
  */
@@ -83,9 +71,9 @@ export function resolveConfiguredRefreshExpiration(): string | number | undefine
 /**
  * Computes the access-token lifetime surfaced in a login/refresh response, in seconds — a 10s
  * safety margin under `configured` (or `@zanix/auth`'s own `'1h'` default when `configured` is
- * `undefined`). Extracted as a pure function of its input, separate from
- * {@linkcode TOKEN_EXPIRATION}'s own module-load-time computation, purely so it can be exercised
- * directly against every input shape {@linkcode resolveConfiguredAccessExpiration} can produce.
+ * `undefined`). A pure function of its input, separate from {@linkcode TOKEN_EXPIRATION}'s own
+ * module-load-time computation, so every input shape
+ * {@linkcode resolveConfiguredAccessExpiration} can produce is directly testable.
  */
 export function computeTokenExpiration(configured: string | number | undefined): number {
   return parseTTL(configured ?? '1h') - 10
@@ -95,31 +83,63 @@ export function computeTokenExpiration(configured: string | number | undefined):
  * Access-token lifetime surfaced in a login/refresh response, in seconds (a 10s safety margin
  * under whatever `@zanix/auth` actually issues). Computed via `parseTTL` (`@zanix/helpers` — the
  * same duration parser `@zanix/auth`'s own `generateSessionTokens`/`createAccessToken` use
- * internally) from {@linkcode resolveConfiguredAccessExpiration}, rather than a fixed literal —
- * so this stays accurate if `ACCESS_TOKEN_EXPIRATION_ENV` is ever configured to something other
- * than the default 1 hour, instead of silently reporting a stale hardcoded value while a
- * different lifetime is actually in effect.
+ * internally) from {@linkcode resolveConfiguredAccessExpiration}, so it always matches the
+ * lifetime actually in effect, whatever `ACCESS_TOKEN_EXPIRATION_ENV` is set to.
  */
 export const TOKEN_EXPIRATION: number = computeTokenExpiration(resolveConfiguredAccessExpiration())
 
-/** Env var name for the anonymous rate limit applied to low-risk endpoints (login, OAuth2 start). */
+/** Env var name for the anonymous rate limit applied to low-risk endpoints (password login,
+ * OTP/TOTP/OAuth2 callbacks, recovery callback). */
 export const FREE_RATELIMIT_ENV = 'FREE_RATELIMIT'
 
-/** Env var name for the anonymous rate limit applied to sensitive endpoints (OTP/recovery dispatch). */
-export const CRITIC_RATELIMIT_ENV = 'CRITIC_RATELIMIT'
+/** Env var name for the anonymous rate limit applied to sensitive endpoints (OTP/recovery
+ * dispatch, OAuth2 start, token refresh, `/oauth/authorize`). */
+export const CRITICAL_RATELIMIT_ENV = 'CRITICAL_RATELIMIT'
 
 /** Anonymous rate limit (requests/window) for low-risk auth endpoints — see `FREE_RATELIMIT_ENV`. */
 export const freeRateLimit: number = Number(Deno.env.get(FREE_RATELIMIT_ENV)) || 3
 
-/** Anonymous rate limit (requests/window) for sensitive auth endpoints — see `CRITIC_RATELIMIT_ENV`. */
-export const criticRateLimit: number = Number(Deno.env.get(CRITIC_RATELIMIT_ENV)) || 1
+/** Anonymous rate limit (requests/window) for sensitive auth endpoints — see `CRITICAL_RATELIMIT_ENV`. */
+export const criticalRateLimit: number = Number(Deno.env.get(CRITICAL_RATELIMIT_ENV)) || 1
+
+/** Env var name for `loginMethods`'s own anonymous rate limit — see {@linkcode loginMethodsRateLimit}. */
+export const LOGIN_METHODS_RATELIMIT_ENV = 'LOGIN_METHODS_RATELIMIT'
+
+/**
+ * Anonymous rate limit (requests/window) for `LoginController.loginMethods`
+ * (`GET /login/methods/:email`) specifically — its own tier, distinct from {@linkcode criticalRateLimit},
+ * because this ONE endpoint is called TWICE per login attempt by design: once from a client-side
+ * lookup (the `LoginTwoStep` Comet, a no-reload UX optimization) and once again from the sign-in
+ * page's own `action`, which never trusts that first result and re-runs the identical check
+ * server-side before dispatching anything. `criticalRateLimit`'s default of `1` would reject the
+ * second of those two calls on every passwordless login with JavaScript enabled. Defaults to `2` —
+ * exactly the two legitimate calls this flow makes per attempt, not `freeRateLimit`'s `3`
+ * (needlessly loose for a still-enumeration-sensitive endpoint — see `resolveLoginMethods`'s own
+ * doc).
+ */
+export const loginMethodsRateLimit: number = Number(Deno.env.get(LOGIN_METHODS_RATELIMIT_ENV)) || 2
+
+/**
+ * Env var name for the `roles.id` auto-assigned to a brand-new account created through either
+ * self-registration path (OTP or OAuth2 — see `AuthService.loginWithOTPCallback`/
+ * `loginWithOauthCallback`, both of which resolve `auth.app.ts`'s `defaultRoleId` config through
+ * this same constant). Unset (the default), a fresh account gets no role and therefore no
+ * permissions at all (`resolveSessionPermissions` short-circuits on `!roleId`) — a consumer that
+ * wants new accounts to reach its own ordinary authenticated-user routes seeds a role holding
+ * whatever permission its own session guard checks (e.g. an `app:user` permission) and points this
+ * env var at its `id`.
+ */
+export const DEFAULT_ROLE_ID_ENV = 'DEFAULT_ROLE_ID'
+
+/** The `roles.id` to auto-assign on self-registration, or `undefined` when unset — see
+ * `DEFAULT_ROLE_ID_ENV`. */
+export const defaultRoleId: string | undefined = Deno.env.get(DEFAULT_ROLE_ID_ENV) || undefined
 
 /**
  * Env var name toggling this project's own project-wide cookie-consent modal
- * (`CookieConsentModal`, composed once in `[lang]/layout.tsx` — see that file's own doc for the
- * real login-persistence bug it exists to close). Enabled by default — {@linkcode
- * isCookieConsentEnabled} returns `true` with nothing configured at all, so that fix keeps working
- * with zero setup. Set to exactly `'false'` only for a deployment that already obtains cookie
+ * (`CookieConsentModal`, composed once in `[lang]/layout.tsx` — see that file's own doc for why
+ * session cookies depend on it). Enabled by default — {@linkcode isCookieConsentEnabled} returns
+ * `true` with nothing configured at all. Set to exactly `'false'` only for a deployment that already obtains cookie
  * consent some other way (e.g. a host-level consent banner covering this app alongside others) —
  * `space/middleware.ts`'s own `cookieConsentBypassGuard` then takes over injecting the accepted
  * signal `@zanix/auth`'s `checkAcceptedCookies` needs, so session cookies keep being emitted either
@@ -132,6 +152,24 @@ export const COOKIE_CONSENT_ENABLED_ENV = 'COOKIE_CONSENT_ENABLED'
  * (including unset) counts as enabled, matching that env var's own "opt out explicitly" contract. */
 export function isCookieConsentEnabled(): boolean {
   return Deno.env.get(COOKIE_CONSENT_ENABLED_ENV) !== 'false'
+}
+
+/**
+ * Env var that closes account self-registration on this instance. Unset or any value other than the
+ * literal `'false'` leaves both paths open (an unknown email may create its own account through an
+ * OTP or OAuth2 sign-in); `'false'` requires every account to be created beforehand by an
+ * administrator (`POST /users/register`). It only sets the default of the `selfRegistrationViaOTP`
+ * and `selfRegistrationViaOAuth` configs, so a host can still override either one at runtime.
+ *
+ * It is a per-instance setting: run a second instance with `SELF_REGISTRATION='false'` for the
+ * surfaces (a staff console, a partner portal) whose accounts must never create themselves.
+ */
+export const SELF_REGISTRATION_ENV = 'SELF_REGISTRATION'
+
+/** Whether accounts may create themselves on this instance — see
+ * {@linkcode SELF_REGISTRATION_ENV}'s own doc. */
+export function isSelfRegistrationEnabled(): boolean {
+  return Deno.env.get(SELF_REGISTRATION_ENV) !== 'false'
 }
 
 /**
@@ -152,22 +190,32 @@ export const TERMS_AND_CONDITIONS_URL_ENV = 'TERMS_AND_CONDITIONS_URL'
 export const PRIVACY_NOTICE_URL_ENV = 'PRIVACY_NOTICE_URL'
 
 /**
- * `users` domain slice — every status a profile can be in. `ACTIVE` is the default for both an
- * admin-registered account and an OAuth2-auto-provisioned one; `INACTIVE`/`DELETED` are the only
- * states an admin can transition a profile INTO afterward (see `EDITABLE_USER_STATUS` — there is
- * no generic-edit path back to `ACTIVE`, matching the real, deployed sibling project's own
- * restriction that a status edit can never silently reactivate an account).
+ * Every status a `users` profile can be in. `ACTIVE` is the default for both an admin-registered
+ * account and an OAuth2-auto-provisioned one; `INACTIVE`/`DELETED` are the only states an admin can
+ * transition a profile INTO afterward (see `EDITABLE_USER_STATUS` — there is no generic-edit path
+ * back to `ACTIVE`, so a status edit can never silently reactivate an account).
  */
 export const USER_STATUS = ['ACTIVE', 'INACTIVE', 'DELETED'] as const
 
 /** The subset of `USER_STATUS` an admin can set via the edit-by-id endpoint — see its own doc. */
 export const EDITABLE_USER_STATUS = ['INACTIVE', 'DELETED'] as const
 
+/** The `purpose` claim `AuthService.challengeReactivation`'s own short-lived token carries — lets
+ * `AuthService.confirmReactivation` reject any token minted for something else, and keeps this
+ * token structurally distinct from a normal session token (which carries no `purpose` claim at
+ * all), even though both are signed with the same `JWT_KEY`. */
+export const REACTIVATION_TOKEN_PURPOSE = 'reactivate-account'
+
+/** How long a reactivation-confirmation token stays valid — short on purpose: it only ever needs
+ * to survive the single redirect from a just-verified OTP/OAuth callback to
+ * `.../login/reactivate/:token`, never a real session lifetime. See `AuthService.challengeReactivation`'s
+ * own doc. */
+export const REACTIVATION_TOKEN_EXPIRATION = '5m'
+
 /**
- * `roles`/`permissions` domain slice — the shape a permission `code` must follow (`module:action`,
- * letters and hyphens only on each side of the colon). Enforced by `IsPermission`
- * (`handlers/rtos/validations/is-permission.ts`) — `@zanix/validator` ships no built-in equivalent
- * (only `IsObjectID` is a catalog decorator today).
+ * The shape a permission `code` must follow (`module:action`, letters and hyphens only on each side
+ * of the colon). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
+ * `@zanix/validator` ships no built-in equivalent.
  */
 export const PERMISSION_REGEX = /^[A-Za-z-]+:[A-Za-z-]+$/
 
@@ -220,8 +268,8 @@ export const FIRST_ADMIN_PASSWORD_ENV = 'FIRST_ADMIN_PASSWORD'
  * password-recovery UI should render with — consumed by `space.app.ts`'s own `theme.resolve`. Same
  * "one env var, JSON value" shape `@zanix/admin`'s own `ZANIX_ADMIN_SERVICES` already establishes
  * — reused here rather than a bespoke `--customizations <file>` mechanism, which would depend on a
- * file already being on disk, undercutting the zero-clone deployment this exists for. Unset means
- * no override — this instance renders with `@zanix/space-ui`'s own default tokens, same as today.
+ * file already being on disk, undercutting a zero-clone deployment. Unset means no override —
+ * this instance renders with `@zanix/space-ui`'s own default tokens.
  */
 export const THEME_ENV = 'IAM_THEME'
 
@@ -250,9 +298,9 @@ export function resolveThemeOverrides(): Record<string, string> | undefined {
  * Env var name for a JSON object of message-catalog overrides — merged ON TOP of
  * `loadMessages()`'s own resolved catalog (`[lang]/layout.tsx`'s own loader), same "one env var,
  * JSON value" shape as {@linkcode THEME_ENV}. Lets a self-hosted instance override/translate any
- * catalog key (e.g. `{"login/subject-welcome":"Bienvenido a Acme"}`) without clonning — the SAME
- * env-var-JSON pattern `@zanix/admin`'s own `ZANIX_ADMIN_SERVICES` already establishes. Unset means
- * no override — every page renders the base `en/index.json` catalog unchanged.
+ * catalog key (e.g. `{"login/heading":"Sign in to Acme"}`) without cloning this project. Unset
+ * means no override — every page renders the base catalog (`iamMessages`, `ui/sdk/messages.ts`)
+ * unchanged.
  */
 export const MESSAGES_ENV = 'IAM_MESSAGES'
 
@@ -284,18 +332,24 @@ export function resolveMessageOverrides(): Record<string, string> | undefined {
  * config field is a static string, not a function of the request (`@zanix/space`'s own
  * `RedirectConfig.to` — unlike its sibling `condition`), so it can only ever use this default, never
  * `REDIRECT_TO_PARAM`. This project ships no dashboard/account page of its own (see `LoginPage`'s
- * own doc) — `'/'` is a placeholder every one of those pages already assumed, not a real
- * destination; a host embedding this app alongside its own frontend sets this once instead of
- * forking five files.
+ * own doc) — the `'/'` default is a placeholder, not a real destination; a host embedding this app
+ * alongside its own frontend sets this once.
  */
 export const POST_LOGIN_REDIRECT_URL_ENV = 'POST_LOGIN_REDIRECT_URL'
 
 /** The configured DEFAULT post-login destination — see {@linkcode POST_LOGIN_REDIRECT_URL_ENV}.
- * Defaults to `'/'`, unchanged from every call site's own previous hardcoded literal. Prefer
+ * Defaults to `'/'`. Prefer
  * {@linkcode resolvePostLoginRedirect} at any real `action` call site — this is the fallback it
  * falls back TO, not the per-request answer. */
 export const postLoginRedirectUrl: () => string = () =>
   Deno.env.get(POST_LOGIN_REDIRECT_URL_ENV) || '/'
+
+/**
+ * Path prefix of this service's REST API: `@zanix/server`'s default REST `globalPrefix`, which
+ * `mod.ts` keeps for the `auth`/`grant-access` apps (only the space app moves to `iam-space`).
+ * Every REST route is served under it, e.g. `/api/oauth/authorize`.
+ */
+export const REST_API_PREFIX = '/api'
 
 /**
  * Query param carrying a CALLER-specified post-login destination — e.g. a protected page this
@@ -312,10 +366,9 @@ export const REDIRECT_TO_PARAM = 'redirect_to'
  * `https://app.example.com,https://admin.example.com`) a {@linkcode REDIRECT_TO_PARAM} may
  * point at ABSOLUTELY, on top of the same-origin relative paths {@linkcode isSafeRedirectTarget}
  * always allows. Empty/unset by default — no absolute URL is ever trusted until an operator opts
- * in explicitly, so this project's own zero-config default behaves exactly as it did before this
- * option existed.
+ * in explicitly.
  *
- * Real motivation: a consumer app deployed on a genuinely DIFFERENT origin from this project's own
+ * Use case: a consumer app deployed on a genuinely DIFFERENT origin from this project's own
  * (its own domain/port, its own cookie scope — this ecosystem's normal multi-app-per-service
  * topology) can send a visitor to THIS project's own hosted login/2FA/consent UI and get them back
  * on ITS OWN domain afterward, instead of hand-rolling a second login UI against this project's
@@ -326,9 +379,8 @@ export const REDIRECT_TO_PARAM = 'redirect_to'
  */
 export const TRUSTED_REDIRECT_ORIGINS_ENV = 'TRUSTED_REDIRECT_ORIGINS'
 
-/** Parses {@linkcode TRUSTED_REDIRECT_ORIGINS_ENV} into a real, trimmed list of origins — `[]`
- * when unset (never throws: an operator who never sets this at all is the overwhelmingly common
- * case, and must see IDENTICAL behavior to before this option existed, not a boot-time failure). */
+/** Parses {@linkcode TRUSTED_REDIRECT_ORIGINS_ENV} into a trimmed list of origins — `[]` when
+ * unset. Never throws: leaving this unset is the common case, not a misconfiguration. */
 function resolveTrustedRedirectOrigins(): string[] {
   const raw = Deno.env.get(TRUSTED_REDIRECT_ORIGINS_ENV)
   if (!raw) return []
@@ -389,16 +441,14 @@ export function withRedirectToParam(path: string, url: URL): string {
 }
 
 /**
- * Permission strings gating the `roles`/`permissions`/`grant-access`/`users` domain slices' own
- * admin endpoints (see `RolesController`/`PermissionsController`/`GrantAccessController`/
- * `UsersController`). `*Read` and `*Write` are checked together (OR, not AND — see
- * `auth-permissions-and-rate-limiting`) on every read route, so a caller holding write access can
- * always read too; only `*Write` gates a mutation.
+ * Permission strings gating the `roles`/`permissions`/`grant-access`/`users` admin endpoints (see
+ * `RolesController`/`PermissionsController`/`GrantAccessController`/`UsersController`). `*Read`
+ * and `*Write` are checked together (OR, not AND — `@zanix/auth`'s `AuthTokenValidation`
+ * `permissions` semantics) on every read route, so a caller holding write access can always read
+ * too; only `*Write` gates a mutation.
  *
- * Unlike this domain slice's own grounding reference (`ms-iam`'s `ROLES_PERMISSIONS`),
- * there is still no dedicated `system`/`organization` split here, and `RBAC_PERMISSIONS` itself
- * needs no new entries to support this ONE product's own multi-customer/multi-organization
- * partitioning — `roles.tenantId` (see `roles/model.defs.ts`) and `grant-access.tenantId` (see
+ * There is no dedicated `system`/`organization` split here, and `RBAC_PERMISSIONS` itself needs no
+ * entries to support one product's own multi-customer/multi-organization partitioning — `roles.tenantId` (see `roles/model.defs.ts`) and `grant-access.tenantId` (see
  * `grant-access/model.defs.ts`) are pure DATA scoping, checked by each repository's own query
  * filter, never a second authorization mechanism layered on top of this catalog. The same simple
  * `AuthTokenValidation({ permissions: RBAC_PERMISSIONS.* })` gate covers every tenant
@@ -423,17 +473,14 @@ export const RBAC_PERMISSIONS = {
   userRead: `${PERMISSIONS_PREFIX}:user-read`,
   userWrite: `${PERMISSIONS_PREFIX}:user-write`,
   /** Gates `templates.handler.ts`'s own `/templates` CRUD API — one permission for the whole
-   * controller (no read/write split, matching that guard's own single-permission shape). Was
-   * previously a bespoke `'iam:templates'` literal, inconsistent with every other entry here
-   * (wrong prefix, no real catalog entry) — folded in for consistency. */
+   * controller (no read/write split, matching that guard's own single-permission shape). */
   templatesAccess: `${PERMISSIONS_PREFIX}:templates-access`,
 } as const
 
 /**
- * `grant-access` domain slice — the default access-level hierarchy `defaultEvaluateGrantAccess`
+ * The default `grant-access` access-level hierarchy `defaultEvaluateGrantAccess`
  * (`utils/grant-access.ts`) orders ascending: `MANAGE` satisfies a `READ`/`WRITE` requirement,
- * `WRITE` satisfies a `READ` requirement, `READ` satisfies only itself. Generalizes the grounding
- * reference's own bare `accessLevel === 'MANAGE'` string check into an actual ordering.
+ * `WRITE` satisfies a `READ` requirement, `READ` satisfies only itself.
  * `GrantAccessAttrs.accessLevel` itself stays a free-form `string` (see that model's own doc) — a
  * value outside this list is compared by exact equality instead, never rejected or coerced.
  */

@@ -90,3 +90,9 @@ Deno.test('getPermissions: returns the paginated catalog', async () => {
   assertEquals(result.total, 1)
   assertEquals(result.docs[0].id, 'perm-1')
 })
+
+Deno.test('getPermissionById: returns the permission when it exists', async () => {
+  const { service, permissionsRepo } = buildService()
+  assertEquals(await service.getPermissionById('perm-1') as unknown, basePermission())
+  assertEquals(permissionsRepo.findById.calls, [['perm-1']])
+})
