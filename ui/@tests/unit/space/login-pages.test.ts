@@ -181,7 +181,7 @@ Deno.test('handleOtpResendAction: no dispatch mid-cooldown, a failed dispatch ch
     notifier: 'sms',
     cooldown: idle,
   })
-  assertEquals(location(failed), '/es/login/otp/a%40x.test')
+  assertEquals(location(failed), '/es/login/otp/a%40x.test?error=unexpected_error')
   assertEquals(stamped, [])
 
   const sent = await handleOtpResendAction(ctx(params), {

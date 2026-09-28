@@ -708,7 +708,18 @@ export async function handleOtpResendAction(
   try {
     await client(options.otpClient).request(email, options.notifier)
   } catch (e) {
-    if (e instanceof RestClientError) return redirectResponse(destination)
+    // Real, confirmed gap this closes (Track H E2E, 28 sep 2026): an upstream dispatch failure —
+    // a genuine `RestClientError` from `OtpClient.request` (a live case: `iam`'s own
+    // `sendBackgroundMessage` worker timing out) — used to redirect back to `destination` with
+    // NOTHING distinguishing it from a plain page load, unlike the cooldown-still-active branch
+    // above (whose silence is fine: the reloaded page's own fresh `cooldownEndsAt` already shows
+    // the live countdown). A visitor whose resend genuinely failed saw no code arrive and no
+    // explanation why. Reuses `otpVerifyPageData`'s own existing `unexpectedError` banner — the
+    // SAME mechanism `handleOtpVerifyAction` already redirects to for an identical upstream fault
+    // during verification, never a new banner/i18n key of its own.
+    if (e instanceof RestClientError) {
+      return redirectResponse(`${destination}?error=${UNEXPECTED_ERROR}`)
+    }
     throw e
   }
 
