@@ -214,7 +214,7 @@ export const REACTIVATION_TOKEN_EXPIRATION = '5m'
 
 /**
  * The shape a permission `code` must follow (`module:action`, letters, digits and hyphens on each
- * side of the colon — a module such as `b2b-portal` or `oauth2` is a real name). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
+ * side of the colon — a module such as `billing-portal` or `oauth2` is a real name). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
  * `@zanix/validator` ships no built-in equivalent.
  */
 export const PERMISSION_REGEX = /^[A-Za-z0-9-]+:[A-Za-z0-9-]+$/

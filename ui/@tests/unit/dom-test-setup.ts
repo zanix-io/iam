@@ -37,6 +37,7 @@ globals.history = dom.history
 // `requestAnimationFrame` — happy-dom's `Window` ships a real implementation of it, just never
 // bridged onto `globalThis` until a component actually needed one.
 globals.requestAnimationFrame = dom.requestAnimationFrame.bind(dom)
+globals.cancelAnimationFrame = dom.cancelAnimationFrame.bind(dom)
 // Silences React's own "environment not configured for act()" warning — this file IS that
 // configuration. Preact's own DOM `render()` needs no equivalent flag.
 globals.IS_REACT_ACT_ENVIRONMENT = true

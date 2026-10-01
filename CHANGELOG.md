@@ -11,8 +11,8 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 - **A permission code with a digit could never be created** — `POST /api/permissions`
   (`IsPermission`, `PERMISSION_REGEX`) accepted only letters and hyphens on each side of the colon,
-  so a real module name such as `b2b-portal` or `oauth2` answered `400` and no account could ever
-  hold it. Digits are now allowed on both sides; underscores and other punctuation are still
+  so a real module name such as `billing-portal` or `oauth2` answered `400` and no account could
+  ever hold it. Digits are now allowed on both sides; underscores and other punctuation are still
   rejected.
 
 ## [1.0.2] - 2026-09-28
