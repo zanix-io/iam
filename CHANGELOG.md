@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-10-01
+
+### Fixed
+
+- **A permission code with a digit could never be created** — `POST /api/permissions`
+  (`IsPermission`, `PERMISSION_REGEX`) accepted only letters and hyphens on each side of the colon,
+  so a real module name such as `b2b-portal` or `oauth2` answered `400` and no account could ever
+  hold it. Digits are now allowed on both sides; underscores and other punctuation are still
+  rejected.
+
 ## [1.0.2] - 2026-09-28
 
 ### Fixed

@@ -259,8 +259,8 @@ the session subject — not the `users` profile id.
 | `GET /api/permissions/:id`   | `permission-read` or `permission-write` | Param `id`                                                 |
 | `PATCH /api/permissions/:id` | `permission-write`                      | Body `{ name?, description?, categories?, isActive? }`     |
 
-`code` must match `module:action` (letters and hyphens on each side). `409` for a duplicate code,
-`404` for an unknown id. There is no delete; deactivate with `isActive: false`.
+`code` must match `module:action` (letters, digits and hyphens on each side). `409` for a duplicate
+code, `404` for an unknown id. There is no delete; deactivate with `isActive: false`.
 
 ### Grant Access (`/api/grant-access`)
 

@@ -21,8 +21,14 @@ Deno.test('isPermission: rejects a code with no colon', () => {
   assertEquals(isPermission('role-write'), false)
 })
 
-Deno.test('isPermission: rejects a code with digits or underscores', () => {
-  assertEquals(isPermission('zanix-iam:role_write2'), false)
+Deno.test('isPermission: accepts digits in either segment', () => {
+  assertEquals(isPermission('b2b-portal:user'), true)
+  assertEquals(isPermission('oauth2:token-v2'), true)
+})
+
+Deno.test('isPermission: rejects a code with underscores or other punctuation', () => {
+  assertEquals(isPermission('zanix-iam:role_write'), false)
+  assertEquals(isPermission('zanix.iam:role-write'), false)
 })
 
 Deno.test('isPermission: rejects a non-string value', () => {

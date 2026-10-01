@@ -18,7 +18,7 @@ demand). Both support optional tenant scoping. Endpoints are listed in the
 ### Permissions
 
 A permission ([`permissions/model.defs.ts`](../src/server/repositories/permissions/model.defs.ts))
-has a globally unique `code` in `module:action` form (letters and hyphens on each side, e.g.
+has a globally unique `code` in `module:action` form (letters, digits and hyphens on each side, e.g.
 `orders:refund`), a `name`, a `description`, optional `categories`, and `isActive`. Only active
 permissions reach a token; deactivate one with `PATCH /api/permissions/:id` (`isActive: false`),
 there is no delete.

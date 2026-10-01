@@ -30,7 +30,7 @@ Deno.test('CreatePermissionRTO: @IsPermission rejects a code outside the module:
     properties.code[0].constraints,
     [
       "The 'code' property must be a valid permission code in the 'module:action' format " +
-      '(letters and hyphens only).',
+      '(letters, digits and hyphens only).',
     ],
   )
 })

@@ -8,7 +8,7 @@ export function isPermission(value?: string): boolean {
 
 /**
  * Decorator to validate that a field is a permission code in this project's own `module:action`
- * shape (letters and hyphens only on each side of the colon) — the shape every `RBAC_PERMISSIONS`
+ * shape (letters, digits and hyphens on each side of the colon) — the shape every `RBAC_PERMISSIONS`
  * value and `roles`/`permissions` catalog `code` is expected to follow.
  *
  * `@zanix/validator` ships no built-in equivalent — hand-written here via the package's own public `defineValidationDecorator`, the same extension
@@ -25,7 +25,7 @@ export function IsPermission(
   return defineValidationDecorator(isPermission, {
     message: (property: string) =>
       `The '${property}' property must be a valid permission code in the 'module:action' format ` +
-      '(letters and hyphens only).',
+      '(letters, digits and hyphens only).',
     ...options,
   })
 }

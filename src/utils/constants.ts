@@ -213,11 +213,11 @@ export const REACTIVATION_TOKEN_PURPOSE = 'reactivate-account'
 export const REACTIVATION_TOKEN_EXPIRATION = '5m'
 
 /**
- * The shape a permission `code` must follow (`module:action`, letters and hyphens only on each side
- * of the colon). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
+ * The shape a permission `code` must follow (`module:action`, letters, digits and hyphens on each
+ * side of the colon — a module such as `b2b-portal` or `oauth2` is a real name). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
  * `@zanix/validator` ships no built-in equivalent.
  */
-export const PERMISSION_REGEX = /^[A-Za-z-]+:[A-Za-z-]+$/
+export const PERMISSION_REGEX = /^[A-Za-z0-9-]+:[A-Za-z0-9-]+$/
 
 /**
  * Env var name for this deployed instance's own identity — used to build the RBAC permission
