@@ -34,10 +34,17 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Build the hosted pages' client bundle
+        # `.dist/` is git-ignored, so the checkout has none, and `publish.include` in `deno.json`
+        # ships `.dist/client` so that `serve.ts` can run the pages from the package. The build
+        # rewrites `deno.lock`, which is why the publish step below allows a dirty tree.
+        if: success() && needs.ci.result == 'success' && github.event_name == 'push'
+        run: deno run -A --minimum-dependency-age 0 jsr:@zanix/cli space build
+
       - name: Publish to Deno
         # `needs.ci.result == 'success'` is explicit, not just relying on the default `needs:`
         # skip-on-failure behavior above — that default only holds as long as `publish` keeps its
         # own `if:` unset; an `always()`/similar override on the JOB (e.g. added later to get
         # diagnostics on a failing run) would silently defeat it without this STEP-level check.
         if: success() && needs.ci.result == 'success' && github.event_name == 'push'
-        run: deno publish
+        run: deno publish --allow-dirty

@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "zanix": {
     "project": "space-server"
   },
@@ -113,6 +113,7 @@
   },
   "exports": {
     ".": "./mod.ts",
+    "./serve": "./serve.ts",
     "./auth-app": "./src/server/apps/auth.app.ts",
     "./grant-access-app": "./src/server/apps/grant-access.app.ts",
     "./shared-enums": "./src/utils/shared-enums.ts",
@@ -190,10 +191,13 @@
     "./ui/space/login-pages": "./ui/space/login-pages.ts"
   },
   "publish": {
+    "include": ["./"],
     "exclude": [
       ".github",
       "src/@tests",
-      "ui/@tests"
+      "ui/@tests",
+      "!.dist/client",
+      ".dist/client/assets/.gitkeep*"
     ]
   },
   "nodeModulesDir": "auto",

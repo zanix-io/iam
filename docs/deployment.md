@@ -36,6 +36,33 @@ The normal deployment: one process started from `mod.ts` serves
 Run the worker as its own process, never in the same one as `mod.ts`. Behind a load balancer, put a
 trusted reverse proxy in front: anonymous rate limits key on the client IP from proxy headers.
 
+### Running without cloning the repository
+
+A published version runs from its own files, with no checkout. `@zanix/iam/serve` downloads that
+version once, checks every file against the SHA-256 sum JSR publishes for it, and starts it:
+
+```sh
+deno run --allow-net --allow-env --allow-read --allow-write --allow-run \
+  jsr:@zanix/iam@1.0.4/serve --env-file=.env
+```
+
+| Option              | What it does                                                            |
+| ------------------- | ----------------------------------------------------------------------- |
+| `--env-file=<file>` | An env file for the service (repeatable), relative to where you run it. |
+| `--worker`          | Runs the AsyncMQ worker (`worker.ts`) instead of the server (`mod.ts`). |
+| `--cache-dir=<dir>` | Where versions are kept (`ZANIX_CACHE_DIR`, else `~/.cache/zanix`).     |
+| `--version=<x.y.z>` | The version to run when `serve.ts` is not itself loaded from JSR.       |
+| `-- <deno flags>`   | Everything after `--` goes to the `deno run` that starts the service.   |
+
+Pin the exact version. Nothing is downloaded twice: in a container, run the command once while
+building the image, then start the service from the cache without reaching JSR:
+
+```sh
+deno run -A jsr:@zanix/iam@1.0.4/serve --env-file=.env -- --cached-only
+```
+
+A file that does not match its published sum aborts the download and leaves nothing in the cache.
+
 ### Composing the manifests
 
 `@zanix/iam/auth-app` and `@zanix/iam/grant-access-app` export the two App manifests for another

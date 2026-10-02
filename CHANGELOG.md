@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-02
+
+### Added
+
+- **`@zanix/iam/serve` runs a published version without cloning the repository.**
+  `deno run jsr:@zanix/iam@<version>/serve --env-file=.env` downloads that version's files into a
+  cache directory (`ZANIX_CACHE_DIR`, else `~/.cache/zanix`), checks each one against the SHA-256
+  sum JSR publishes for it, and runs `mod.ts` from there; `--worker` runs `worker.ts` instead. A
+  version is downloaded once, and a file that does not match leaves nothing in the cache. In a
+  container, run it once at build time and start the service with `-- --cached-only`.
+
+### Changed
+
+- **The package now ships `.dist/client`**, the client bundle the hosted pages load (their scripts,
+  stylesheet and manifests). It is git-ignored, so the publish workflow builds it first. Without it
+  a downloaded copy served the pages with no client script or stylesheet.
+
 ## [1.0.4] - 2026-10-01
 
 ### Changed
