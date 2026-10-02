@@ -17,7 +17,7 @@
     "jsr:@std/semver@^1.0.8": "1.0.8",
     "jsr:@std/streams@~0.224.5": "0.224.5",
     "jsr:@zanix/app@1": "1.0.4",
-    "jsr:@zanix/app@^1.0.2": "1.0.4",
+    "jsr:@zanix/app@^1.0.4": "1.0.4",
     "jsr:@zanix/asyncmq@~0.9.1": "0.9.1",
     "jsr:@zanix/auth@1": "1.6.0",
     "jsr:@zanix/auth@^1.6.0": "1.6.0",
@@ -524,10 +524,10 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@zanix/app@^1.0.2",
+      "jsr:@zanix/app@^1.0.4",
       "jsr:@zanix/asyncmq@~0.9.1",
       "jsr:@zanix/auth@^1.6.0",
-      "jsr:@zanix/core@^3.1.2",
+      "jsr:@zanix/core@^3.1.3",
       "jsr:@zanix/datamaster@^1.11.1",
       "jsr:@zanix/notifications@^1.2.3",
       "jsr:@zanix/server@^4.3.0",
