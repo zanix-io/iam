@@ -4,6 +4,7 @@
   "zanix": {
     "project": "space-server"
   },
+  "minimumDependencyAge": 0,
   "tasks": {
     "check-cycles": "deno run -A jsr:@zanix/cli check-cycles",
     "check-duplicates": "deno run -A jsr:@zanix/cli check-duplicates",
