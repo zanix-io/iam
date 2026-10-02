@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "zanix": {
     "project": "space-server"
   },
@@ -90,8 +90,8 @@
     "@zanix/server": "jsr:@zanix/server@^4.3.0",
     "@zanix/notifications": "jsr:@zanix/notifications@^1.2.3",
     "@zanix/datamaster": "jsr:@zanix/datamaster@^1.11.1",
-    "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.8.0",
-    "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.8.0/jobs",
+    "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.9.1",
+    "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.9.1/jobs",
     "@zanix/validator": "jsr:@zanix/utils@^4.7.0/validator",
     "@zanix/errors": "jsr:@zanix/utils@^4.7.0/errors",
     "@zanix/helpers": "jsr:@zanix/utils@^4.7.0/helpers",

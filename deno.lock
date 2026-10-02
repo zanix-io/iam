@@ -1,74 +1,48 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@cliffy/command@1.2.1": "1.2.1",
-    "jsr:@cliffy/flags@1.2.1": "1.2.1",
-    "jsr:@cliffy/internal@1.2.1": "1.2.1",
-    "jsr:@cliffy/table@1.2.1": "1.2.1",
-    "jsr:@db/sqlite@0.12": "0.12.0",
-    "jsr:@deno/loader@0.5": "0.5.0",
-    "jsr:@denosaurs/plug@1": "1.1.0",
-    "jsr:@std/assert@0.217": "0.217.0",
     "jsr:@std/assert@0.224": "0.224.0",
     "jsr:@std/async@^1.0.0-rc.1": "1.5.1",
-    "jsr:@std/cli@1.0.32": "1.0.32",
     "jsr:@std/cli@~0.224.7": "0.224.7",
     "jsr:@std/crypto@^1.1.0": "1.1.0",
-    "jsr:@std/encoding@1": "1.0.11",
     "jsr:@std/encoding@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/fmt@0.224": "0.224.0",
-    "jsr:@std/fmt@1": "1.0.10",
-    "jsr:@std/fmt@^1.0.10": "1.0.10",
     "jsr:@std/fmt@~0.225.4": "0.225.6",
-    "jsr:@std/fs@1": "1.0.24",
-    "jsr:@std/fs@1.0.24": "1.0.24",
     "jsr:@std/http@0.224": "0.224.5",
     "jsr:@std/internal@0.224": "0.224.0",
-    "jsr:@std/internal@^1.0.14": "1.0.14",
-    "jsr:@std/jsonc@1.0.2": "1.0.2",
     "jsr:@std/media-types@^1.0.0-rc.1": "1.1.0",
     "jsr:@std/net@~0.224.3": "0.224.5",
-    "jsr:@std/path@0.217": "0.217.0",
     "jsr:@std/path@0.224": "0.224.0",
-    "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@1.0.0-rc.2": "1.0.0-rc.2",
-    "jsr:@std/path@^1.1.5": "1.1.6",
     "jsr:@std/semver@^1.0.8": "1.0.8",
     "jsr:@std/streams@~0.224.5": "0.224.5",
-    "jsr:@std/text@^1.0.19": "1.1.0",
-    "jsr:@zanix/admin@^2.3.0": "2.3.2",
-    "jsr:@zanix/app@1": "1.0.2",
-    "jsr:@zanix/app@^1.0.2": "1.0.2",
-    "jsr:@zanix/asyncmq@0.8": "0.8.0",
+    "jsr:@zanix/app@1": "1.0.4",
+    "jsr:@zanix/app@^1.0.2": "1.0.4",
+    "jsr:@zanix/asyncmq@~0.9.1": "0.9.1",
     "jsr:@zanix/auth@1": "1.6.0",
     "jsr:@zanix/auth@^1.6.0": "1.6.0",
-    "jsr:@zanix/cli@*": "2.1.0",
-    "jsr:@zanix/core@^3.1.2": "3.1.2",
     "jsr:@zanix/datamaster@^1.11.1": "1.11.1",
     "jsr:@zanix/datamaster@^1.7.0": "1.11.1",
     "jsr:@zanix/datamaster@^1.9.0": "1.11.1",
-    "jsr:@zanix/notifications@1": "1.2.3",
     "jsr:@zanix/notifications@^1.2.3": "1.2.3",
     "jsr:@zanix/server@4": "4.3.4",
     "jsr:@zanix/server@^4.1.0": "4.3.4",
     "jsr:@zanix/server@^4.2.3": "4.3.4",
     "jsr:@zanix/server@^4.3.0": "4.3.4",
-    "jsr:@zanix/space-ui@^2.4.0": "2.4.0",
-    "jsr:@zanix/space@1": "1.16.2",
-    "jsr:@zanix/space@^1.16.0": "1.16.2",
-    "jsr:@zanix/utils@4": "4.7.0",
-    "jsr:@zanix/utils@^4.1.0": "4.7.0",
-    "jsr:@zanix/utils@^4.2.1": "4.7.0",
-    "jsr:@zanix/utils@^4.4.0": "4.7.0",
-    "jsr:@zanix/utils@^4.7.0": "4.7.0",
+    "jsr:@zanix/server@^4.3.4": "4.3.4",
+    "jsr:@zanix/space-ui@^2.4.0": "2.6.1",
+    "jsr:@zanix/space@1": "1.16.4",
+    "jsr:@zanix/space@^1.16.0": "1.16.4",
+    "jsr:@zanix/utils@4": "4.7.1",
+    "jsr:@zanix/utils@^4.1.0": "4.7.1",
+    "jsr:@zanix/utils@^4.4.0": "4.7.1",
+    "jsr:@zanix/utils@^4.5.0": "4.7.1",
+    "jsr:@zanix/utils@^4.7.0": "4.7.1",
     "npm:@formatjs/icu-messageformat-parser@^3.5.17": "3.5.18",
     "npm:@formatjs/intl@^4.1.19": "4.2.1",
     "npm:@types/react-dom@^19.2.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@^19.2.0": "19.3.0",
-    "npm:amqplib@^2.0.1": "2.0.1",
     "npm:babel-plugin-react-compiler@1": "1.0.0",
-    "npm:es-module-lexer@^1.5.4": "1.7.0",
-    "npm:graphql@16": "16.14.2",
     "npm:handlebars@^4.7.8": "4.7.9",
     "npm:happy-dom@^20.11.2": "20.14.5",
     "npm:mongoose@8": "8.24.4",
@@ -80,63 +54,14 @@
     "npm:react@^19.2.0": "19.3.0",
     "npm:react@^19.2.8": "19.3.0",
     "npm:redis@^5.9.0": "5.12.1",
-    "npm:schema-dts@^1.1.5": "1.1.5",
-    "npm:zod@^4.1.13": "4.6.5"
+    "npm:schema-dts@^1.1.5": "1.1.5"
   },
   "jsr": {
-    "@cliffy/command@1.2.1": {
-      "integrity": "b7b017c81560d96580ea810c8564566884d8194416f6fc06bfdc8846e8fd590f",
-      "dependencies": [
-        "jsr:@cliffy/flags",
-        "jsr:@cliffy/internal",
-        "jsr:@cliffy/table",
-        "jsr:@std/fmt@^1.0.10",
-        "jsr:@std/text"
-      ]
-    },
-    "@cliffy/flags@1.2.1": {
-      "integrity": "10034920ef7595db586fecec5a3b10a4ec800c513cbbc368414cd748dac706fb",
-      "dependencies": [
-        "jsr:@cliffy/internal",
-        "jsr:@std/text"
-      ]
-    },
-    "@cliffy/internal@1.2.1": {
-      "integrity": "e398f41c6839d3d4d249c963bfcb1058013091425926d53a3cb482b1ca70684b"
-    },
-    "@cliffy/table@1.2.1": {
-      "integrity": "be333e62f2c754f8bf75a38c8177515b152040572c9f75298e9bcef1314b82ff",
-      "dependencies": [
-        "jsr:@std/fmt@^1.0.10"
-      ]
-    },
-    "@db/sqlite@0.12.0": {
-      "integrity": "dd1ef7f621ad50fc1e073a1c3609c4470bd51edc0994139c5bf9851de7a6d85f",
-      "dependencies": [
-        "jsr:@denosaurs/plug",
-        "jsr:@std/path@0.217"
-      ]
-    },
-    "@deno/loader@0.5.0": {
-      "integrity": "a6d94408de5e6bacac404f8f6963c8b8cc278cfd1a878aa2f06b34a083d6bfee"
-    },
-    "@denosaurs/plug@1.1.0": {
-      "integrity": "eb2f0b7546c7bca2000d8b0282c54d50d91cf6d75cb26a80df25a6de8c4bc044",
-      "dependencies": [
-        "jsr:@std/encoding@1",
-        "jsr:@std/fmt@1",
-        "jsr:@std/fs@1",
-        "jsr:@std/path@1"
-      ]
-    },
-    "@std/assert@0.217.0": {
-      "integrity": "c98e279362ca6982d5285c3b89517b757c1e3477ee9f14eb2fdf80a45aaa9642"
-    },
     "@std/assert@0.224.0": {
       "integrity": "8643233ec7aec38a940a8264a6e3eed9bfa44e7a71cc6b3c8874213ff401967f",
       "dependencies": [
         "jsr:@std/fmt@0.224",
-        "jsr:@std/internal@0.224"
+        "jsr:@std/internal"
       ]
     },
     "@std/async@1.5.1": {
@@ -145,20 +70,11 @@
     "@std/cli@0.224.7": {
       "integrity": "654ca6477518e5e3a0d3fabafb2789e92b8c0febf1a1d24ba4b567aba94b5977"
     },
-    "@std/cli@1.0.32": {
-      "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66",
-      "dependencies": [
-        "jsr:@std/internal@^1.0.14"
-      ]
-    },
     "@std/crypto@1.1.0": {
       "integrity": "b8d6d0a6377a32b213af2661ed7bf1062d94feac0c57def5526a8e74a95c3ec8"
     },
     "@std/encoding@1.0.0-rc.2": {
       "integrity": "160d7674a20ebfbccdf610b3801fee91cf6e42d1c106dd46bbaf46e395cd35ef"
-    },
-    "@std/encoding@1.0.11": {
-      "integrity": "e7cef2f0b3153bccc17431e7c864a1de03a4b6d9647389c43e08aaa775d37385"
     },
     "@std/fmt@0.224.0": {
       "integrity": "e20e9a2312a8b5393272c26191c0a68eda8d2c4b08b046bad1673148f1d69851"
@@ -166,22 +82,12 @@
     "@std/fmt@0.225.6": {
       "integrity": "aba6aea27f66813cecfd9484e074a9e9845782ab0685c030e453a8a70b37afc8"
     },
-    "@std/fmt@1.0.10": {
-      "integrity": "90dfba288802ac6de82fb31d0917eb9e4450b9925b954d5e51fc29ac07419db5"
-    },
-    "@std/fs@1.0.24": {
-      "integrity": "f3061b45b81673a2bece689da041df32d174be064c89eb6397fb5718d3fb7877",
-      "dependencies": [
-        "jsr:@std/internal@^1.0.14",
-        "jsr:@std/path@^1.1.5"
-      ]
-    },
     "@std/http@0.224.5": {
       "integrity": "b03b5d1529f6c423badfb82f6640f9f2557b4034cd7c30655ba5bb447ff750a4",
       "dependencies": [
         "jsr:@std/async",
-        "jsr:@std/cli@~0.224.7",
-        "jsr:@std/encoding@1.0.0-rc.2",
+        "jsr:@std/cli",
+        "jsr:@std/encoding",
         "jsr:@std/fmt@~0.225.4",
         "jsr:@std/media-types",
         "jsr:@std/net",
@@ -195,38 +101,20 @@
         "jsr:@std/fmt@0.224"
       ]
     },
-    "@std/internal@1.0.14": {
-      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
-    },
-    "@std/jsonc@1.0.2": {
-      "integrity": "909605dae3af22bd75b1cbda8d64a32cf1fd2cf6efa3f9e224aba6d22c0f44c7"
-    },
     "@std/media-types@1.1.0": {
       "integrity": "c9d093f0c05c3512932b330e3cc1fe1d627b301db33a4c2c2185c02471d6eaa4"
     },
     "@std/net@0.224.5": {
       "integrity": "9c2ae90a5c3dc7771da5ae5e13b6f7d5d0b316c1954c5d53f2bfc1129fb757ff"
     },
-    "@std/path@0.217.0": {
-      "integrity": "1217cc25534bca9a2f672d7fe7c6f356e4027df400c0e85c0ef3e4343bc67d11",
-      "dependencies": [
-        "jsr:@std/assert@0.217"
-      ]
-    },
     "@std/path@0.224.0": {
       "integrity": "55bca6361e5a6d158b9380e82d4981d82d338ec587de02951e2b7c3a24910ee6",
       "dependencies": [
-        "jsr:@std/assert@0.224"
+        "jsr:@std/assert"
       ]
     },
     "@std/path@1.0.0-rc.2": {
       "integrity": "39f20d37a44d1867abac8d91c169359ea6e942237a45a99ee1e091b32b921c7d"
-    },
-    "@std/path@1.1.6": {
-      "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
-      "dependencies": [
-        "jsr:@std/internal@^1.0.14"
-      ]
     },
     "@std/semver@1.0.8": {
       "integrity": "dc830e8b8b6a380c895d53fbfd1258dc253704ca57bbe1629ac65fd7830179b7"
@@ -234,36 +122,21 @@
     "@std/streams@0.224.5": {
       "integrity": "bcde7818dd5460d474cdbd674b15f6638b9cd73cd64e52bd852fba2bd4d8ec91"
     },
-    "@std/text@1.1.0": {
-      "integrity": "3db511996317f63e35b76fe18fe35249723ae0ff6f8305398c78dd64ffa809a7"
-    },
-    "@zanix/admin@2.3.2": {
-      "integrity": "dcc7c2d5e2191bfb5df004e319ec577420a4876b49bd2c3021ec1b5aa08c131f",
-      "dependencies": [
-        "jsr:@zanix/app@1",
-        "jsr:@zanix/auth@1",
-        "jsr:@zanix/datamaster@^1.9.0",
-        "jsr:@zanix/notifications@1",
-        "jsr:@zanix/server@4",
-        "jsr:@zanix/utils@4"
-      ]
-    },
-    "@zanix/app@1.0.2": {
-      "integrity": "039f1109d2cfd27178ef6856317655ee09c777419bd1fb83cc9a7481b6bf4aba",
+    "@zanix/app@1.0.4": {
+      "integrity": "a812e3f434be70968470876383358b871a419a1863634f7a07e1714d15cf844c",
       "dependencies": [
         "jsr:@std/semver",
         "jsr:@zanix/asyncmq",
         "jsr:@zanix/datamaster@^1.7.0",
-        "jsr:@zanix/server@4",
+        "jsr:@zanix/server@^4.3.4",
         "jsr:@zanix/utils@4"
       ]
     },
-    "@zanix/asyncmq@0.8.0": {
-      "integrity": "a66f121a851132e99237cf71c2e4b611fb1cdd889f22fe61fc0f97eeb1b0400d",
+    "@zanix/asyncmq@0.9.1": {
+      "integrity": "e4238708fd0448cfbd5c550986a9ef40b2de71d5e1dfc1e8ffb8c6da7828f371",
       "dependencies": [
         "jsr:@zanix/server@4",
-        "jsr:@zanix/utils@4",
-        "npm:amqplib"
+        "jsr:@zanix/utils@^4.5.0"
       ]
     },
     "@zanix/auth@1.6.0": {
@@ -275,37 +148,9 @@
         "jsr:@zanix/utils@4"
       ]
     },
-    "@zanix/cli@2.1.0": {
-      "integrity": "21f222131f560c0acc529a5cc254a3c9a1aad2e9dcec081ec528744788676d5b",
-      "dependencies": [
-        "jsr:@cliffy/command",
-        "jsr:@deno/loader",
-        "jsr:@std/cli@1.0.32",
-        "jsr:@std/fs@1.0.24",
-        "jsr:@std/jsonc",
-        "jsr:@std/path@0.224",
-        "jsr:@zanix/utils@^4.2.1",
-        "npm:es-module-lexer",
-        "npm:graphql"
-      ]
-    },
-    "@zanix/core@3.1.2": {
-      "integrity": "167e23178bd5605e33ce1816ceb2797cd400c9fae605963a0d7f91f73e1d3a32",
-      "dependencies": [
-        "jsr:@std/path@0.224",
-        "jsr:@zanix/admin",
-        "jsr:@zanix/app@1",
-        "jsr:@zanix/asyncmq",
-        "jsr:@zanix/datamaster@^1.9.0",
-        "jsr:@zanix/notifications@1",
-        "jsr:@zanix/server@4",
-        "jsr:@zanix/utils@4"
-      ]
-    },
     "@zanix/datamaster@1.11.1": {
       "integrity": "1fdecd947cbed897c2f59eb68b547b6960d40cd05159518566a80b0eaf0ebc1f",
       "dependencies": [
-        "jsr:@db/sqlite",
         "jsr:@zanix/server@^4.2.3",
         "jsr:@zanix/utils@^4.4.0",
         "npm:mongoose",
@@ -319,8 +164,7 @@
         "jsr:@zanix/datamaster@^1.9.0",
         "jsr:@zanix/server@4",
         "jsr:@zanix/utils@4",
-        "npm:handlebars",
-        "npm:zod"
+        "npm:handlebars"
       ]
     },
     "@zanix/server@4.3.4": {
@@ -331,8 +175,8 @@
         "jsr:@zanix/utils@^4.1.0"
       ]
     },
-    "@zanix/space@1.16.2": {
-      "integrity": "12e230a6bc67c63bf813fcdb29cdd48e6ecf92605cf6eb338fad7b3f321e1623",
+    "@zanix/space@1.16.4": {
+      "integrity": "d9f562a096761e165dce00783f7aed0c1f88a86424de37b6a3235186a893dedb",
       "dependencies": [
         "jsr:@std/path@0.224",
         "jsr:@zanix/app@1",
@@ -345,11 +189,11 @@
         "npm:react@^19.2.0"
       ]
     },
-    "@zanix/space-ui@2.4.0": {
-      "integrity": "5cbf1dfac7e622327b3887480a22f349e75e38be8be6e9b478567dc7ccfef6e4",
+    "@zanix/space-ui@2.6.1": {
+      "integrity": "f3a114f7b6946187089806cf228e40f2a64fa223a814ccd6c0200ce10d08d162",
       "dependencies": [
         "jsr:@zanix/space@1",
-        "jsr:@zanix/utils@^4.4.0",
+        "jsr:@zanix/utils@^4.5.0",
         "npm:@formatjs/icu-messageformat-parser",
         "npm:@formatjs/intl",
         "npm:@types/react",
@@ -358,8 +202,8 @@
         "npm:schema-dts"
       ]
     },
-    "@zanix/utils@4.7.0": {
-      "integrity": "bdb9e4dceb2fb13bd44f3f023d7d7e8bedf5e71dae1b8d984bf44465b1551b7a",
+    "@zanix/utils@4.7.1": {
+      "integrity": "337d70b83fe362310057658d3983ae7c893850ab8e86f340bc020fa067553f05",
       "dependencies": [
         "jsr:@std/crypto",
         "jsr:@std/fmt@0.224",
@@ -473,9 +317,6 @@
         "@types/node"
       ]
     },
-    "amqplib@2.0.1": {
-      "integrity": "sha512-a3P2MgfCf9nzVis12VxWEn0dS6hcqve7dlEAhXDtIWR27BlhtMkILOc+H9aeHjDi6i6r94dYKc2Kx2OFe3avvg=="
-    },
     "babel-plugin-react-compiler@1.0.0": {
       "integrity": "sha512-Ixm8tFfoKKIPYdCCKYTsqv+Fd4IJ0DQqMyEimo+pxUOMUR9cVPlwTrFt9Avu+3cb6Zp3mAzl+t1MrG2fxxKsxw==",
       "dependencies": [
@@ -505,12 +346,6 @@
     },
     "entities@7.0.1": {
       "integrity": "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="
-    },
-    "es-module-lexer@1.7.0": {
-      "integrity": "sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA=="
-    },
-    "graphql@16.14.2": {
-      "integrity": "sha512-Chq1s4CY7jmh8gO2qvLIJyfCDIN+EHLFW/9iShnp1z8FjBQMoodWP1kDC36VAMXXIvAjj4ARa7ntfAV2BrjsbA=="
     },
     "handlebars@4.7.9": {
       "integrity": "sha512-4E71E0rpOaQuJR2A3xDZ+GM1HyWYv1clR58tC8emQNeQe3RH7MAzSbat+V0wG78LQBo6m6bzSG/L4pBuCsgnUQ==",
@@ -685,15 +520,12 @@
     },
     "ws@8.22.0": {
       "integrity": "sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg=="
-    },
-    "zod@4.6.5": {
-      "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="
     }
   },
   "workspace": {
     "dependencies": [
       "jsr:@zanix/app@^1.0.2",
-      "jsr:@zanix/asyncmq@0.8",
+      "jsr:@zanix/asyncmq@~0.9.1",
       "jsr:@zanix/auth@^1.6.0",
       "jsr:@zanix/core@^3.1.2",
       "jsr:@zanix/datamaster@^1.11.1",
