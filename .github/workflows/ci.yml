@@ -42,4 +42,4 @@ jobs:
         run: deno run --no-config -A jsr:@zanix/cli check-duplicates
 
       - name: Run tests
-        run: deno test --allow-all
+        run: deno test --allow-all --min-dep-age 0
