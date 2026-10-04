@@ -71,7 +71,8 @@ Deno.test('headless SDK: the catalogs read as plain data, importing nothing but 
 })
 
 Deno.test('views: the default stylesheet is one self-contained module', async () => {
-  assertEquals(importsOf('ui/styles.ts'), [])
+  assertEquals(importsOf('ui/styles.ts'), ['./styles.css'])
+  assertEquals((await Deno.readTextFile('ui/styles.css')).match(/@import\b/g), null)
   const graph = await moduleGraph('ui/styles.ts')
   assertEquals(graph.specifiers.filter((specifier) => RENDERING_OR_SPACE.test(specifier)), [])
 })

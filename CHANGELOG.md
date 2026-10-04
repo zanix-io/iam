@@ -11,9 +11,9 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 - The default stylesheet is authored as `ui/styles.css` and imported as text by `ui/styles.ts`
   (`import css from './styles.css' with { type: 'text' }`). `IAM_UI_CSS` and `iamCssSource` keep the
-  same names and the same rules. An app that builds with `zanix space build` needs `@zanix/cli`
-  2.2.8 or later: earlier versions read a `.css` import as a CSS Module and hand `cssSources` an
-  empty stylesheet.
+  same names and the same rules, and a published `@zanix/iam` builds with any `@zanix/cli`. An app
+  that links a local checkout needs `@zanix/cli` 2.2.8 or later: earlier versions read a local
+  `.css` import as a CSS Module and hand `cssSources` an empty stylesheet.
 
 ## [1.1.0] - 2026-10-02
 
