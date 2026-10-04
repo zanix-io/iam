@@ -69,8 +69,9 @@ else `'Sign in'`. Passwordless mode reads `login/heading` from the catalog.
 
 `iam`'s markup carries `data-space` hooks and no design-system classes of its own. The default
 stylesheet, [`ui/styles`](../ui/styles.ts) (`IAM_UI_CSS`, or `iamCssSource` for
-`defineSpaceApp({ cssSources })`), styles those hooks; the page or card wrapper, buttons (`.btn`
-classes) and fields belong to the host's design system.
+`defineSpaceApp({ cssSources })`; the rules live in [`ui/styles.css`](../ui/styles.css)), styles
+those hooks; the page or card wrapper, buttons (`.btn` classes) and fields belong to the host's
+design system.
 
 **Order and specificity.** The stylesheet is placed before the app's `globalCss`, and its selectors
 are plain hook selectors (`[data-space='banner']`, or a hook and one control inside it). A rule of

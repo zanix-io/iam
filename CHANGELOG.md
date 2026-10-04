@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The default stylesheet is authored as `ui/styles.css` and imported as text by `ui/styles.ts`
+  (`import css from './styles.css' with { type: 'text' }`). `IAM_UI_CSS` and `iamCssSource` keep the
+  same names and the same rules. An app that builds with `zanix space build` needs `@zanix/cli`
+  2.2.8 or later: earlier versions read a `.css` import as a CSS Module and hand `cssSources` an
+  empty stylesheet.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added
