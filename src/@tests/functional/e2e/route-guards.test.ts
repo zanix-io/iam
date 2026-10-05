@@ -30,6 +30,8 @@ const EXPECTED_ON_AUTHORIZATION: Record<string, readonly [number, string | undef
   'GET /permissions': [200, undefined],
   'GET /roles': [200, undefined],
   'GET /users/search': [200, undefined],
+  // Its required `email` is missing from the sample request, so the request shape fails first.
+  'GET /users/lookup': [400, undefined],
   'GET /permissions/:id': [404, undefined],
   'GET /roles/:id': [404, undefined],
   'GET /roles/:id/holders': [404, undefined],

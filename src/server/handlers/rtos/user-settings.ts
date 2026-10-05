@@ -1,6 +1,7 @@
 import { BaseRTO, IsEmail, IsEnum, IsObjectID, IsPhone, IsString } from '@zanix/validator'
 import { SearchPaginationRTO } from '@zanix/datamaster'
 import { EDITABLE_USER_STATUS, USER_STATUS } from 'utils/constants.ts'
+import { IsLookupEmail } from './validations/is-lookup-email.ts'
 
 /** Shared profile fields — self-service update and the admin edit-by-id endpoint both extend this. */
 export class UserProfileRTO extends BaseRTO {
@@ -47,4 +48,10 @@ export class SearchUsersRTO extends SearchPaginationRTO {
 
   @IsEnum([...USER_STATUS], { expose: true, optional: true })
   accessor status: UserStatus | undefined
+}
+
+/** `GET /users/lookup` query — the exact email of the account to find. */
+export class LookupUserRTO extends BaseRTO {
+  @IsLookupEmail({ expose: true })
+  accessor email!: string
 }

@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@0.224'
 import {
   AdminEditUserRTO,
+  LookupUserRTO,
   SearchUsersRTO,
   UserIdParamsRTO,
   UserProfileRTO,
@@ -39,4 +40,21 @@ Deno.test('SearchUsersRTO: query and status are optional; status must be a known
   const rto = await validate(SearchUsersRTO, { status: 'DELETED' })
   assertEquals([rto.query, rto.status], [undefined, 'DELETED'])
   await assertInvalid(SearchUsersRTO, { status: 'BANNED' }, ['status'])
+})
+
+Deno.test('LookupUserRTO: a required email, trimmed before it is checked and bounded in length', async () => {
+  assertEquals(
+    (await validate(LookupUserRTO, { email: 'jane@example.com' })).email,
+    'jane@example.com',
+  )
+  assertEquals(
+    (await validate(LookupUserRTO, { email: '  Jane@Example.com ' })).email.trim(),
+    'Jane@Example.com',
+  )
+  await assertInvalid(LookupUserRTO, {}, ['email'])
+  await assertInvalid(LookupUserRTO, { email: '' }, ['email'])
+  await assertInvalid(LookupUserRTO, { email: 'jane' }, ['email'])
+  await assertInvalid(LookupUserRTO, { email: 'jane@@example.com' }, ['email'])
+  await assertInvalid(LookupUserRTO, { email: 'jane@example.com, other@example.com' }, ['email'])
+  await assertInvalid(LookupUserRTO, { email: `${'a'.repeat(250)}@example.com` }, ['email'])
 })

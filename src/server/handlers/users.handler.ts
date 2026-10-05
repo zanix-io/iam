@@ -10,18 +10,18 @@ import {
 import { AuthTokenValidation } from '@zanix/auth'
 import {
   AdminEditUserRTO,
+  LookupUserRTO,
   SearchUsersRTO,
   UserIdParamsRTO,
   UserProfileRTO,
   UserRegisterRTO,
 } from './rtos/user-settings.ts'
 import { UsersService } from '../interactors/users.interactor.ts'
-import { RBAC_PERMISSIONS } from 'utils/constants.ts'
-import { AdminMutationRateLimit } from 'utils/admin-rate-limit.ts'
+import { RBAC_PERMISSIONS, USER_READ_PERMISSIONS } from 'utils/constants.ts'
+import { AdminLookupRateLimit, AdminMutationRateLimit } from 'utils/admin-rate-limit.ts'
 
-/** Either `userRead` or `userWrite` may list/view — `AuthTokenValidation`'s `permissions` list
- * is OR, not AND. */
-const anyUserPermission = [RBAC_PERMISSIONS.userRead, RBAC_PERMISSIONS.userWrite]
+/** Either `userRead` or `userWrite` may list/view — see `USER_READ_PERMISSIONS`. */
+const anyUserPermission = [...USER_READ_PERMISSIONS]
 
 /**
  * Profile/settings + administrative registration endpoints for the `users` domain.
@@ -36,7 +36,7 @@ const anyUserPermission = [RBAC_PERMISSIONS.userRead, RBAC_PERMISSIONS.userWrite
  *   exception to `status` otherwise being admin-only: bare prefix, no `:id`, gated the same as any
  *   other self-scoped route (`@AuthTokenValidation()` only) — see `UsersService`'s own docs on
  *   these two methods for why acting on `status` here can never target another account.
- * - **Admin-scoped** (`register`, `search`, `getById`, `updateById`) act on an ARBITRARY other
+ * - **Admin-scoped** (`register`, `search`, `lookup`, `getById`, `updateById`) act on an ARBITRARY other
  *   account, the whole population, or create a brand-new account entirely — these require
  *   `RBAC_PERMISSIONS.userRead`/`userWrite` (see that constant's own doc for why registration and
  *   edit-by-id share `userWrite` rather than a narrower split).
@@ -108,6 +108,20 @@ export class UsersController extends ZanixController<UsersService> {
   @AuthTokenValidation({ permissions: anyUserPermission })
   public search(ctx: HandlerContext<{ search: SearchUsersRTO }>) {
     return this.interactor.searchUsers(ctx.payload.search)
+  }
+
+  /**
+   * Finds the one person whose account has exactly the `email` of the query (`GET /users/lookup`),
+   * so an administrator can pick someone without knowing their `authId`. Admin-scoped, with a
+   * rate limit of its own per operator (`ADMIN_LOOKUP_RATELIMIT`), because it tells whether an
+   * address has an account. Declared before `:id` so the literal `lookup` segment is never read as
+   * an id; it is named like its sibling `search`.
+   */
+  @Get('lookup', { Search: LookupUserRTO })
+  @AdminLookupRateLimit()
+  @AuthTokenValidation({ permissions: anyUserPermission })
+  public lookup(ctx: HandlerContext<{ search: LookupUserRTO }>) {
+    return this.interactor.lookupUserByEmail(ctx.payload.search.email)
   }
 
   /** Gets a profile by `:id`. Admin-scoped: `:id` is arbitrary, not necessarily the caller's own. */

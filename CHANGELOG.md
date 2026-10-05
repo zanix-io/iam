@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-05
+
+### Added
+
+- **`GET /api/users/lookup?email=`**: an exact lookup of one person by the email of their account,
+  for an administrator who must choose someone without knowing their `authId` (the future roles
+  console). Permission `user-read` or `user-write`, and the caller must still hold one in the
+  database, as in every administration operation. It answers
+  `{ authId, userId, firstName?,
+  lastName?, status, roleIds }` and never the email, the phone or
+  any other contact data. The match is the whole address (no prefixes or parts): the address is
+  tried as typed, without surrounding whitespace, and then in lowercase; sign-in is unchanged and
+  stays case-sensitive. An `INACTIVE` person is returned with its status; an address with no
+  account, an account with no profile and a `DELETED` profile all answer the same `404` with the new
+  stable code `USER_NOT_FOUND` (`IAM_ERROR_CODES.userNotFound`). `400` for an invalid or too long
+  (over 254) address.
+- **A stricter rate limit for the lookup**, per operator and apart from the mutations' bucket
+  (`iam:admin-lookups`): `ADMIN_LOOKUP_RATELIMIT` requests (default 20) per
+  `ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS` (default 60), validated like the mutations' limit (a value
+  that is not a positive integer stops the boot).
+- **Audit of the lookup**: each call records a `users.lookup` event (`ok`, `not-found` or `denied`)
+  with the caller and, when found, the person's profile id; never the email nor its digest. The
+  audit trail can now hold the result `not-found`, and `GET /api/audit?result=not-found` accepts it.
+  The lookup does not fail closed: if the `pending` event cannot be written the lookup still answers
+  and the failure is logged; every change keeps failing closed.
+
 ## [2.0.1] - 2026-10-05
 
 ### Fixed

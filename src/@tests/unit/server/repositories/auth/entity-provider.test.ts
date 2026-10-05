@@ -226,3 +226,27 @@ Deno.test('AuthRepository.countHolders / searchHolders: how many hold a role, an
     filter: { roleIds: 'r1' },
   }]])
 })
+
+Deno.test('AuthRepository.findByEmailForLookup: tries the typed spelling first, then the lowercase one, each by digest', async () => {
+  const stored = await computeEmailKeyId('jane@example.com')
+  const findOne = fn((filter: Record<string, unknown>) => ({
+    exec: () => Promise.resolve(filter.emailKeyId === stored ? 'doc' : null),
+  }))
+  const repo = buildRepository({ findOne })
+
+  assertEquals(await repo.findByEmailForLookup('  Jane@Example.com ') as unknown, 'doc')
+  assertEquals(findOne.calls.map(([filter]) => filter.emailKeyId), [
+    await computeEmailKeyId('Jane@Example.com'),
+    stored,
+  ])
+})
+
+Deno.test('AuthRepository.findByEmailForLookup: stops at the typed spelling when it matches, and answers null when nothing does', async () => {
+  const hit = fn((_filter: Record<string, unknown>) => ({ exec: () => Promise.resolve('doc') }))
+  await buildRepository({ findOne: hit }).findByEmailForLookup('Jane@Example.com')
+  assertEquals(hit.calls.length, 1)
+
+  const miss = fn((_filter: Record<string, unknown>) => ({ exec: () => Promise.resolve(null) }))
+  assertEquals(await buildRepository({ findOne: miss }).findByEmailForLookup('a@b.co'), null)
+  assertEquals(miss.calls.length, 1)
+})

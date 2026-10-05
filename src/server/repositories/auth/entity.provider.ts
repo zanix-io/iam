@@ -2,7 +2,7 @@ import type { ZanixMongoConnector } from '@zanix/datamaster'
 import type { AuthenticationAttrs } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
-import { computeEmailKeyId } from './email-key.ts'
+import { computeEmailKeyId, emailLookupCandidates } from './email-key.ts'
 
 /**
  * Provider for the `auth` model — credentials and session-lifecycle state for this project's
@@ -105,6 +105,21 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
   public async findByEmail(email: string) {
     const emailKeyId = await computeEmailKeyId(email)
     return await this.Model.findOne({ emailKeyId }).exec()
+  }
+
+  /**
+   * Finds an `auth` record for an administrator's exact lookup: the address as typed, then its
+   * lowercase form (see {@linkcode emailLookupCandidates}), each through {@linkcode findByEmail}.
+   * The first spelling that matches wins; nothing partial ever matches.
+   */
+  public async findByEmailForLookup(email: string) {
+    for (const candidate of emailLookupCandidates(email)) {
+      // Sequential on purpose: the as-typed spelling takes precedence over the lowercase one.
+      // deno-lint-ignore no-await-in-loop
+      const found = await this.findByEmail(candidate)
+      if (found) return found
+    }
+    return null
   }
 
   /**

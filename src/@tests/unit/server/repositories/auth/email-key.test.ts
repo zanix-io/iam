@@ -1,5 +1,5 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert@0.224'
-import { computeEmailKeyId } from 'server/repositories/auth/email-key.ts'
+import { computeEmailKeyId, emailLookupCandidates } from 'server/repositories/auth/email-key.ts'
 
 Deno.test('computeEmailKeyId: deterministic — the same email always produces the same digest', async () => {
   const first = await computeEmailKeyId('dev@zanix-iam.local')
@@ -31,4 +31,13 @@ Deno.test('computeEmailKeyId: matches the real, precomputed value seeded for the
   // primitive would make `AuthRepository.findByEmail('dev@zanix-iam.local')` stop matching it.
   const digest = await computeEmailKeyId('dev@zanix-iam.local')
   assertEquals(digest, 'z/g1KkUpQzbJvd7ZgJDBmzUAnIQ=')
+})
+
+Deno.test('emailLookupCandidates: the address trimmed, then its lowercase form when it differs', () => {
+  assertEquals(emailLookupCandidates('jane@example.com'), ['jane@example.com'])
+  assertEquals(emailLookupCandidates('  Jane@Example.com \n'), [
+    'Jane@Example.com',
+    'jane@example.com',
+  ])
+  assertEquals(emailLookupCandidates('  jane@example.com '), ['jane@example.com'])
 })

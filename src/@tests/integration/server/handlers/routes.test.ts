@@ -11,6 +11,7 @@ import 'server/handlers/grant-access.handler.ts'
 import 'server/handlers/oauth-provider.handler.ts'
 import 'server/handlers/templates.handler.ts'
 import {
+  adminLookupRateLimit,
   adminMutationRateLimit,
   criticalRateLimit,
   freeRateLimit,
@@ -120,6 +121,7 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'PATCH /users/deactivate': ['deactivateOwnAccount', {}],
     'DELETE /users': ['deleteOwnAccount', {}],
     'GET /users/search': ['search', { Search: 'SearchUsersRTO' }],
+    'GET /users/lookup': ['lookup', { Search: 'LookupUserRTO' }],
     'GET /users/:id': ['getById', { Params: 'UserIdParamsRTO' }],
     'PATCH /users/:id': ['updateById', { Params: 'UserIdParamsRTO', Body: 'AdminEditUserRTO' }],
     'POST /roles': ['create', { Body: 'CreateRoleRTO' }],
@@ -255,9 +257,58 @@ Deno.test('REST routes: an operator gets adminMutationRateLimit mutations per wi
   assert(!cache.keys.some((key) => key.includes('jti-')), 'the token id is never the bucket key')
 })
 
+Deno.test('REST routes: the account lookup authenticates, then rate-limits, in a bucket of its own per operator', async () => {
+  assertEquals(
+    routes['GET /users/lookup'].guards.map(guardKind).slice(1),
+    ['jwt', 'rateLimit'],
+    'the lookup must authenticate before it is counted',
+  )
+  const cache = fakeRateLimitCache()
+  const counted = routes['GET /users/lookup'].guards.filter((guard) =>
+    guardKind(guard) === 'rateLimit'
+  )
+  const tokenOf = (subject: string, jti: string) => ({
+    id: jti,
+    subject,
+    type: 'user',
+    rateLimit: 1000,
+  })
+  let tokens = 0
+  assertEquals(
+    await allowedBeforeLimit(
+      counted,
+      () => guardContext(cache, { session: tokenOf('operator-1', `jti-${tokens++}`) }),
+      adminLookupRateLimit + 5,
+    ),
+    adminLookupRateLimit,
+  )
+  assert(adminLookupRateLimit < adminMutationRateLimit, 'the lookup limit is the stricter one')
+  assert(cache.keys.every((key) => key.includes('iam:admin-lookups-')))
+  assert(cache.keys.some((key) => key.endsWith('-subject:operator-1')))
+  // Mutations count apart: the lookup bucket being spent does not limit a mutation.
+  const mutation = routes['POST /roles/add'].guards.filter((guard) =>
+    guardKind(guard) === 'rateLimit'
+  )
+  assertEquals(
+    await allowedBeforeLimit(
+      mutation,
+      () => guardContext(cache, { session: tokenOf('operator-1', `jti-${tokens++}`) }),
+      3,
+    ),
+    3,
+  )
+})
+
 Deno.test('REST routes: reads and self-service routes carry no administration limit', () => {
   for (
-    const key of ['GET /roles', 'GET /roles/:id/holders', 'GET /audit', 'PATCH /users/deactivate']
+    const key of [
+      'GET /roles',
+      'GET /roles/:id/holders',
+      'GET /audit',
+      'GET /users/search',
+      'GET /users/:id',
+      'PATCH /users/deactivate',
+    ]
   ) {
     assert(!routes[key].guards.map(guardKind).includes('rateLimit'), key)
   }
@@ -297,6 +348,7 @@ const P = RBAC_PERMISSIONS
 const ADMIN_ROUTE_PERMISSIONS: Record<string, string[]> = {
   'POST /users/register': [P.userWrite],
   'GET /users/search': [P.userRead, P.userWrite],
+  'GET /users/lookup': [P.userRead, P.userWrite],
   'GET /users/:id': [P.userRead, P.userWrite],
   'PATCH /users/:id': [P.userWrite],
   'POST /roles': [P.roleWrite],

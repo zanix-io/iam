@@ -507,6 +507,16 @@ export const RBAC_PERMISSIONS = {
   templatesAccess: `${PERMISSIONS_PREFIX}:templates-access`,
 } as const
 
+/**
+ * The permissions that let an account READ other accounts (`GET /users/search`, `/users/lookup`,
+ * `/users/:id`): holding any one is enough, because `AuthTokenValidation`'s `permissions` list is
+ * OR, not AND, and `userWrite` always implies reading.
+ */
+export const USER_READ_PERMISSIONS = [
+  RBAC_PERMISSIONS.userRead,
+  RBAC_PERMISSIONS.userWrite,
+] as const
+
 /** Env var name for how many days an audit event is kept — see {@linkcode auditRetentionDays}. */
 export const AUDIT_RETENTION_DAYS_ENV = 'AUDIT_RETENTION_DAYS'
 
@@ -560,6 +570,30 @@ export const adminMutationRateLimitWindowSeconds: number = positiveIntegerEnv(
   60,
 )
 
+/** Env var name for {@linkcode adminLookupRateLimit}. */
+export const ADMIN_LOOKUP_RATELIMIT_ENV = 'ADMIN_LOOKUP_RATELIMIT'
+
+/** Env var name for {@linkcode adminLookupRateLimitWindowSeconds}. */
+export const ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS_ENV = 'ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS'
+
+/**
+ * Requests per window one operator may make to the exact account lookup by email
+ * (`GET /users/lookup`), in a bucket of their own. Stricter than {@linkcode adminMutationRateLimit}
+ * because the lookup answers whether an email has an account, so a high rate would let an operator
+ * test a list of addresses. A positive integer; defaults to 20. Anything else stops the boot (see
+ * {@linkcode positiveIntegerEnv}).
+ */
+export const adminLookupRateLimit: number = positiveIntegerEnv(ADMIN_LOOKUP_RATELIMIT_ENV, 20)
+
+/** The window of {@linkcode adminLookupRateLimit}, in seconds: a positive integer, default 60. */
+export const adminLookupRateLimitWindowSeconds: number = positiveIntegerEnv(
+  ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS_ENV,
+  60,
+)
+
+/** Longest email address accepted by the lookup (RFC 5321's limit for a path is 254 octets). */
+export const MAX_LOOKUP_EMAIL_LENGTH = 254
+
 /**
  * The stable `code` of every rejection the role-administration rules produce, so a client chooses
  * its message by code instead of reading English text. Carried in the error response's `code`;
@@ -590,6 +624,8 @@ export const IAM_ERROR_CODES = {
   permissionVersionConflict: 'PERMISSION_VERSION_CONFLICT',
   /** An account's roles kept changing under the request. */
   roleConcurrentChange: 'ROLE_CONCURRENT_CHANGE',
+  /** The lookup found no visible person: the account does not exist, has no profile or was deleted. */
+  userNotFound: 'USER_NOT_FOUND',
 } as const
 
 /**

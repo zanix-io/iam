@@ -176,11 +176,12 @@ Every mutation of roles, permissions and account status is written to the `role_
 collection, rejected attempts included, whatever the reason: a rule (`403`/`409`), a record that is
 not there (`404`), a caller that is not an active account, or a request that is malformed past the
 guard. An event is written as `pending` before anything changes and closed afterwards as `ok`,
-`denied` (a `403`), `conflict` (a `409`) or `error`, with the rejection's stable `code` as its
-reason (or the status name, `NOT_FOUND`). It records who did it (`actor`, `actorType`), what it
-targeted (`target`: kind and id; a role or permission just created gets its id once it exists), the
-`request` as asked, the ids `before` and `after`, and the request id. It holds ids, codes and counts
-only: no email, token or secret. Account creation (`POST /users/register`) is not on the trail.
+`denied` (a `403`), `conflict` (a `409`), `not-found` (only an account lookup that found no person)
+or `error`, with the rejection's stable `code` as its reason (or the status name, `NOT_FOUND`). It
+records who did it (`actor`, `actorType`), what it targeted (`target`: kind and id; a role or
+permission just created gets its id once it exists), the `request` as asked, the ids `before` and
+`after`, and the request id. It holds ids, codes and counts only: no email, token or secret. Account
+creation (`POST /users/register`) is not on the trail.
 
 It fails closed: if the event cannot be written the change is not made. Closing the event is best
 effort: if that write fails, the operation's own outcome stands, the failure is logged
@@ -193,6 +194,32 @@ running. They expire with the rest, after `AUDIT_RETENTION_DAYS`.
 action, result and date range; `sortBy` may only name `createdAt`, `actor`, `action` or `result`
 (`400` otherwise). Events expire after `AUDIT_RETENTION_DAYS` (default 365); see
 [Configuration](./configuration.md#audit-and-administration-limits).
+
+#### Lookup of an account by email
+
+`GET /api/users/lookup?email=` (permission `user-read` or `user-write`) answers the one person whose
+account has exactly that email, with `authId`, `userId`, `firstName`, `lastName`, `status` and
+`roleIds` and nothing else. It exists so that whoever administers roles can choose a person without
+knowing their `authId`. Because the answer tells whether an address has an account, it is built to
+resist enumeration:
+
+- **Same answer for every "no result".** An address with no account, an account with no profile and
+  a `DELETED` profile all answer the same `404` `USER_NOT_FOUND` with the same message and body. An
+  `INACTIVE` profile is returned, with its status.
+- **A rate limit of its own and stricter than the mutations'**, per operator (the account, across
+  all its tokens): `ADMIN_LOOKUP_RATELIMIT` requests (default 20) per
+  `ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS` (default 60), in the bucket `iam:admin-lookups` that no
+  other route shares. Hits and misses both count. It is the same `RateLimitGuard` the mutations use
+  (explicit `limit`, `key: 'subject'`), declared above `@AuthTokenValidation`.
+- **The caller is checked against the database**, like every administration operation: it must be an
+  active account that still holds `user-read` or `user-write` (`ACTOR_LACKS_PERMISSION`), and a
+  service credential is refused (`ACTOR_NOT_ACCOUNT`).
+- **Audited as `users.lookup`**, with the caller as `actor` and the result `ok` (the target is the
+  person's profile id), `not-found` (no target) or `denied`. The event never holds the email nor its
+  digest. Unlike a mutation the lookup does not fail closed: it changes nothing, so if the `pending`
+  event cannot be written the lookup still answers, the failure is logged
+  (`Could not record the audit event of users.lookup`, without any request data) and that call
+  leaves no event.
 
 #### Rate limit
 

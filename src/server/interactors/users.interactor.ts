@@ -20,7 +20,14 @@ import {
   permissionsOfUser,
   serialized,
 } from './role-admin.ts'
-import { blocksSignIn, RBAC_PERMISSIONS, SERVICE_ID } from 'utils/constants.ts'
+import {
+  blocksSignIn,
+  IAM_ERROR_CODES,
+  RBAC_PERMISSIONS,
+  SERVICE_ID,
+  USER_READ_PERMISSIONS,
+} from 'utils/constants.ts'
+import { effectiveRoleIds } from 'utils/rbac.ts'
 
 /**
  * Business logic for the `users` domain — profile/settings management and administrative
@@ -193,6 +200,59 @@ export class UsersService extends ZanixInteractor {
     if (!user) throw new HttpError('NOT_FOUND', { message: 'User not found.' })
     const [account] = await this.#accountsOf([user])
     return { ...serialized(user), authId: account?.id, roleIds: account?.roleIds ?? [] }
+  }
+
+  /**
+   * Finds the one person whose account has exactly this `email`, for an administrator who must pick
+   * someone without knowing their `authId`. Admin-scoped: gated at the handler by
+   * `RBAC_PERMISSIONS.userRead`/`userWrite`, and the caller must still hold one of them in the
+   * database (`ACTOR_LACKS_PERMISSION`), like every other administration operation.
+   *
+   * The match is on the whole address only (see `AuthRepository.findByEmailForLookup`). The answer
+   * is the same projection for every hit and never contains the email, the phone or any other
+   * contact data: `authId`, `userId`, `firstName`, `lastName`, `status` and `roleIds`. A person
+   * whose profile is `INACTIVE` is returned with that status. When nothing is returned the answer
+   * is always the same `USER_NOT_FOUND`, whether the address has no account, the account has no
+   * profile, or the profile is `DELETED`, so a caller cannot tell them apart.
+   *
+   * Each call is audited as `users.lookup` (`ok`, `not-found`, `denied`...), with the person's
+   * profile id as the target when there is one and never the email nor its digest. The trail does
+   * not fail closed here: a read that changes nothing keeps working when the audit store is down
+   * (the failure is logged, and the call leaves no event).
+   *
+   * @throws {HttpError} `NOT_FOUND` (`USER_NOT_FOUND`) as above; `FORBIDDEN` when the caller is not
+   *   an active account or no longer holds `user-read`/`user-write`.
+   */
+  public lookupUserByEmail(email: string) {
+    return audited(
+      this.providers,
+      this.context,
+      { action: 'users.lookup', target: { kind: 'user' } },
+      async (note) => {
+        await authorizeActor(this.providers, this.context.session, USER_READ_PERMISSIONS)
+        const account = await this.providers.get(AuthRepository).findByEmailForLookup(email)
+        const profile = account?.userId
+          ? await this.providers.get(UsersRepository).findById(String(account.userId))
+          : undefined
+        if (!account || !profile || profile.status === 'DELETED') {
+          throw new HttpError('NOT_FOUND', {
+            message: 'No user matches the request.',
+            code: IAM_ERROR_CODES.userNotFound,
+          })
+        }
+        note({ targetId: String(profile.id) })
+        const { firstName, lastName } = serialized(profile)
+        return {
+          authId: String(account.id),
+          userId: String(profile.id),
+          firstName,
+          lastName,
+          status: profile.status,
+          roleIds: effectiveRoleIds(account),
+        }
+      },
+      { failOpen: true },
+    )
   }
 
   /** The accounts linked to `profiles`, with one query. */

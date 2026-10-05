@@ -21,6 +21,12 @@ Deno.test('UsersController: every route forwards its payload to the matching Use
       args: [{ query: 'jane', status: 'ACTIVE' }],
     },
     {
+      method: 'lookup',
+      payload: { search: { email: 'jane@example.com' } },
+      calls: 'lookupUserByEmail',
+      args: ['jane@example.com'],
+    },
+    {
       method: 'getById',
       payload: { params: { id: 'user-1' } },
       calls: 'getUserById',

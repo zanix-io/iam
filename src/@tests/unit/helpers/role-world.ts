@@ -7,6 +7,7 @@ import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
 import { PermissionsRepository } from 'server/repositories/permissions/entity.provider.ts'
 import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
 import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
+import { emailLookupCandidates } from 'server/repositories/auth/email-key.ts'
 import { blocksSignIn, RBAC_PERMISSIONS } from 'utils/constants.ts'
 import { mapGetter, mockAccessor } from './mock.ts'
 import type { HttpError } from '@zanix/errors'
@@ -30,7 +31,7 @@ export type FakeRole = {
   updatedAt?: Date
   permissions: FakePermission[]
 }
-export type FakeAccount = { id: string; userId?: string; roleIds?: string[] }
+export type FakeAccount = { id: string; userId?: string; roleIds?: string[]; email?: string }
 
 /** A permission with a stable id derived from its code. */
 export const perm = (code: string, isActive = true): FakePermission => ({
@@ -149,6 +150,14 @@ export function buildWorld(init: WorldInit = {}) {
       }
       const found = account(id)
       return found ? { ...found, roleIds: found.roleIds && [...found.roleIds] } : undefined
+    },
+    /** Exact match on the stored address, over the same spellings the real lookup tries. */
+    findByEmailForLookup: (email: string) => {
+      for (const candidate of emailLookupCandidates(email)) {
+        const found = state.accounts.find((entry) => entry.email === candidate)
+        if (found) return { ...found, roleIds: found.roleIds && [...found.roleIds] }
+      }
+      return null
     },
     findByUserId: (userId: string) => state.accounts.find((entry) => entry.userId === userId),
     findRolesByUserIds: (userIds: string[]) =>

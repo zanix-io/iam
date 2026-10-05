@@ -10,9 +10,17 @@ export const AUDIT_SORT_FIELDS = ['createdAt', 'actor', 'action', 'result'] as c
 /**
  * How an audited operation ended: `pending` is written before the change (so none is left without
  * a trace, even if the process stops midway), then it becomes `ok`, `denied` (a 403 from the
- * security rules), `conflict` (a 409) or `error` (anything else).
+ * security rules), `conflict` (a 409), `not-found` (a lookup that found no person) or `error`
+ * (anything else).
  */
-export const AUDIT_RESULTS = ['pending', 'ok', 'denied', 'conflict', 'error'] as const
+export const AUDIT_RESULTS = [
+  'pending',
+  'ok',
+  'denied',
+  'conflict',
+  'not-found',
+  'error',
+] as const
 
 /**
  * The `role_audit_events` collection — an insert-and-close record of every mutation of roles,

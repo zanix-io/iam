@@ -137,16 +137,18 @@ export function actorHeld(actor: Actor, roles: readonly PopulatedRoleDoc[]): str
 /**
  * Throws unless `held` covers `required`, the administrative permission of the route being served
  * (`role-write` for roles, `permission-write` for permissions, `user-write` for accounts). The
- * guard checked it on the token; this checks it on what the caller holds now, so a demoted
+ * guard checked it on the token (`required` may be a list of which holding any one is enough, as
+ * on a read route that accepts `*-read` or `*-write`); this checks it on what the caller holds now, so a demoted
  * administrator cannot do even what asks for no grant (rename a role, create one with no
  * permissions).
  *
  * @throws {HttpError} `FORBIDDEN`, code `ACTOR_LACKS_PERMISSION`, the permission in `meta.required`.
  */
-export function assertActorHolds(held: readonly string[], required: string) {
-  if (missingScopes([required], held).length) {
+export function assertActorHolds(held: readonly string[], required: string | readonly string[]) {
+  const anyOf = typeof required === 'string' ? [required] : required
+  if (!anyOf.some((code) => !missingScopes([code], held).length)) {
     throw new HttpError('FORBIDDEN', {
-      message: `You no longer hold the permission this operation needs: ${required}.`,
+      message: `You no longer hold the permission this operation needs: ${anyOf.join(' or ')}.`,
       code: IAM_ERROR_CODES.actorLacksPermission,
       meta: { required },
       exposeMeta: true,
@@ -163,7 +165,7 @@ export function assertActorHolds(held: readonly string[], required: string) {
 export async function authorizeActor(
   providers: Providers,
   session: Parameters<typeof resolveActor>[1],
-  required: string,
+  required: string | readonly string[],
   roles?: readonly PopulatedRoleDoc[],
 ): Promise<string[]> {
   const actor = await resolveActor(providers, session)

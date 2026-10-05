@@ -25,3 +25,16 @@ import { generateHash } from '@zanix/helpers'
 export function computeEmailKeyId(email: string): Promise<string> {
   return generateHash(email, 'low', false)
 }
+
+/**
+ * The spellings of `email` an administrator's lookup tries, in order: the address as typed without
+ * surrounding whitespace, then its lowercase form when that differs. Login does neither (it is
+ * exactly as case-sensitive as {@linkcode computeEmailKeyId}), and an account is stored under the
+ * spelling it was registered with, so trying both finds the account whichever case it was
+ * registered in without ever matching a partial address.
+ */
+export function emailLookupCandidates(email: string): string[] {
+  const typed = email.trim()
+  const lower = typed.toLowerCase()
+  return lower === typed ? [typed] : [typed, lower]
+}

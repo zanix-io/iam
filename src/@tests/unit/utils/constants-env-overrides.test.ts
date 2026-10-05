@@ -114,3 +114,29 @@ Deno.test('ADMIN_MUTATION_RATELIMIT and its window: anything but a positive inte
     }
   }
 })
+
+Deno.test('ADMIN_LOOKUP_RATELIMIT and its window: default 20 per 60 s, overridable, invalid values stop the boot', async () => {
+  await withEnv({}, async () => {
+    const constants = await freshConstants()
+    assertEquals(constants.adminLookupRateLimit, 20)
+    assertEquals(constants.adminLookupRateLimitWindowSeconds, 60)
+  })
+  await withEnv(
+    { ADMIN_LOOKUP_RATELIMIT: '3', ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS: '10' },
+    async () => {
+      const constants = await freshConstants()
+      assertEquals(constants.adminLookupRateLimit, 3)
+      assertEquals(constants.adminLookupRateLimitWindowSeconds, 10)
+    },
+  )
+  for (const name of ['ADMIN_LOOKUP_RATELIMIT', 'ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS']) {
+    for (const value of ['-5', '0', '1.5', 'abc']) {
+      // deno-lint-ignore no-await-in-loop
+      await withEnv({ [name]: value }, async () => {
+        const error = await assertRejects(() => freshConstants(), InternalError)
+        assertEquals((error as InternalError).code, 'IAM_INVALID_POSITIVE_INTEGER_ENV')
+        assertEquals(error.message.includes(name), true)
+      })
+    }
+  }
+})

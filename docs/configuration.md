@@ -87,14 +87,16 @@ Tiers per endpoint are listed in the [REST API reference](./rest-api.md#conventi
 | `AUDIT_RETENTION_DAYS`                    | `365`   | Days an audit event (`role_audit_events`) is kept before MongoDB's TTL monitor deletes it. A positive integer; anything else is the default. It sets the `expireAfterSeconds` of the collection's TTL index. | `src/utils/constants.ts` (boot) |
 | `ADMIN_MUTATION_RATELIMIT`                | `30`    | Requests per window one operator (one account, across all its tokens) may make to the administration mutations (roles, permissions, `PATCH /api/users/:id`), counted in one bucket of their own.             | `src/utils/constants.ts` (boot) |
 | `ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS` | `60`    | The window of `ADMIN_MUTATION_RATELIMIT`.                                                                                                                                                                    | `src/utils/constants.ts` (boot) |
+| `ADMIN_LOOKUP_RATELIMIT`                  | `20`    | Requests per window one operator may make to the exact account lookup by email (`GET /api/users/lookup`), counted in a bucket of its own (`iam:admin-lookups`). Stricter than the mutations on purpose.      | `src/utils/constants.ts` (boot) |
+| `ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS`   | `60`    | The window of `ADMIN_LOOKUP_RATELIMIT`.                                                                                                                                                                      | `src/utils/constants.ts` (boot) |
 
-`ADMIN_MUTATION_RATELIMIT` and its window must be positive integers: a value that is set and is not
-(`-5`, `0`, `1.5`, `abc`) stops the boot (`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead of being
-absorbed; unset or empty is the default. An administration mutation spends from **two** buckets: the
-session's own (the limit of its plan, `session.rateLimit`, counted per access token by the token
-validation) and the operator's (`ADMIN_MUTATION_RATELIMIT`, counted per account). Whichever runs out
-first answers `429`, so a figure above the plan limit of the tokens is in practice capped by that
-limit, per token.
+`ADMIN_MUTATION_RATELIMIT`, `ADMIN_LOOKUP_RATELIMIT` and their windows must be positive integers: a
+value that is set and is not (`-5`, `0`, `1.5`, `abc`) stops the boot
+(`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead of being absorbed; unset or empty is the default. An
+administration mutation spends from **two** buckets: the session's own (the limit of its plan,
+`session.rateLimit`, counted per access token by the token validation) and the operator's
+(`ADMIN_MUTATION_RATELIMIT`, counted per account). Whichever runs out first answers `429`, so a
+figure above the plan limit of the tokens is in practice capped by that limit, per token.
 
 Changing `AUDIT_RETENTION_DAYS` on an existing database does not change the index MongoDB already
 has, and a mismatch makes the index build fail at boot. Update it in place with `collMod`

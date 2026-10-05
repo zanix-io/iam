@@ -52,8 +52,9 @@ The limit is requests per `RATE_LIMIT_WINDOW_SECONDS` (default 60, `@zanix/auth`
 
 An exceeded limit answers `429` with `Retry-After` and the `X-Znx-RateLimit-*` headers. The
 administration mutations (roles, permissions, `PATCH /api/users/:id`) can also answer `429` from
-their own per-operator bucket (`iam:admin-mutations`, `ADMIN_MUTATION_RATELIMIT`), on top of the
-session's; see [Authorization](./authorization.md#rate-limit).
+their own per-operator bucket (`iam:admin-mutations`, `ADMIN_MUTATION_RATELIMIT`), and
+`GET /api/users/lookup` from a stricter one (`iam:admin-lookups`, `ADMIN_LOOKUP_RATELIMIT`), on top
+of the session's; see [Authorization](./authorization.md#rate-limit).
 
 **Captcha.** `@CaptchaGuard()` is active only when a captcha provider is configured (see
 [Configuration](./configuration.md#captcha)). It then requires the `X-Znx-Captcha-Token` header:
@@ -225,6 +226,7 @@ by `PasswordService`.
 | `PATCH /api/users/deactivate` | Session                     | —                                                                |
 | `DELETE /api/users`           | Session                     | —                                                                |
 | `GET /api/users/search`       | `user-read` or `user-write` | Query `query?`, `status?`, `page` (1), `limit` (10)              |
+| `GET /api/users/lookup`       | `user-read` or `user-write` | Query `email` (required)                                         |
 | `GET /api/users/:id`          | `user-read` or `user-write` | Param `id` (ObjectId)                                            |
 | `PATCH /api/users/:id`        | `user-write`                | Body `{ firstName?, lastName?, phoneNumber?, status? }`          |
 
@@ -236,6 +238,26 @@ by `PasswordService`.
 - **`deactivate`** sets the profile `INACTIVE`; **`DELETE /api/users`** sets it `DELETED`. The
   current access token stays valid until it expires; every later refresh or sign-in is refused,
   except the reactivation path for `INACTIVE`.
+- **`GET /api/users/lookup?email=<address>`** finds the one person whose account has exactly that
+  email, so an administrator can pick someone without knowing their `authId`. It is a literal path
+  next to `search` (never read as an `:id`).
+  - _Request._ `email` is required, at most 254 characters and a valid address once surrounding
+    whitespace is removed (`400` otherwise). The match is on the whole address only, never a prefix
+    or a part. The address is tried as typed (trimmed) and then in lowercase, so `Maria@X.com` finds
+    an account registered as `maria@x.com`; an account registered with capitals is found by that
+    spelling. Sign-in itself stays exactly case-sensitive.
+  - _Response._ `200` with `{ authId, userId, firstName?, lastName?, status, roleIds }` and nothing
+    else: never the email, the phone or any other contact data. A person whose profile is `INACTIVE`
+    is returned with that `status`.
+  - _No result._ `404` with `code` `USER_NOT_FOUND` and the same message in every case: no account
+    has that email, the account has no profile, or the profile is `DELETED`. The body does not tell
+    them apart.
+  - _Limits and trail._ A rate limit of its own per operator (`iam:admin-lookups`,
+    `ADMIN_LOOKUP_RATELIMIT`, default 20 per 60 s; `429` with `Retry-After`), because the answer
+    tells whether an address has an account. Every call is audited as `users.lookup` (see
+    [Authorization](./authorization.md#lookup-of-an-account-by-email)). The caller must still hold
+    `user-read` or `user-write` in the database (`ACTOR_LACKS_PERMISSION`), and a service credential
+    is refused (`ACTOR_NOT_ACCOUNT`).
 - **`PATCH /api/users/:id`** accepts `status` `INACTIVE` or `DELETED` only; no edit sets `ACTIVE`.
   `404` for an unknown id.
 
@@ -291,6 +313,7 @@ response, so a client chooses its message by code. Where a code comes with data,
 | `403`  | `ACTOR_NOT_ACCOUNT`              | The caller is a service credential, not an account.                                     |
 | `403`  | `ACTOR_NOT_ACTIVE`               | The caller's account no longer exists or cannot sign in.                                |
 | `403`  | `ACTOR_LACKS_PERMISSION`         | The caller no longer holds the route's permission; `meta.required` names it.            |
+| `404`  | `USER_NOT_FOUND`                 | `GET /api/users/lookup` found no person (same answer whatever the reason).              |
 | `409`  | `LAST_ADMINISTRATOR`             | It would leave no account able to manage roles and sign in.                             |
 | `409`  | `ROLE_HAS_HOLDERS`               | The role to delete is held; `meta.holderCount` and `meta.holderIds` (the first 20).     |
 | `409`  | `ROLE_VERSION_CONFLICT`          | The role changed since the `updatedAt` sent.                                            |
@@ -304,9 +327,9 @@ editing and deleting a role, `PATCH /api/users/:id` (a `status` that blocks sign
 
 ### Audit trail (`/api/audit`)
 
-| Method and path  | Permission   | Request                                                                                                                                                                                                 |
-| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/audit` | `audit-read` | Query `actor?`, `targetKind?` (`role`, `account`, `permission`, `user`), `targetId?`, `action?`, `result?` (`pending`, `ok`, `denied`, `conflict`, `error`), `from?`, `to?` (ISO 8601), `page`, `limit` |
+| Method and path  | Permission   | Request                                                                                                                                                                                                              |
+| ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/audit` | `audit-read` | Query `actor?`, `targetKind?` (`role`, `account`, `permission`, `user`), `targetId?`, `action?`, `result?` (`pending`, `ok`, `denied`, `conflict`, `not-found`, `error`), `from?`, `to?` (ISO 8601), `page`, `limit` |
 
 Newest first; `sortBy` may only name `createdAt`, `actor`, `action` or `result` (`400` otherwise).
 An event has `actor`, `actorType`, `action` (`<domain>.<operation>`, e.g. `roles.add`), `target`
