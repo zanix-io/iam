@@ -44,17 +44,14 @@ export type RateLimitCountdownDeps<E> = {
  * reach — the browser's own address bar, which a reload/bookmark/shared link can resurrect this
  * whole rate-limited state from if a stale `retryUntil` is left sitting in it.
  *
- * ## Localization scope, disclosed: the screen-reader announcement stays in English
+ * ## Screen-reader announcement: localized through string props
  *
- * `Countdown`'s own `getAnnouncement` is a FUNCTION prop, which can't cross a Comet's own
- * JSON-only prop boundary — same constraint `password-toggle-field/render.ts`'s own
- * `getToggleLabel` doc already documents, but unlike that one-word `showLabel`/`hideLabel` swap,
- * `login/rate-limited/announcement`'s own ICU `plural` form isn't reducible to a couple of
- * pre-resolved strings without either giving this Comet its own `IntlProvider` (real `messages`/
- * `locale` threaded through as props) or hand-rolling plural logic here. This Comet does neither —
- * it uses `Countdown`'s own built-in `defaultAnnouncement` ("X minutes remaining"/"Less than a
- * minute remaining"), unlocalized; the ring and the digits need no translation.
- * The VISIBLE `format` (digits only, `Countdown`'s own default) is unaffected either way.
+ * `Countdown` (`@zanix/space-ui` >= 2.9.4) announces through `announcementDone`,
+ * `announcementLessThanMinute` and `announcementMinutes` (with a `{minutes}` marker), falling back
+ * to English when one is missing. A Comet only receives serializable props, so those arrive
+ * already resolved from the caller (`countdownAnnouncements` resolves them from `iam`'s catalog)
+ * and are forwarded unchanged. The VISIBLE `format` (digits only, `Countdown`'s own default) needs
+ * no translation.
  */
 export function createRateLimitCountdown<E>(
   h: CreateElement<E>,
@@ -69,6 +66,9 @@ export function createRateLimitCountdown<E>(
       formId,
       cardDataSpace,
       clearQueryParamsOnComplete,
+      announcementDone,
+      announcementLessThanMinute,
+      announcementMinutes,
     }: RateLimitCountdownProps,
   ): E {
     return h(Countdown, {
@@ -77,6 +77,9 @@ export function createRateLimitCountdown<E>(
       size,
       strokeWidth,
       nonce,
+      announcementDone,
+      announcementLessThanMinute,
+      announcementMinutes,
       onComplete: () => {
         const form = document.getElementById(formId)
         form?.querySelectorAll('[disabled]').forEach((el) => {

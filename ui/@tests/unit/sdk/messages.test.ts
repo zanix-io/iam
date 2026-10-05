@@ -22,6 +22,10 @@ const INDIRECT_KEYS = [
   'login/otp/notifier-email',
   'login/otp/notifier-sms',
   'login/otp/notifier-whatsapp',
+  // Read by `countdownAnnouncements` (`ui/sdk/countdown-announcements.ts`).
+  'login/countdown/announcement-done',
+  'login/countdown/announcement-less-than-minute',
+  'login/countdown/announcement-minutes',
 ]
 
 function sourceFiles(dir: string): string[] {

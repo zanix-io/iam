@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "zanix": {
     "project": "space-server"
   },
@@ -102,8 +102,8 @@
     "babel-plugin-react-compiler": "npm:babel-plugin-react-compiler@^1.0.0",
     "qrcode-generator": "npm:qrcode-generator@^1.5.2",
     "@formatjs/icu-messageformat-parser": "npm:@formatjs/icu-messageformat-parser@^3.5.17",
-    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.4.0",
-    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.4.0/preact",
+    "@zanix/space-ui": "jsr:@zanix/space-ui@^2.9.4",
+    "@zanix/space-ui/preact": "jsr:@zanix/space-ui@^2.9.4/preact",
     "preact": "npm:preact@^10.29.0",
     "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
     "happy-dom": "npm:happy-dom@^20.11.2",
@@ -155,6 +155,7 @@
     "./ui/components/password-toggle-field/preact": "./ui/components/password-toggle-field/index.preact.ts",
     "./ui/components/otp-code-field": "./ui/components/otp-code-field/index.ts",
     "./ui/components/otp-code-field/preact": "./ui/components/otp-code-field/index.preact.ts",
+    "./ui/sdk/countdown-announcements": "./ui/sdk/countdown-announcements.ts",
     "./ui/components/rate-limit-countdown": "./ui/components/rate-limit-countdown/index.ts",
     "./ui/components/rate-limit-countdown/preact": "./ui/components/rate-limit-countdown/index.preact.ts",
     "./ui/components/login-password-step": "./ui/components/login-password-step/index.ts",

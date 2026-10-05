@@ -1,3 +1,5 @@
+import type { CountdownAnnouncementProps } from '../../sdk/countdown-announcements.ts'
+
 /**
  * Props for the rate-limit countdown Comet (`index.ts`/`index.preact.ts`) — see `render.ts`'s own
  * doc for the full "why this needed its own Comet, and its own `onComplete`" contract. Every
@@ -5,7 +7,7 @@
  * email/OTP step, its own password step, or an unrelated consumer app's form) can reuse this
  * unchanged.
  */
-export type RateLimitCountdownProps = {
+export type RateLimitCountdownProps = CountdownAnnouncementProps & {
   /** Absolute epoch-ms instant the wait ends — `LoginView`'s own `liveRetryUntil`. */
   target: number
   /** `Countdown`'s own `size`/`strokeWidth` for its `variant='ring'` — `login/render.ts`'s

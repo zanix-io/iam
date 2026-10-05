@@ -37,6 +37,9 @@ export const IAM_UI_MESSAGES_ES: Readonly<Record<string, string>> = {
   'login/oauth/error-body':
     'Algo falló al completar el inicio de sesión. Puedes intentarlo de nuevo desde la página de acceso.',
   'login/oauth/error-heading': 'No se completó el inicio de sesión',
+  'login/countdown/announcement-done': 'Se acabó el tiempo',
+  'login/countdown/announcement-less-than-minute': 'Queda menos de un minuto',
+  'login/countdown/announcement-minutes': "'{minutes}' minutos restantes",
   'login/or-email': 'o continúa con tu correo',
   'login/otp/code-label': 'Código de verificación',
   'login/otp/heading': 'Ingresa tu código de verificación',

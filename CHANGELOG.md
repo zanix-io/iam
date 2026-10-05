@@ -5,10 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-05
+
+### Added
+
+- **The countdown announcements of `RateLimitCountdown` and `OtpResend` are translatable.** Both
+  Comets (and `RateLimitCardProps`, `LoginPasswordStepLabels`) take three optional string props,
+  `announcementDone`, `announcementLessThanMinute` and `announcementMinutes`, and pass them to
+  `Countdown`. `iam`'s views resolve them from three new catalog keys in `en` and `es`:
+  `login/countdown/announcement-done`, `login/countdown/announcement-less-than-minute` and
+  `login/countdown/announcement-minutes` (its `{minutes}` marker stays literal for `Countdown` to
+  fill). `countdownAnnouncements(formatMessage)`, exported from
+  `@zanix/iam/ui/sdk/countdown-announcements`, resolves the three for an app composing the Comets
+  itself. Without the props the announcement stays in English, as before.
 
 ### Changed
 
+- `@zanix/space-ui` is `^2.9.4` (was `^2.4.0`), the first version whose `Countdown` takes the
+  announcement props.
 - The default stylesheet is authored as `ui/styles.css` and imported as text by `ui/styles.ts`
   (`import css from './styles.css' with { type: 'text' }`). `IAM_UI_CSS` and `iamCssSource` keep the
   same names and the same rules, and a published `@zanix/iam` builds with any `@zanix/cli`. An app

@@ -1,3 +1,4 @@
+import { countdownAnnouncements } from '../../sdk/countdown-announcements.ts'
 import type { Formatter } from '@zanix/space-ui'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { AuthHiddenFieldsProps } from 'ui/components/auth-hidden-fields/types.ts'
@@ -144,6 +145,7 @@ export function createOtpView<E>(
         notifierOptions: buildNotifierOptions(formatMessage, hasVerifiedPhone),
         currentNotifier: otpNotifier ?? 'email',
         notifierPickerLabel: formatMessage('login/otp/resend-notifier-label'),
+        ...countdownAnnouncements(formatMessage),
       }),
       h(
         'p',

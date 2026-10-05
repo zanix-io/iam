@@ -1,3 +1,4 @@
+import { countdownAnnouncements } from '../../sdk/countdown-announcements.ts'
 import type { Formatter } from '@zanix/space-ui'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { LoginViewProps } from 'ui/pages/login/types.ts'
@@ -53,6 +54,7 @@ export function createLoginEntryView<E>(
       rateLimited: formatMessage('login/password-step/rate-limited'),
       rateLimitedHeading: formatMessage('login/password-step/rate-limited/heading'),
       rateLimitedBody: formatMessage('login/password-step/rate-limited/body'),
+      ...countdownAnnouncements(formatMessage),
       unexpectedError: formatMessage('login/unexpected-error'),
       passwordLabel: formatMessage('login/password-label'),
       showPassword: formatMessage('login/password-show'),

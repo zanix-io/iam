@@ -115,6 +115,9 @@ export function createLoginPasswordStep<E>(
           clearQueryParamsOnComplete: clearQueryParamsOnRateLimitComplete,
           headingLabel: labels.rateLimitedHeading,
           bodyLabel: labels.rateLimitedBody,
+          announcementDone: labels.announcementDone,
+          announcementLessThanMinute: labels.announcementLessThanMinute,
+          announcementMinutes: labels.announcementMinutes,
         }),
       unexpectedError &&
         h(

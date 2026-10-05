@@ -37,6 +37,9 @@ export const IAM_UI_MESSAGES_EN: Readonly<Record<string, string>> = {
   'login/oauth/error-body':
     'Something went wrong finishing sign-in. You can try again from the sign-in page.',
   'login/oauth/error-heading': "Sign-in didn't complete",
+  'login/countdown/announcement-done': "Time's up",
+  'login/countdown/announcement-less-than-minute': 'Less than a minute remaining',
+  'login/countdown/announcement-minutes': "'{minutes}' minutes remaining",
   'login/or-email': 'or continue with email',
   'login/otp/code-label': 'Verification code',
   'login/otp/heading': 'Enter your verification code',

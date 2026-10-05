@@ -1,3 +1,4 @@
+import type { CountdownAnnouncementProps } from '../../sdk/countdown-announcements.ts'
 import type { NOTIFIERS } from 'utils/shared-enums.ts'
 
 /** One of `iam`'s own OTP delivery channels — the real `NOTIFIERS` tuple
@@ -11,7 +12,7 @@ export type OtpNotifierChannel = typeof NOTIFIERS[number]
  * OTP-login screen (`iam`'s own generic `OtpView`, or a consumer app's differently-styled one)
  * can reuse this unchanged.
  */
-export type OtpResendProps = {
+export type OtpResendProps = CountdownAnnouncementProps & {
   /** The current locale segment — this Comet builds its own resend URL
    * (`/${lang}/login/otp/${email}/resend`) rather than taking one as a prop, since every real
    * caller's own route for that action follows this exact, fixed shape. */

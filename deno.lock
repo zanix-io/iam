@@ -16,28 +16,32 @@
     "jsr:@std/path@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/semver@^1.0.8": "1.0.8",
     "jsr:@std/streams@~0.224.5": "0.224.5",
+    "jsr:@zanix/admin@^2.3.0": "2.3.2",
     "jsr:@zanix/app@1": "1.0.4",
     "jsr:@zanix/app@^1.0.4": "1.0.4",
     "jsr:@zanix/asyncmq@~0.9.1": "0.9.1",
     "jsr:@zanix/auth@1": "1.6.0",
     "jsr:@zanix/auth@^1.6.0": "1.6.0",
-    "jsr:@zanix/datamaster@^1.11.1": "1.11.1",
-    "jsr:@zanix/datamaster@^1.7.0": "1.11.1",
-    "jsr:@zanix/datamaster@^1.9.0": "1.11.1",
+    "jsr:@zanix/core@^3.1.3": "3.1.3",
+    "jsr:@zanix/datamaster@^1.11.1": "1.12.2",
+    "jsr:@zanix/datamaster@^1.7.0": "1.12.2",
+    "jsr:@zanix/datamaster@^1.9.0": "1.12.2",
+    "jsr:@zanix/notifications@1": "1.2.3",
     "jsr:@zanix/notifications@^1.2.3": "1.2.3",
-    "jsr:@zanix/server@4": "4.3.4",
-    "jsr:@zanix/server@^4.1.0": "4.3.4",
-    "jsr:@zanix/server@^4.2.3": "4.3.4",
-    "jsr:@zanix/server@^4.3.0": "4.3.4",
-    "jsr:@zanix/server@^4.3.4": "4.3.4",
-    "jsr:@zanix/space-ui@^2.4.0": "2.6.1",
-    "jsr:@zanix/space@1": "1.16.4",
-    "jsr:@zanix/space@^1.16.0": "1.16.4",
-    "jsr:@zanix/utils@4": "4.7.1",
-    "jsr:@zanix/utils@^4.1.0": "4.7.1",
-    "jsr:@zanix/utils@^4.4.0": "4.7.1",
-    "jsr:@zanix/utils@^4.5.0": "4.7.1",
-    "jsr:@zanix/utils@^4.7.0": "4.7.1",
+    "jsr:@zanix/server@4": "4.4.1",
+    "jsr:@zanix/server@^4.1.0": "4.4.1",
+    "jsr:@zanix/server@^4.2.3": "4.4.1",
+    "jsr:@zanix/server@^4.3.0": "4.4.1",
+    "jsr:@zanix/server@^4.3.4": "4.4.1",
+    "jsr:@zanix/space-ui@^2.9.4": "2.9.4",
+    "jsr:@zanix/space@1": "1.18.3",
+    "jsr:@zanix/space@^1.16.0": "1.18.3",
+    "jsr:@zanix/utils@4": "4.9.0",
+    "jsr:@zanix/utils@^4.1.0": "4.9.0",
+    "jsr:@zanix/utils@^4.4.0": "4.9.0",
+    "jsr:@zanix/utils@^4.5.0": "4.9.0",
+    "jsr:@zanix/utils@^4.7.0": "4.9.0",
+    "jsr:@zanix/utils@^4.8.0": "4.9.0",
     "npm:@formatjs/icu-messageformat-parser@^3.5.17": "3.5.18",
     "npm:@formatjs/intl@^4.1.19": "4.2.1",
     "npm:@types/react-dom@^19.2.0": "19.3.0_@types+react@19.3.0",
@@ -45,7 +49,7 @@
     "npm:babel-plugin-react-compiler@1": "1.0.0",
     "npm:handlebars@^4.7.8": "4.7.9",
     "npm:happy-dom@^20.11.2": "20.14.5",
-    "npm:mongoose@8": "8.24.4",
+    "npm:mongoose@8": "8.24.5",
     "npm:preact-render-to-string@^6.5.0": "6.7.0_preact@10.29.8",
     "npm:preact@^10.29.0": "10.29.8_preact-render-to-string@6.7.0",
     "npm:qrcode-generator@^1.5.2": "1.5.2",
@@ -122,6 +126,17 @@
     "@std/streams@0.224.5": {
       "integrity": "bcde7818dd5460d474cdbd674b15f6638b9cd73cd64e52bd852fba2bd4d8ec91"
     },
+    "@zanix/admin@2.3.2": {
+      "integrity": "dcc7c2d5e2191bfb5df004e319ec577420a4876b49bd2c3021ec1b5aa08c131f",
+      "dependencies": [
+        "jsr:@zanix/app@1",
+        "jsr:@zanix/auth@1",
+        "jsr:@zanix/datamaster@^1.9.0",
+        "jsr:@zanix/notifications@1",
+        "jsr:@zanix/server@4",
+        "jsr:@zanix/utils@4"
+      ]
+    },
     "@zanix/app@1.0.4": {
       "integrity": "a812e3f434be70968470876383358b871a419a1863634f7a07e1714d15cf844c",
       "dependencies": [
@@ -148,8 +163,21 @@
         "jsr:@zanix/utils@4"
       ]
     },
-    "@zanix/datamaster@1.11.1": {
-      "integrity": "1fdecd947cbed897c2f59eb68b547b6960d40cd05159518566a80b0eaf0ebc1f",
+    "@zanix/core@3.1.3": {
+      "integrity": "c319e8533e048824d6770d5a37e9762ddfab2bdd033d41b738ebcbf414f2bef9",
+      "dependencies": [
+        "jsr:@std/path@0.224",
+        "jsr:@zanix/admin",
+        "jsr:@zanix/app@^1.0.4",
+        "jsr:@zanix/asyncmq",
+        "jsr:@zanix/datamaster@^1.9.0",
+        "jsr:@zanix/notifications@1",
+        "jsr:@zanix/server@4",
+        "jsr:@zanix/utils@4"
+      ]
+    },
+    "@zanix/datamaster@1.12.2": {
+      "integrity": "a6baac887945ee3841765eb1d4a0f310732af5c690bf9dbfd9e70cabaa7616f5",
       "dependencies": [
         "jsr:@zanix/server@^4.2.3",
         "jsr:@zanix/utils@^4.4.0",
@@ -167,16 +195,16 @@
         "npm:handlebars"
       ]
     },
-    "@zanix/server@4.3.4": {
-      "integrity": "f1b2c3a5eb80f191950c80ba0444f9e17fe9e9a1332b2bbad03d36276461dd7b",
+    "@zanix/server@4.4.1": {
+      "integrity": "9836a2944678db0d0ee8ded9bc94787e69de0311ef7399e93a385c6afe37df42",
       "dependencies": [
         "jsr:@std/http",
         "jsr:@std/path@0.224",
-        "jsr:@zanix/utils@^4.1.0"
+        "jsr:@zanix/utils@^4.8.0"
       ]
     },
-    "@zanix/space@1.16.4": {
-      "integrity": "d9f562a096761e165dce00783f7aed0c1f88a86424de37b6a3235186a893dedb",
+    "@zanix/space@1.18.3": {
+      "integrity": "bcf691b1c790b673ea099e3dcd3a04268d7f191e866f5cb19e249ef9e9f50376",
       "dependencies": [
         "jsr:@std/path@0.224",
         "jsr:@zanix/app@1",
@@ -189,8 +217,8 @@
         "npm:react@^19.2.0"
       ]
     },
-    "@zanix/space-ui@2.6.1": {
-      "integrity": "f3a114f7b6946187089806cf228e40f2a64fa223a814ccd6c0200ce10d08d162",
+    "@zanix/space-ui@2.9.4": {
+      "integrity": "6756c56d88aee37dd182fff916c7822251f81ce78346a61d64176c858462cd59",
       "dependencies": [
         "jsr:@zanix/space@1",
         "jsr:@zanix/utils@^4.5.0",
@@ -202,8 +230,8 @@
         "npm:schema-dts"
       ]
     },
-    "@zanix/utils@4.7.1": {
-      "integrity": "337d70b83fe362310057658d3983ae7c893850ab8e86f340bc020fa067553f05",
+    "@zanix/utils@4.9.0": {
+      "integrity": "56071e48e063e264eb2b3fe4aa2cd44e34f74d0484d3c00980738cc7272a6fd5",
       "dependencies": [
         "jsr:@std/crypto",
         "jsr:@std/fmt@0.224",
@@ -245,8 +273,8 @@
         "intl-messageformat"
       ]
     },
-    "@mongodb-js/saslprep@1.5.4": {
-      "integrity": "sha512-05UC0jQsjKAOuXQ0H9Ud9vUTJpZIg+n/FinpR30tI5I8pY2inTfPOZ5OF/cg3Ce/N9MoD1xhRCeOsJtuTbFYlw==",
+    "@mongodb-js/saslprep@1.5.5": {
+      "integrity": "sha512-0PV4mvjGd2Q2/viDvXuoSNzTjQngHvtuWUry1vqvcK4Q/CTeO1zEKMf9set01DMocJnogl/pyNAdvyk+Pe0kQA==",
       "dependencies": [
         "sparse-bitfield"
       ]
@@ -403,8 +431,8 @@
         "mongodb-connection-string-url"
       ]
     },
-    "mongoose@8.24.4": {
-      "integrity": "sha512-DoV8hYy5ssoh/j99rhYzeS2BLLcLJZ+EGQYfe/Ln+yMorBy0wgKdlwJBj59zJ1N0MnEKQypbeqUYFB0FVThmYg==",
+    "mongoose@8.24.5": {
+      "integrity": "sha512-S1cvmzLhw5Xthv450UjInCBq2JreRvvyfGSA3FmDw8yThPxUbPAyJqtXMz0dNm8BBFm2ctRBOBKJxDPqM2sG0w==",
       "dependencies": [
         "bson",
         "kareem",
@@ -531,7 +559,7 @@
       "jsr:@zanix/datamaster@^1.11.1",
       "jsr:@zanix/notifications@^1.2.3",
       "jsr:@zanix/server@^4.3.0",
-      "jsr:@zanix/space-ui@^2.4.0",
+      "jsr:@zanix/space-ui@^2.9.4",
       "jsr:@zanix/space@^1.16.0",
       "jsr:@zanix/utils@^4.7.0",
       "npm:@formatjs/icu-messageformat-parser@^3.5.17",

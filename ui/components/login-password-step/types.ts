@@ -1,6 +1,9 @@
+import type { CountdownAnnouncementProps } from '../../sdk/countdown-announcements.ts'
+
 /** Already-resolved copy of the password step. Never a message key: the app resolves its own
- * wording (and languages) and passes plain strings, the same contract `RateLimitCard` has. */
-export type LoginPasswordStepLabels = {
+ * wording (and languages) and passes plain strings, the same contract `RateLimitCard` has. The
+ * countdown's three screen-reader texts (`announcement*`) are optional and fall back to English. */
+export type LoginPasswordStepLabels = CountdownAnnouncementProps & {
   /** The step's heading. */
   heading: string
   /** The line before the email, e.g. "Signing in as". */

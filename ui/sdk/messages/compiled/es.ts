@@ -141,6 +141,24 @@ export const IAM_UI_MESSAGES_ES_COMPILED: Readonly<
       'value': 'No se completó el inicio de sesión',
     },
   ],
+  'login/countdown/announcement-done': [
+    {
+      'type': 0,
+      'value': 'Se acabó el tiempo',
+    },
+  ],
+  'login/countdown/announcement-less-than-minute': [
+    {
+      'type': 0,
+      'value': 'Queda menos de un minuto',
+    },
+  ],
+  'login/countdown/announcement-minutes': [
+    {
+      'type': 0,
+      'value': '{minutes} minutos restantes',
+    },
+  ],
   'login/or-email': [
     {
       'type': 0,

@@ -1,3 +1,5 @@
+import type { RateLimitCardProps } from 'ui/components/rate-limit-card/types.ts'
+import { countdownAnnouncements } from '../../sdk/countdown-announcements.ts'
 import type { Formatter } from '@zanix/space-ui'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { LoginViewProps } from './types.ts'
@@ -76,19 +78,7 @@ export type LoginViewDeps<E> = {
   PasswordToggleField: (
     props: Record<string, unknown> & { showLabel: string; hideLabel: string },
   ) => E
-  RateLimitCard: (
-    props: {
-      target: number
-      size: number
-      strokeWidth: number
-      nonce?: string
-      formId: string
-      cardDataSpace: string
-      clearQueryParamsOnComplete?: string[]
-      headingLabel: string
-      bodyLabel: string
-    },
-  ) => E
+  RateLimitCard: (props: RateLimitCardProps) => E
   ManagedForm: (
     props: {
       formId: string
@@ -299,6 +289,7 @@ export function createLoginView<E>(
           clearQueryParamsOnComplete: clearQueryParamsOnRateLimitComplete,
           headingLabel: formatMessage('login/rate-limited/heading'),
           bodyLabel: formatMessage('login/rate-limited/body'),
+          ...countdownAnnouncements(formatMessage),
         })
         : null,
       // `'passwordless'`-only: the OAuth2 provider(s) as prominent buttons ABOVE the form — see

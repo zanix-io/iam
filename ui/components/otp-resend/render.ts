@@ -76,6 +76,9 @@ export function createOtpResend<E>(
       notifierOptions,
       currentNotifier,
       notifierPickerLabel,
+      announcementDone,
+      announcementLessThanMinute,
+      announcementMinutes,
     }: OtpResendProps,
   ): E {
     const cooldownActive = typeof cooldownEndsAt === 'number' && cooldownEndsAt > Date.now()
@@ -123,6 +126,9 @@ export function createOtpResend<E>(
         h(Countdown, {
           target: cooldownEndsAt,
           nonce,
+          announcementDone,
+          announcementLessThanMinute,
+          announcementMinutes,
           onComplete: () => {
             document.getElementById(COOLDOWN_ID)?.setAttribute('hidden', '')
             document.getElementById(SUBMIT_BUTTON_ID)?.removeAttribute('hidden')

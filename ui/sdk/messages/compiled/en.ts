@@ -140,6 +140,24 @@ export const IAM_UI_MESSAGES_EN_COMPILED: Readonly<
       'value': "Sign-in didn't complete",
     },
   ],
+  'login/countdown/announcement-done': [
+    {
+      'type': 0,
+      'value': "Time's up",
+    },
+  ],
+  'login/countdown/announcement-less-than-minute': [
+    {
+      'type': 0,
+      'value': 'Less than a minute remaining',
+    },
+  ],
+  'login/countdown/announcement-minutes': [
+    {
+      'type': 0,
+      'value': '{minutes} minutes remaining',
+    },
+  ],
   'login/or-email': [
     {
       'type': 0,

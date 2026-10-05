@@ -61,6 +61,16 @@ app defines no catalog for it. The hosted pages serve only `en` (`AVAILABLE_LANG
 test keeps the two in step (a key read but undefined, or defined but never read, fails). Renaming a
 key is a breaking change.
 
+**Countdown announcements.** The screen-reader text of the countdowns in `RateLimitCountdown`
+(`RateLimitCard`, `LoginPasswordStep`'s `labels`) and `OtpResend` is `Countdown`'s
+(`@zanix/space-ui` 2.9.4 and later) and arrives as three optional string props, each falling back to
+English when unset: `announcementDone`, `announcementLessThanMinute` and `announcementMinutes`. The
+views fill them from `login/countdown/announcement-done`, `…-less-than-minute` and `…-minutes`
+(`countdownAnnouncements`, exported from `@zanix/iam/ui/sdk/countdown-announcements`). The
+`…-minutes` message keeps its `{minutes}` marker literal for `Countdown` to fill (the catalog writes
+it as `'{minutes}'`, ICU's escape). An app that composes these Comets itself passes the three props
+from its own catalog.
+
 **Password heading.** The heading of `LoginView` in password mode is not a catalog key: it is the
 `heading` prop, else the `iam` space app's `loginHeading` behavior (see [Behaviors](#behaviors)),
 else `'Sign in'`. Passwordless mode reads `login/heading` from the catalog.

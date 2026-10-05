@@ -1,3 +1,5 @@
+import type { RateLimitCardProps } from 'ui/components/rate-limit-card/types.ts'
+import { countdownAnnouncements } from '../../sdk/countdown-announcements.ts'
 import type { Formatter } from '@zanix/space-ui'
 import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { AuthHiddenFieldsProps } from 'ui/components/auth-hidden-fields/types.ts'
@@ -37,19 +39,7 @@ export type TotpViewDeps<E> = {
   ) => E
   Input: (props: Record<string, unknown>) => E
   SubmitGuard: (props: { formId: string }) => E | null
-  RateLimitCard: (
-    props: {
-      target: number
-      size: number
-      strokeWidth: number
-      nonce?: string
-      formId: string
-      cardDataSpace: string
-      clearQueryParamsOnComplete?: string[]
-      headingLabel: string
-      bodyLabel: string
-    },
-  ) => E
+  RateLimitCard: (props: RateLimitCardProps) => E
   /** `ui/components/auth-hidden-fields`'s own bound `authHiddenFields` — a plain function, never a
    * component reference (see that component's own doc for why it returns `E[]`, not `E`, and is
    * spread into `<form>`'s children rather than passed through `h`). */
@@ -146,6 +136,7 @@ export function createTotpLoginView<E>(
           clearQueryParamsOnComplete: clearQueryParamsOnRateLimitComplete,
           headingLabel: formatMessage('login/totp/rate-limited/heading'),
           bodyLabel: formatMessage('login/totp/rate-limited/body'),
+          ...countdownAnnouncements(formatMessage),
         })
         : null,
       unexpectedError
