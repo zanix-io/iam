@@ -48,8 +48,9 @@ deleted, by anyone, a holder of `*` included (`403`, `ROLE_IS_SYSTEM`). The fiel
 immutable once set, and only a caller holding `*` can create a role with it. A role without the
 field behaves as an ordinary one, so existing roles keep working.
 
-**Upgrading an installation that already has `superadmin`.** The seeder only inserts, so it does not
-mark a role that exists. Mark it once, in `mongosh`, on the database `iam` uses:
+**Upgrading an installation that already has `superadmin`.** Starting the server marks it: a roles
+seeder sets `isSystem: true` on `superadmin` when the field is missing and changes nothing else. To
+check it, or to do it before starting, run this in `mongosh` on the database `iam` uses:
 
 ```js
 db.roles.updateOne({ _id: ObjectId('693000000000000000000201'), isSystem: { $exists: false } }, {
@@ -252,8 +253,11 @@ session.
 
 Production seeders (always run, idempotent by fixed id):
 
-- permissions: `*` and every code in the table above;
-- roles: `superadmin`, a system role holding only `*`;
+- permissions: `*` and every code in the table above. Existing databases receive the ones they are
+  missing at startup (for example `audit-read`); a permission that already exists under the same
+  code but another id is kept, and the seeded one is skipped with a warning;
+- roles: `superadmin`, a system role holding only `*`. An existing `superadmin` without `isSystem`
+  is marked at startup;
 - the first administrator, when `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` are both set: a
   profile and a sign-in record with the `superadmin` role.
 

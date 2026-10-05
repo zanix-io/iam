@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-10-05
+
+### Fixed
+
+- A database that already ran 1.x never received the data 2.0.0 added to the seeders, because a
+  seeder runs once per name and version and the permissions seeder kept its old version. Two things
+  were missing there: the `audit-read` permission (so `GET /api/audit` could not be granted) and
+  `isSystem` on the `superadmin` role (so a holder of `*` could still edit or delete it). Both are
+  now written at startup, once: the permissions seeder (`seedMissingPermissions`, version `1.2.0`)
+  inserts only the seeded permissions that are missing, and a roles seeder
+  (`markSuperadminAsSystem`, version `1.1.0`) sets `isSystem: true` on `superadmin` only when the
+  field is absent, touching nothing else. A fresh database is unaffected. If a permission with the
+  code `audit-read` was created by hand under another id, it is kept as it is, the seeded one is
+  skipped and a warning is logged: grant that permission, or delete it so the seeder can insert its
+  own.
+- An installation that already started 2.0.0 without this fix gets both on its next start of the
+  fixed version; nothing has to be run by hand. Step 6 of "Upgrading from 1.x" below stays as a
+  check and as a manual alternative.
+
 ## [2.0.0] - 2026-10-05
 
 ### Upgrading from 1.x (read this first)
@@ -90,10 +109,11 @@ db.auths.countDocuments({ roleId: { $exists: true } }) // 0
 db.auths.countDocuments({ 'roleIds.0': { $exists: true } }) // N, plus any account that already had roleIds
 ```
 
-**6. Mark the seeded `superadmin` as a system role.** The seeder only inserts, so it does not touch
-a role that already exists. Without this step `superadmin` is still guarded (only a holder of `*`
-can edit or delete a role that carries `*`) but it is not immutable for that holder, and a holder of
-`*` could rename or delete it.
+**6. Mark the seeded `superadmin` as a system role.** Starting the fixed version does this already
+(a roles seeder sets `isSystem` on `superadmin` when the field is missing); run the command to check
+it, or to do it before starting. Without `isSystem`, `superadmin` is still guarded (only a holder of
+`*` can edit or delete a role that carries `*`) but it is not immutable for that holder, and a
+holder of `*` could rename or delete it.
 
 ```js
 db.roles.updateOne({ _id: ObjectId('693000000000000000000201'), isSystem: { $exists: false } }, {

@@ -108,11 +108,12 @@ db.runCommand({
 ```
 
 The upgrade from 1.x changes stored data (`roleId` becomes `roleIds`, `superadmin` becomes a system
-role, `role_audit_events` is new): follow "Upgrading from 1.x" in the [CHANGELOG](../CHANGELOG.md)
-before starting the new version.
+role at startup, `role_audit_events` is new): follow "Upgrading from 1.x" in the
+[CHANGELOG](../CHANGELOG.md) before starting the new version.
 
-The audit trail is read with `GET /api/audit`, which needs the `audit-read` permission (seeded; give
-it through a role). See [Authorization](./authorization.md#audit-trail).
+The audit trail is read with `GET /api/audit`, which needs the `audit-read` permission (seeded, also
+in a database that came from 1.x; give it through a role). See
+[Authorization](./authorization.md#audit-trail).
 
 ### OAuth2 providers
 

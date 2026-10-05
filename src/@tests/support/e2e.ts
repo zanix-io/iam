@@ -180,6 +180,9 @@ export type StartOptions = {
   env?: Record<string, string>
   /** Seed the first administrator (default true). */
   firstAdmin?: boolean
+  /** Use this existing throw-away database (`znx_iam_test_*`) instead of a new one, to start a
+   * second server over what a first one left (`stop({ keepDatabase: true })`). */
+  dbName?: string
 }
 
 export type Iam = {
@@ -220,12 +223,13 @@ export type Iam = {
   signToken: (claims: { sub: string; type: 'user' | 'api'; aud: string[] }) => Promise<string>
   /** The last lines the server wrote, to explain a failure. */
   logs: () => string
-  /** Stops the server and drops the database. */
-  stop: () => Promise<void>
+  /** Stops the server and drops the database, unless `keepDatabase` (then the caller must drop it,
+   * by passing it as `dbName` to a later server and stopping that one normally). */
+  stop: (options?: { keepDatabase?: boolean }) => Promise<void>
 }
 
 /** The cleanups of the servers running now, run by the signal handlers. */
-const running = new Set<() => Promise<void>>()
+const running = new Set<(keepDatabase?: boolean) => Promise<void>>()
 let signalsInstalled = false
 
 function installSignalCleanup() {
@@ -247,7 +251,11 @@ function installSignalCleanup() {
  */
 export async function startIam(options: StartOptions = {}): Promise<Iam> {
   if (!mongoUri) throw new Error('[e2e] IAM_TEST_MONGO_URI is not set')
-  const dbName = `${TEST_DB_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+  const dbName = options.dbName ??
+    `${TEST_DB_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+  if (!dbName.startsWith(TEST_DB_PREFIX)) {
+    throw new Error(`[e2e] refusing a database not named ${TEST_DB_PREFIX}*: ${dbName}`)
+  }
   const port = freePort()
   const url = `http://127.0.0.1:${port}`
   const lockFile = await Deno.makeTempFile({ prefix: 'znx-iam-test-lock-', suffix: '.json' })
@@ -303,7 +311,7 @@ export async function startIam(options: StartOptions = {}): Promise<Iam> {
 
   let raw: RawDb | undefined
   let cleaned: Promise<void> | undefined
-  const cleanup = (): Promise<void> =>
+  const cleanup = (keepDatabase = false): Promise<void> =>
     cleaned ??= (async () => {
       running.delete(cleanup)
       try {
@@ -322,7 +330,7 @@ export async function startIam(options: StartOptions = {}): Promise<Iam> {
       await Promise.allSettled(drains)
       try {
         raw ??= await openRawDb(dbName)
-        await raw.drop()
+        if (!keepDatabase) await raw.drop()
       } catch (error) {
         report(`[e2e] could not drop ${dbName}; drop it by hand: ${(error as Error).message}`)
       }
@@ -454,7 +462,7 @@ export async function startIam(options: StartOptions = {}): Promise<Iam> {
     register,
     admin,
     logs: () => tail.join('\n'),
-    stop: cleanup,
+    stop: (stopOptions) => cleanup(stopOptions?.keepDatabase),
   }
 }
 

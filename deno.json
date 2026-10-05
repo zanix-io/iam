@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "zanix": {
     "project": "space-server"
   },
@@ -96,6 +96,7 @@
     "@zanix/validator": "jsr:@zanix/utils@^4.7.0/validator",
     "@zanix/errors": "jsr:@zanix/utils@^4.7.0/errors",
     "@zanix/helpers": "jsr:@zanix/utils@^4.7.0/helpers",
+    "@zanix/logger": "jsr:@zanix/utils@^4.7.0/logger",
     "@zanix/core": "jsr:@zanix/core@^3.1.3",
     "react": "npm:react@^19.2.8",
     "react-dom": "npm:react-dom@^19.2.8",

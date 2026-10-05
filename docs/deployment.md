@@ -125,12 +125,14 @@ never match the main instance's.
 ### Seeders
 
 Each collection registers seeders that run on boot and insert fixed-id documents only when missing
-([`utils/seeders.ts`](../src/utils/seeders.ts)).
+([`utils/seeders.ts`](../src/utils/seeders.ts)). A seeder runs once per name and version, so data a
+new release adds reaches an existing database through a seeder with a new version: `audit-read` is
+inserted if missing and `superadmin` is marked `isSystem` if it lacks the field, both at startup.
 
 Always (production):
 
 - the permissions `*`, `<SERVICE_ID>:role-read`, `role-write`, `permission-read`,
-  `permission-write`, `user-read` and `user-write`;
+  `permission-write`, `user-read`, `user-write` and `audit-read`;
 - the role `superadmin`, holding `*`;
 - with `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` both set: the first administrator (profile and
   sign-in record with the `superadmin` role).

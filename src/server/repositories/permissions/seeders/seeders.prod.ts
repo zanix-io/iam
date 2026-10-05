@@ -1,4 +1,4 @@
-import { seedManyByIdIfMissing } from '@zanix/datamaster'
+import logger from '@zanix/logger'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
 /**
@@ -116,11 +116,47 @@ export const SEEDED_PERMISSIONS = [
   },
 ]
 
+/** The part of the `permissions` model the seeder uses. */
+type PermissionsSeedModel = {
+  find: (filter: Record<string, unknown>) => { lean: () => PromiseLike<{ code: string }[]> }
+  upsertManyById: (
+    data: typeof SEEDED_PERMISSIONS,
+    options: { useDataPolicies: boolean },
+  ) => PromiseLike<unknown>
+}
+
+/**
+ * Inserts every seeded permission that is missing, by id, and leaves the ones present untouched.
+ * A seeded code that already exists under ANOTHER id (an administrator created `audit-read` by
+ * hand, say) is skipped with a warning instead of failing on the unique index of `code`: routes
+ * check permissions by code, so the existing permission serves, and nothing is overwritten.
+ *
+ * Seeders run once per name and version (`zanix-seeders`), so a permission added to the catalog
+ * needs a new `version` below to reach a database that already ran an earlier one.
+ */
+export async function seedMissingPermissions(Model: PermissionsSeedModel): Promise<void> {
+  const taken = await Model.find({ code: { $in: SEEDED_PERMISSIONS.map(({ code }) => code) } })
+    .lean() as unknown as { _id: { toString(): string }; code: string }[]
+  const byId = new Map(taken.map((permission) => [String(permission._id), permission.code]))
+  const takenCodes = new Set(taken.map((permission) => permission.code))
+  const toInsert = SEEDED_PERMISSIONS.filter((permission) => {
+    if (!takenCodes.has(permission.code)) return true
+    if (byId.has(permission.id)) return false
+    logger.warn(
+      `Permission "${permission.code}" already exists under another id; the seeded one ` +
+        `(${permission.id}) is skipped and the existing one is used.`,
+    )
+    return false
+  })
+  if (toInsert.length) await Model.upsertManyById(toInsert, { useDataPolicies: true })
+}
+
 /** This project's production-always permission catalog: the wildcard permission plus every
- * `RBAC_PERMISSIONS` entry, upserted on boot via `seedManyByIdIfMissing`. */
+ * `RBAC_PERMISSIONS` entry, inserted on boot when missing (see {@linkcode seedMissingPermissions}).
+ * Version `1.2.0` is the one that adds `audit-read` to databases created by 1.x. */
 export default [
   {
-    handler: seedManyByIdIfMissing(SEEDED_PERMISSIONS),
-    options: { version: '1.1.0' },
+    handler: seedMissingPermissions as never,
+    options: { name: 'seedMissingPermissions', version: '1.2.0' },
   } as const,
 ] as never[]
