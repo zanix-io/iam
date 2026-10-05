@@ -1,264 +1,290 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
 import { HttpError } from '@zanix/errors'
 
-import { RolesService } from 'server/interactors/roles.interactor.ts'
-import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
-import { PermissionsRepository } from 'server/repositories/permissions/entity.provider.ts'
-import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
-import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
+import { IAM_ERROR_CODES } from 'utils/constants.ts'
+import { buildWorld, rejection, role } from '../../helpers/role-world.ts'
 
-const baseRole = (overrides: Record<string, unknown> = {}) => ({
-  id: 'role-1',
-  name: 'Support',
-  code: 'support',
-  description: 'Support role',
-  permissions: ['perm-1'],
-  ...overrides,
-})
+/**
+ * `RolesService` CRUD and account-role membership over the in-memory world of
+ * `helpers/role-world.ts`. The two rules every mutation shares have their own files:
+ * `roles.service.grant-rules.test.ts` (grant only what you hold) and
+ * `roles.service.admin-remains.test.ts` (an administrator remains).
+ */
 
-const baseAuth = (overrides: Record<string, unknown> = {}) => ({
-  id: 'auth-1',
-  email: 'jane@example.com',
-  ...overrides,
-})
-
-const defaultRolesRepo = () => ({
-  createRole: fn((..._args: unknown[]) => ({})),
-  findById: fn((..._args: unknown[]): unknown => baseRole()),
-  findByCode: fn((..._args: unknown[]): unknown => undefined),
-  updateRole: fn((..._args: unknown[]) => ({})),
-  deleteRole: fn((..._args: unknown[]) => ({})),
-  searchRoles: fn((..._args: unknown[]) => ({ docs: [baseRole()], total: 1 })),
-})
-
-const defaultPermissionsRepo = () => ({
-  findManyByIds: fn((ids: string[]): unknown => ids.map((id) => ({ id }))),
-})
-
-const defaultAuthRepo = () => ({
-  findById: fn((..._args: unknown[]): unknown => baseAuth()),
-  updateAuth: fn((..._args: unknown[]) => ({})),
-})
-
-function buildService(opts: {
-  rolesRepo?: Partial<ReturnType<typeof defaultRolesRepo>>
-  permissionsRepo?: Partial<ReturnType<typeof defaultPermissionsRepo>>
-  authRepo?: Partial<ReturnType<typeof defaultAuthRepo>>
-  session?: Record<string, unknown>
-} = {}) {
-  const rolesRepo = { ...defaultRolesRepo(), ...opts.rolesRepo }
-  const permissionsRepo = { ...defaultPermissionsRepo(), ...opts.permissionsRepo }
-  const authRepo = { ...defaultAuthRepo(), ...opts.authRepo }
-
-  const service = new RolesService('ctx-1')
-  mockAccessor(
-    service,
-    'providers',
-    mapGetter([
-      [RolesRepository, rolesRepo],
-      [PermissionsRepository, permissionsRepo],
-      [AuthRepository, authRepo],
-    ]),
-  )
-  mockAccessor(service, 'context', { session: opts.session ?? { subject: 'admin-1' } })
-
-  return { service, rolesRepo, permissionsRepo, authRepo }
-}
+const account = (roleIds?: string[], id = 'auth-1') => ({ id, userId: `user-${id}`, roleIds })
 
 Deno.test('createRole: throws CONFLICT when the code already exists', async () => {
-  const { service } = buildService({ rolesRepo: { findByCode: fn(() => baseRole()) } })
+  const { roles } = buildWorld({ roles: [role('r1', [])] })
   await assertRejects(
-    () => service.createRole({ code: 'support', permissions: [] } as never),
+    () => roles.createRole({ code: 'r1', permissions: [] } as never),
     HttpError,
     'already exists',
   )
 })
 
 Deno.test('createRole: throws BAD_REQUEST when a referenced permission does not exist', async () => {
-  const { service } = buildService({
-    permissionsRepo: { findManyByIds: fn((_ids: string[]) => [{ id: 'perm-1' }]) },
-  })
+  const { roles, state } = buildWorld()
   await assertRejects(
-    () =>
-      service.createRole({
-        code: 'support',
-        name: 'Support',
-        description: 'x',
-        permissions: ['perm-1', 'perm-2'],
-      } as never),
+    () => roles.createRole({ code: 'new', permissions: ['p-missing'] } as never),
     HttpError,
-    'do not exist',
+    'One or more permissions do not exist',
   )
+  assertEquals(state.created.length, 0)
 })
 
-Deno.test('createRole: on success persists the role with the caller as createdBy', async () => {
-  const { service, rolesRepo } = buildService()
-  const result = await service.createRole({
-    code: 'support',
-    name: 'Support',
-    description: 'x',
-    permissions: ['perm-1'],
+Deno.test('createRole: persists the role with the caller as createdBy', async () => {
+  const { roles, state } = buildWorld({ session: { subject: 'admin-1', scope: ['*'] } })
+  const result = await roles.createRole({
+    name: 'N',
+    code: 'new',
+    description: 'D',
+    permissions: ['p-web:user'],
   } as never)
   assertEquals(result, { response: 'role created' })
-  const created = rolesRepo.createRole.calls[0]?.[0] as Record<string, unknown>
-  assertEquals(created.createdBy, 'admin-1')
+  assertEquals(state.created, [{
+    name: 'N',
+    code: 'new',
+    description: 'D',
+    tenantId: undefined,
+    permissions: ['p-web:user'],
+    createdBy: 'admin-1',
+  }])
 })
 
-Deno.test('createRole: with no tenantId, scopes the collision check to the global role', async () => {
-  const { service, rolesRepo } = buildService()
-  await service.createRole({
-    code: 'support',
-    name: 'Support',
-    description: 'x',
-    permissions: ['perm-1'],
-  } as never)
-  assertEquals(rolesRepo.findByCode.calls[0], ['support', undefined])
-})
-
-Deno.test('createRole: throws CONFLICT for the same code within the same tenant', async () => {
-  const { service } = buildService({
-    rolesRepo: {
-      findByCode: fn((..._args: unknown[]): unknown => {
-        const [, tenantId] = _args as [string, string | undefined]
-        return tenantId === 'tenant-a' ? baseRole({ tenantId: 'tenant-a' }) : undefined
-      }),
-    },
-  })
+Deno.test('createRole: the collision check is scoped to the tenant, global when none', async () => {
+  const { roles } = buildWorld({ roles: [role('r1', [], 'tenant-a'), role('global', [])] })
+  // Same code in another tenant, and the tenant role's code globally, do not collide.
+  await roles.createRole({ code: 'r1', tenantId: 'tenant-b', permissions: [] } as never)
+  await roles.createRole({ code: 'r1', permissions: [] } as never)
   await assertRejects(
-    () =>
-      service.createRole({
-        code: 'support',
-        name: 'Support',
-        description: 'x',
-        tenantId: 'tenant-a',
-        permissions: [],
-      } as never),
+    () => roles.createRole({ code: 'r1', tenantId: 'tenant-a', permissions: [] } as never),
+    HttpError,
+    'for this tenant',
+  )
+  await assertRejects(
+    () => roles.createRole({ code: 'global', permissions: [] } as never),
     HttpError,
     'already exists',
   )
 })
 
-Deno.test('createRole: the same code is allowed for a different tenant (cross-tenant, no collision)', async () => {
-  const { service, rolesRepo } = buildService({
-    rolesRepo: {
-      findByCode: fn((..._args: unknown[]): unknown => {
-        const [, tenantId] = _args as [string, string | undefined]
-        return tenantId === 'tenant-a' ? baseRole({ tenantId: 'tenant-a' }) : undefined
-      }),
-    },
-  })
-  const result = await service.createRole({
-    code: 'support',
-    name: 'Support',
-    description: 'x',
-    tenantId: 'tenant-b',
-    permissions: [],
-  } as never)
-  assertEquals(result, { response: 'role created' })
-  const created = rolesRepo.createRole.calls[0]?.[0] as Record<string, unknown>
-  assertEquals(created.tenantId, 'tenant-b')
-})
-
-Deno.test('editRole: throws NOT_FOUND when the role does not exist', async () => {
-  const { service } = buildService({ rolesRepo: { findById: fn(() => undefined) } })
-  await assertRejects(() => service.editRole('missing', {} as never), HttpError, 'not found')
-})
-
-Deno.test('editRole: validates referenced permissions only when permissions is provided', async () => {
-  const { service, permissionsRepo } = buildService()
-  await service.editRole('role-1', { name: 'Renamed' } as never)
-  assertEquals(permissionsRepo.findManyByIds.calls.length, 0)
-})
-
-Deno.test('editRole: on success updates the role with the given fields', async () => {
-  const { service, rolesRepo } = buildService()
-  const result = await service.editRole('role-1', { name: 'Renamed' } as never)
-  assertEquals(result, { response: 'role edited' })
-  assertEquals(rolesRepo.updateRole.calls[0], [{ name: 'Renamed', id: 'role-1' }])
-})
-
-Deno.test('deleteRole: throws NOT_FOUND when the role does not exist', async () => {
-  const { service } = buildService({ rolesRepo: { findById: fn(() => undefined) } })
-  await assertRejects(() => service.deleteRole('missing'), HttpError, 'not found')
-})
-
-Deno.test('deleteRole: on success deletes the role', async () => {
-  const { service, rolesRepo } = buildService()
-  const result = await service.deleteRole('role-1')
-  assertEquals(result, { response: 'role deleted' })
-  assertEquals(rolesRepo.deleteRole.calls[0], ['role-1'])
-})
-
-Deno.test('getRoleById: throws NOT_FOUND when the role does not exist', async () => {
-  const { service } = buildService({ rolesRepo: { findById: fn(() => undefined) } })
-  await assertRejects(() => service.getRoleById('missing'), HttpError, 'not found')
-})
-
-Deno.test('getRoleById: populates permissions', async () => {
-  const { service, rolesRepo } = buildService()
-  await service.getRoleById('role-1')
-  assertEquals(rolesRepo.findById.calls[0], ['role-1', { populate: 'permissions' }])
-})
-
-Deno.test('assignRole: throws NOT_FOUND when the role does not exist', async () => {
-  const { service } = buildService({ rolesRepo: { findById: fn(() => undefined) } })
+Deno.test('editRole: NOT_FOUND for an unknown role; permissions are validated only when given', async () => {
+  const { roles, state } = buildWorld()
+  await assertRejects(() => roles.editRole('nope', {} as never), HttpError, 'Role not found')
+  await roles.editRole('role-user', { name: 'Renamed' } as never)
+  assertEquals(state.updatedRoles, [{ name: 'Renamed', id: 'role-user' }])
   await assertRejects(
-    () => service.assignRole({ authId: 'auth-1', roleId: 'missing' } as never),
+    () => roles.editRole('role-user', { permissions: ['p-missing'] } as never),
     HttpError,
-    'Role not found',
+    'One or more permissions do not exist',
   )
 })
 
-Deno.test('assignRole: throws NOT_FOUND when the account does not exist', async () => {
-  const { service } = buildService({ authRepo: { findById: fn(() => undefined) } })
+Deno.test('editRole: applies a permissions list whose ids all exist', async () => {
+  const { roles, state } = buildWorld()
+  await roles.editRole('role-user', { permissions: ['p-web:user', 'p-seller:manage'] } as never)
+  assertEquals(state.updatedRoles, [{
+    permissions: ['p-web:user', 'p-seller:manage'],
+    id: 'role-user',
+  }])
+})
+
+Deno.test('deleteRole: NOT_FOUND for an unknown role, otherwise deletes it', async () => {
+  const { roles, state } = buildWorld()
+  await assertRejects(() => roles.deleteRole('nope'), HttpError, 'Role not found')
+  assertEquals(await roles.deleteRole('role-user'), { response: 'role deleted' })
+  assertEquals(state.deletedRoles, ['role-user'])
+})
+
+Deno.test('getRoleById / getRoles: read through the repository', async () => {
+  const { roles } = buildWorld()
+  assertEquals((await roles.getRoleById('role-user')).id, 'role-user')
+  await assertRejects(() => roles.getRoleById('nope'), HttpError, 'Role not found')
+  assertEquals((await roles.getRoles({ tenantId: 't' })).total, 0)
+})
+
+Deno.test('assignRole: replaces the roles with [roleId] and writes nothing else', async () => {
+  const { roles, state, account: read } = buildWorld({
+    accounts: [account(['role-user', 'role-seller'])],
+  })
+  assertEquals(await roles.assignRole({ authId: 'auth-1', roleId: 'role-seller' } as never), {
+    response: 'role assigned',
+  })
+  assertEquals(read('auth-1')?.roleIds, ['role-seller'])
+  assertEquals(state.writes, [['replace', 'auth-1', ['role-seller']]])
+})
+
+Deno.test('assignRole: NOT_FOUND for a missing role or account', async () => {
+  const { roles } = buildWorld({ accounts: [account()] })
   await assertRejects(
-    () => service.assignRole({ authId: 'missing', roleId: 'role-1' } as never),
+    () => roles.assignRole({ authId: 'auth-1', roleId: 'missing' } as never),
+    HttpError,
+    'Role not found',
+  )
+  await assertRejects(
+    () => roles.assignRole({ authId: 'missing', roleId: 'role-user' } as never),
     HttpError,
     'Account not found',
   )
 })
 
-Deno.test('getRoles: forwards an explicit tenantId filter to the repository as-is', async () => {
-  const { service, rolesRepo } = buildService()
-  await service.getRoles({ tenantId: 'tenant-a' })
-  assertEquals(rolesRepo.searchRoles.calls[0], [{ tenantId: 'tenant-a' }])
+Deno.test('addRoles: keeps the roles held and appends the new ones once, in one atomic add', async () => {
+  const { roles, state } = buildWorld({ accounts: [account(['role-user'])] })
+  const result = await roles.addRoles({
+    authId: 'auth-1',
+    roleIds: ['role-seller', 'role-user', 'role-seller'],
+  } as never)
+  assertEquals(result, { response: 'roles updated', roleIds: ['role-user', 'role-seller'] })
+  assertEquals(state.writes, [['add', 'auth-1', ['role-seller']]])
 })
 
-Deno.test('getRoles: with no tenantId, lists regardless of tenant', async () => {
-  const { service, rolesRepo } = buildService()
-  await service.getRoles({})
-  assertEquals(rolesRepo.searchRoles.calls[0], [{}])
+Deno.test('addRoles: an account with no roles yet gets them; repeating changes nothing', async () => {
+  const { roles, state } = buildWorld({ accounts: [account()] })
+  await roles.addRoles({ authId: 'auth-1', roleIds: ['role-user'] } as never)
+  const again = await roles.addRoles({ authId: 'auth-1', roleIds: ['role-user'] } as never)
+  assertEquals(again.roleIds, ['role-user'])
+  assertEquals(state.writes.length, 1, 'the repeat must not write')
 })
 
-Deno.test('assignRole: on success sets roleId, without forcing a refresh-token revoke', async () => {
-  const { service, authRepo } = buildService()
-  const result = await service.assignRole({ authId: 'auth-1', roleId: 'role-1' } as never)
-  assertEquals(result, { response: 'role assigned' })
-  // A single `updateAuth` call, setting only `roleId` — no other write of any kind (no forced
-  // re-login/revoke). `AuthService.refreshTokens` re-resolves permissions on every refresh now,
-  // making a revoke unnecessary. See `RolesService.assignRole`'s own doc.
-  assertEquals(authRepo.updateAuth.calls, [[{ id: 'auth-1', roleId: 'role-1' }]])
-})
-
-Deno.test('editRole: a permissions list referencing a missing permission is BAD_REQUEST, nothing updated', async () => {
-  const { service, rolesRepo } = buildService({
-    permissionsRepo: { findManyByIds: fn((_ids: string[]) => [{ id: 'perm-1' }]) },
-  })
+Deno.test('addRoles: NOT_FOUND for a missing role or account, nothing written', async () => {
+  const { roles, state } = buildWorld({ accounts: [account()] })
   await assertRejects(
-    () => service.editRole('role-1', { permissions: ['perm-1', 'perm-missing'] } as never),
+    () => roles.addRoles({ authId: 'auth-1', roleIds: ['x'] } as never),
     HttpError,
-    'One or more permissions do not exist.',
+    'Role not found',
   )
-  assertEquals(rolesRepo.updateRole.calls.length, 0)
+  await assertRejects(
+    () => roles.addRoles({ authId: 'nobody', roleIds: ['role-user'] } as never),
+    HttpError,
+    'Account not found',
+  )
+  assertEquals(state.writes.length, 0)
 })
 
-Deno.test('editRole: a permissions list whose ids all exist is validated, then applied', async () => {
-  const { service, rolesRepo, permissionsRepo } = buildService({
-    permissionsRepo: {
-      findManyByIds: fn((_ids: string[]) => [{ id: 'perm-1' }, { id: 'perm-2' }]),
-    },
+Deno.test('addRoles/removeRoles/setRoles: the roles involved are read with one query', async () => {
+  const { roles, state } = buildWorld({ accounts: [account(['role-user'])] })
+  await roles.addRoles({ authId: 'auth-1', roleIds: ['role-seller', 'role-seller'] } as never)
+  assertEquals(state.findRoleQueries, [['role-actor-caller', 'role-seller']])
+})
+
+Deno.test('removeRoles: pulls only the roles held and ignores the others', async () => {
+  const { roles, state } = buildWorld({ accounts: [account(['role-user', 'role-seller'])] })
+  const result = await roles.removeRoles({
+    authId: 'auth-1',
+    roleIds: ['role-seller', 'role-admin'],
+  } as never)
+  assertEquals(result, { response: 'roles updated', roleIds: ['role-user'] })
+  assertEquals(state.writes, [['pull', 'auth-1', ['role-seller']]])
+})
+
+Deno.test('removeRoles: removing the last role leaves the account with none', async () => {
+  const { roles, account: read } = buildWorld({ accounts: [account(['role-user'])] })
+  await roles.removeRoles({ authId: 'auth-1', roleIds: ['role-user'] } as never)
+  assertEquals(read('auth-1')?.roleIds, [])
+})
+
+Deno.test('setRoles: stores exactly the given roles in order; an empty list clears them', async () => {
+  const { roles, account: read } = buildWorld({ accounts: [account(['role-user'])] })
+  assertEquals(
+    (await roles.setRoles('auth-1', ['role-seller', 'role-user', 'role-seller'])).roleIds,
+    [
+      'role-seller',
+      'role-user',
+    ],
+  )
+  await roles.setRoles('auth-1', [])
+  assertEquals(read('auth-1')?.roleIds, [])
+})
+
+Deno.test('setRoles: NOT_FOUND when one of the roles does not exist, nothing written', async () => {
+  const { roles, state } = buildWorld({ accounts: [account()] })
+  await assertRejects(() => roles.setRoles('auth-1', ['x']), HttpError, 'Role not found')
+  assertEquals(state.writes.length, 0)
+})
+
+Deno.test('getAccountRoles: answers the role ids, empty when none, NOT_FOUND for no account', async () => {
+  const { roles } = buildWorld({
+    accounts: [account(['role-user', 'role-seller']), account(undefined, 'auth-2')],
   })
-  await service.editRole('role-1', { permissions: ['perm-1', 'perm-2'] } as never)
-  assertEquals(permissionsRepo.findManyByIds.calls[0], [['perm-1', 'perm-2']])
-  assertEquals(rolesRepo.updateRole.calls[0], [{ permissions: ['perm-1', 'perm-2'], id: 'role-1' }])
+  assertEquals(await roles.getAccountRoles('auth-1'), {
+    authId: 'auth-1',
+    roleIds: ['role-user', 'role-seller'],
+  })
+  assertEquals((await roles.getAccountRoles('auth-2')).roleIds, [])
+  await assertRejects(() => roles.getAccountRoles('x'), HttpError, 'Account not found')
+})
+
+Deno.test('role changes: nobody changes their own roles, with every operation', async () => {
+  const { roles, state } = buildWorld({
+    accounts: [account(['role-user'], 'caller')],
+    session: { subject: 'caller', scope: ['*'] },
+  })
+  const attempts = [
+    () => roles.assignRole({ authId: 'caller', roleId: 'role-seller' } as never),
+    () => roles.addRoles({ authId: 'caller', roleIds: ['role-seller'] } as never),
+    () => roles.removeRoles({ authId: 'caller', roleIds: ['role-user'] } as never),
+    () => roles.setRoles('caller', ['role-seller']),
+  ]
+  for (const attempt of attempts) {
+    // deno-lint-ignore no-await-in-loop
+    const error = await rejection(attempt)
+    assertEquals([error.status.value, error.code], [403, IAM_ERROR_CODES.roleSelfChange])
+  }
+  assertEquals(state.writes.length, 0)
+})
+
+Deno.test('a removal reads the role catalog twice (before and after the write), not three times', async () => {
+  const w = buildWorld({
+    accounts: [
+      { id: 'auth-1', userId: 'user-auth-1', roleIds: ['role-admin'] },
+      { id: 'auth-2', userId: 'user-auth-2', roleIds: ['role-admin'] },
+    ],
+  })
+  await w.roles.removeRoles({ authId: 'auth-1', roleIds: ['role-admin'] } as never)
+  assertEquals(w.state.catalogReads, 2)
+})
+
+Deno.test('editRole with permissions, deleteRole and a status block read the catalog once to decide, and once to verify', async () => {
+  const admins = [
+    { id: 'auth-2', userId: 'user-auth-2', roleIds: ['role-root'] },
+    { id: 'auth-1', userId: 'user-auth-1', roleIds: ['role-user'] },
+  ]
+  const edit = buildWorld({ accounts: admins })
+  await edit.roles.editRole('role-seller', { permissions: ['p-web:user'] } as never)
+  assertEquals(edit.state.catalogReads, 2)
+  const del = buildWorld({ accounts: admins })
+  await del.roles.deleteRole('role-seller')
+  assertEquals(del.state.catalogReads, 2)
+  const block = buildWorld({ accounts: admins, profiles: { 'user-auth-1': 'ACTIVE' } })
+  await block.users.updateUserById('user-auth-1', { status: 'INACTIVE' } as never)
+  assertEquals(block.state.catalogReads, 2)
+})
+
+Deno.test('a concurrent change makes the write repeat against the new state', async () => {
+  const world = buildWorld({ accounts: [account(['role-user', 'role-seller'])] })
+  let interfered = false
+  world.state.beforeConditionalWrite = () => {
+    if (interfered) return
+    interfered = true
+    // Another request added a role between the read and the conditional write.
+    world.setRolesDirectly('auth-1', ['role-user', 'role-seller', 'role-admin'])
+  }
+  const result = await world.roles.removeRoles(
+    { authId: 'auth-1', roleIds: ['role-seller'] } as never,
+  )
+  assertEquals(result.roleIds, ['role-user', 'role-admin'])
+  assertEquals(world.account('auth-1')?.roleIds, ['role-user', 'role-admin'])
+})
+
+Deno.test('a change that keeps losing the race is refused after three attempts', async () => {
+  const world = buildWorld({ accounts: [account(['role-user', 'role-seller'])] })
+  let counter = 0
+  world.state.beforeConditionalWrite = () => {
+    world.setRolesDirectly('auth-1', ['role-user', 'role-seller', `role-extra-${counter++}`])
+  }
+  const error = await rejection(() =>
+    world.roles.removeRoles({ authId: 'auth-1', roleIds: ['role-seller'] } as never)
+  )
+  assertEquals([error.status.value, error.code], [409, IAM_ERROR_CODES.roleConcurrentChange])
+  assertEquals(world.state.writes.length, 0)
 })

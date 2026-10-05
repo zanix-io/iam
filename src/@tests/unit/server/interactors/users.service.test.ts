@@ -5,13 +5,17 @@ import { NotifierProvider } from '@zanix/notifications'
 import { UsersService } from 'server/interactors/users.interactor.ts'
 import { PasswordService } from 'server/interactors/password.interactor.ts'
 import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
+import { AuditRepository } from 'server/repositories/audit/entity.provider.ts'
+import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
 import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
+import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
 
 const baseAuth = (overrides: Record<string, unknown> = {}) => ({
   id: 'auth-1',
   email: 'jane@example.com',
   userId: 'user-1',
+  roleIds: ['role-actor'],
   ...overrides,
 })
 
@@ -24,9 +28,28 @@ const baseUser = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// No role grants role-write here, so the administrator check has nothing to protect and passes;
+// the check itself is covered in `roles.service.admin-remains.test.ts`.
+// The caller holds `user-write` through this role. It is the only role in the catalog, so the
+// administrator rules see exactly one administrator: the caller.
+const actorRole = {
+  id: 'role-actor',
+  permissions: [{ id: 'p-user-write', code: RBAC_PERMISSIONS.userWrite, isActive: true }],
+}
+const noRolesRepo = {
+  findAllWithPermissions: () => [actorRole],
+  findManyWithPermissions: () => [actorRole],
+}
+const auditRepo = {
+  begin: () => 'audit-1',
+  finish: () => undefined,
+}
+
 const defaultAuthRepo = () => ({
   findByEmail: fn((..._args: unknown[]): unknown => undefined),
   findById: fn((..._args: unknown[]): unknown => baseAuth()),
+  findByUserId: fn((..._args: unknown[]): unknown => baseAuth()),
+  findRolesByUserIds: fn((..._args: unknown[]): unknown => []),
   registerAuth: fn((..._args: unknown[]) => ({})),
 })
 
@@ -36,6 +59,7 @@ const defaultUsersRepo = () => ({
   updateUser: fn((..._args: unknown[]) => ({})),
   searchUsers: fn((..._args: unknown[]) => ({ docs: [baseUser()], total: 1 })),
   reactivate: fn((..._args: unknown[]) => ({})),
+  restoreStatus: fn((..._args: unknown[]) => true),
 })
 
 const defaultNotifier = () => ({
@@ -65,11 +89,13 @@ function buildService(opts: {
     mapGetter([
       [AuthRepository, authRepo],
       [UsersRepository, usersRepo],
+      [RolesRepository, noRolesRepo],
+      [AuditRepository, auditRepo],
       [NotifierProvider, notifier],
     ]),
   )
   mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))
-  mockAccessor(service, 'context', { session: opts.session ?? { subject: 'auth-1' } })
+  mockAccessor(service, 'context', { session: opts.session ?? { subject: 'auth-1', type: 'user' } })
 
   return { service, authRepo, usersRepo, notifier, passwordService }
 }
@@ -223,6 +249,10 @@ Deno.test('getOwnProfile: throws NOT_FOUND when the linked profile id resolves t
 
 Deno.test('getUserById: returns the profile when it exists', async () => {
   const { service, usersRepo } = buildService()
-  assertEquals(await service.getUserById('user-1') as unknown, baseUser())
+  assertEquals(await service.getUserById('user-1') as unknown, {
+    ...baseUser(),
+    authId: undefined,
+    roleIds: [],
+  })
   assertEquals(usersRepo.findById.calls, [['user-1']])
 })

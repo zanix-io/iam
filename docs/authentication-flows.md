@@ -104,8 +104,8 @@ default comes from `SELF_REGISTRATION` ([Configuration](./configuration.md#runti
 - **OAuth2** (`selfRegistrationViaOAuth`): the first callback for an unknown verified email creates
   the account (with `oauthProvider` set) and sends a `welcome` email. Closed, it answers `403`.
 
-A new account receives the `defaultRoleId` role (`DEFAULT_ROLE_ID`); unset, it has no permissions. A
-password-recovery request for an unknown email never creates an account.
+A new account receives the `defaultRoleId` role (`DEFAULT_ROLE_ID`) as its first role; unset, it has
+no permissions. A password-recovery request for an unknown email never creates an account.
 
 ### Sessions and refresh rotation
 
@@ -115,8 +115,8 @@ store them as cookies; REST clients receive them in the body.
 
 1. `POST /api/login/refresh` with the refresh token (body, or the session cookie).
 2. `@zanix/auth` rotates the pair and detects reuse of a rotated token (with Redis across replicas).
-3. `iam` re-resolves the role's permissions, so a role change applies from this refresh on, and
-   refuses a deactivated or deleted profile (`403`).
+3. `iam` re-resolves the permissions of all the account's roles, so a role change applies from this
+   refresh on, and refuses a deactivated or deleted profile (`403`).
 4. `POST /api/login/logout` revokes a refresh token.
 
 The endpoint runs on `criticalRateLimit`. A backend refreshing for many users should pass each

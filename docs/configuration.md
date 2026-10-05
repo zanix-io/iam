@@ -16,6 +16,7 @@ module loads, so a change needs a restart.
 - [Sessions](#sessions)
 - [Rate limits](#rate-limits)
 - [Sign-up and first administrator](#sign-up-and-first-administrator)
+- [Audit and administration limits](#audit-and-administration-limits)
 - [OAuth2 providers](#oauth2-providers)
 - [Hosted OAuth2 provider clients](#hosted-oauth2-provider-clients)
 - [Captcha](#captcha)
@@ -72,12 +73,46 @@ Tiers per endpoint are listed in the [REST API reference](./rest-api.md#conventi
 
 ### Sign-up and first administrator
 
-| Variable               | Default | Effect                                                                                                                                                                 | Read by                                                        |
-| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `SELF_REGISTRATION`    | open    | `false` closes self-registration: sets the default of the `selfRegistrationViaOTP` and `selfRegistrationViaOAuth` configs. Any other value, or unset, keeps both open. | `src/utils/constants.ts` (boot)                                |
-| `DEFAULT_ROLE_ID`      | unset   | `roles.id` given to an account created by self-registration (default of the `defaultRoleId` config). Unset, a new account has no role and no permissions.              | `src/utils/constants.ts` (boot)                                |
-| `FIRST_ADMIN_EMAIL`    | unset   | With `FIRST_ADMIN_PASSWORD`, seeds one account holding the `superadmin` role on boot, once. Both must be set.                                                          | `src/server/repositories/{auth,users}/seeders/seeders.prod.ts` |
-| `FIRST_ADMIN_PASSWORD` | unset   | That account's password (hashed on insert).                                                                                                                            | same                                                           |
+| Variable               | Default | Effect                                                                                                                                                                                                                       | Read by                                                        |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `SELF_REGISTRATION`    | open    | `false` closes self-registration: sets the default of the `selfRegistrationViaOTP` and `selfRegistrationViaOAuth` configs. Any other value, or unset, keeps both open.                                                       | `src/utils/constants.ts` (boot)                                |
+| `DEFAULT_ROLE_ID`      | unset   | `roles.id` given to an account created by self-registration (default of the `defaultRoleId` config). It is the account's first role and later roles are added after it. Unset, a new account has no role and no permissions. | `src/utils/constants.ts` (boot)                                |
+| `FIRST_ADMIN_EMAIL`    | unset   | With `FIRST_ADMIN_PASSWORD`, seeds one account holding the `superadmin` role on boot, once. Both must be set.                                                                                                                | `src/server/repositories/{auth,users}/seeders/seeders.prod.ts` |
+| `FIRST_ADMIN_PASSWORD` | unset   | That account's password (hashed on insert).                                                                                                                                                                                  | same                                                           |
+
+### Audit and administration limits
+
+| Variable                                  | Default | Effect                                                                                                                                                                                                       | Read by                         |
+| ----------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| `AUDIT_RETENTION_DAYS`                    | `365`   | Days an audit event (`role_audit_events`) is kept before MongoDB's TTL monitor deletes it. A positive integer; anything else is the default. It sets the `expireAfterSeconds` of the collection's TTL index. | `src/utils/constants.ts` (boot) |
+| `ADMIN_MUTATION_RATELIMIT`                | `30`    | Requests per window one operator (one account, across all its tokens) may make to the administration mutations (roles, permissions, `PATCH /api/users/:id`), counted in one bucket of their own.             | `src/utils/constants.ts` (boot) |
+| `ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS` | `60`    | The window of `ADMIN_MUTATION_RATELIMIT`.                                                                                                                                                                    | `src/utils/constants.ts` (boot) |
+
+`ADMIN_MUTATION_RATELIMIT` and its window must be positive integers: a value that is set and is not
+(`-5`, `0`, `1.5`, `abc`) stops the boot (`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead of being
+absorbed; unset or empty is the default. An administration mutation spends from **two** buckets: the
+session's own (the limit of its plan, `session.rateLimit`, counted per access token by the token
+validation) and the operator's (`ADMIN_MUTATION_RATELIMIT`, counted per account). Whichever runs out
+first answers `429`, so a figure above the plan limit of the tokens is in practice capped by that
+limit, per token.
+
+Changing `AUDIT_RETENTION_DAYS` on an existing database does not change the index MongoDB already
+has, and a mismatch makes the index build fail at boot. Update it in place with `collMod`
+(`<seconds>` is days times 86400):
+
+```js
+db.runCommand({
+  collMod: 'role_audit_events',
+  index: { keyPattern: { createdAt: 1 }, expireAfterSeconds: <seconds> },
+})
+```
+
+The upgrade from 1.x changes stored data (`roleId` becomes `roleIds`, `superadmin` becomes a system
+role, `role_audit_events` is new): follow "Upgrading from 1.x" in the [CHANGELOG](../CHANGELOG.md)
+before starting the new version.
+
+The audit trail is read with `GET /api/audit`, which needs the `audit-read` permission (seeded; give
+it through a role). See [Authorization](./authorization.md#audit-trail).
 
 ### OAuth2 providers
 
@@ -108,16 +143,16 @@ Guards `POST /api/login/login` and `GET /api/pwd/recovery/:email` once a provide
 One-time codes, recovery codes and account emails (`welcome`, `password-changed`, `totp-enabled`)
 are sent through `@zanix/notifications`. Each channel registers only when its variables are set.
 
-| Variables                                                       | Channel                                                                                                                                                                     |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`          | Email (required for email codes and recovery).                                                                                                                              |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | SMS through Twilio.                                                                                                                                                         |
-| `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_FROM`            | SMS through Vonage.                                                                                                                                                         |
-| `SMS_PROVIDER`                                                  | Chooses the SMS provider when both are configured.                                                                                                                          |
-| `META_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN`                     | WhatsApp through Meta.                                                                                                                                                      |
-| `TWILIO_WHATSAPP_FROM` (with the Twilio credentials)            | WhatsApp through Twilio.                                                                                                                                                    |
-| `WHATSAPP_PROVIDER`                                             | Chooses the WhatsApp provider when both are configured.                                                                                                                     |
-| `TEMPLATES_BACKEND`                                             | `local` stores templates in the database, making them editable through `/api/templates` and seeding the `totp-enabled` template at boot. Unset, templates render from code. |
+| Variables                                                       | Channel                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`          | Email (required for email codes and recovery).                                                                                                                                                                                                                                                                                                                             |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | SMS through Twilio.                                                                                                                                                                                                                                                                                                                                                        |
+| `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_FROM`            | SMS through Vonage.                                                                                                                                                                                                                                                                                                                                                        |
+| `SMS_PROVIDER`                                                  | Chooses the SMS provider when both are configured.                                                                                                                                                                                                                                                                                                                         |
+| `META_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN`                     | WhatsApp through Meta.                                                                                                                                                                                                                                                                                                                                                     |
+| `TWILIO_WHATSAPP_FROM` (with the Twilio credentials)            | WhatsApp through Twilio.                                                                                                                                                                                                                                                                                                                                                   |
+| `WHATSAPP_PROVIDER`                                             | Chooses the WhatsApp provider when both are configured.                                                                                                                                                                                                                                                                                                                    |
+| `TEMPLATES_BACKEND`                                             | `local` stores templates in the database, making them editable through `/api/templates` and seeding the `totp-enabled` template at boot (the account-security notice that confirms TOTP is enabled is sent only then). Unset, templates render from code, nothing is seeded, the server starts normally and `/api/templates` answers `404` (`TEMPLATES_BACKEND_DISABLED`). |
 
 ### Hosted pages
 

@@ -1,6 +1,5 @@
 import type { HydratedAuth } from '../repositories/auth/model.defs.ts'
 import type { AuthSessionOptions } from '@zanix/auth'
-import type { PopulatedRole } from 'utils/rbac.ts'
 
 import { Interactor, ZanixInteractor } from '@zanix/server'
 import { HttpError } from '@zanix/errors'
@@ -9,14 +8,14 @@ import { NotifierProvider } from '@zanix/notifications'
 import { resolveBehavior, resolveConfig } from '@zanix/app/runtime'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
-import { RolesRepository } from '../repositories/roles/entity.provider.ts'
 import {
+  blocksSignIn,
   NOTIFIERS,
   resolveConfiguredAccessExpiration,
   resolveConfiguredRefreshExpiration,
   TOKEN_EXPIRATION,
 } from 'utils/constants.ts'
-import { resolveEffectivePermissions as defaultResolveEffectivePermissions } from 'utils/rbac.ts'
+import { permissionsForAccount } from './session-permissions.ts'
 
 /** The generic confirmation `PasswordService.recovery` answers with after a dispatch, and for a
  * password-recovery request it declines to send, so the two are indistinguishable. */
@@ -193,7 +192,7 @@ export class PasswordService extends ZanixInteractor {
       // Password recovery answers identically whether or not a usable account exists, so the
       // response never reveals which emails are registered: nothing is sent for an unknown,
       // deactivated or deleted account.
-      if (!auth || profile?.status === 'INACTIVE' || profile?.status === 'DELETED') {
+      if (!auth || blocksSignIn(profile?.status)) {
         return { response: RECOVERY_RESPONSE }
       }
     } else {
@@ -260,7 +259,7 @@ export class PasswordService extends ZanixInteractor {
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Invalid email or code.' })
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
     // Same cast as `AuthService.finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
       | AuthSessionOptions['accessExpiration']
@@ -297,26 +296,5 @@ export class PasswordService extends ZanixInteractor {
     if (policyResult !== true) {
       throw new HttpError('BAD_REQUEST', { message: policyResult })
     }
-  }
-
-  /**
-   * Resolves the effective, flat permission-code list for `roleId` — same mechanism as
-   * `AuthService.resolveSessionPermissions`'s own (more detailed) doc; kept as a small, separate
-   * private method here rather than a shared cross-interactor helper, matching this project's own
-   * established preference for small local helpers over a new cross-cutting abstraction (see e.g.
-   * `UsersService.resolveOwnAuth`). `PasswordService` has no refresh flow of its own — `recovery`/
-   * `recoveryCallback` are both login-equivalent paths — so unlike `AuthService`, there's no
-   * separate refresh-time re-resolution to reuse this from.
-   */
-  private async resolveSessionPermissions(roleId?: string): Promise<string[]> {
-    if (!roleId) return []
-    const role = await this.providers.get(RolesRepository).findById(roleId, {
-      populate: 'permissions',
-    }) as PopulatedRole
-    const strategy = resolveBehavior<(role: PopulatedRole) => string[]>(
-      'auth',
-      'resolveEffectivePermissions',
-    ) ?? defaultResolveEffectivePermissions
-    return strategy(role)
   }
 }

@@ -1,16 +1,14 @@
 import type { AuthenticationAttrs, HydratedAuth } from '../repositories/auth/model.defs.ts'
 
 import type { AuthSessionOptions, GitHubOAuth2Connector, GoogleOAuth2Connector } from '@zanix/auth'
-import type { PopulatedRole } from 'utils/rbac.ts'
 
 import { Interactor, SESSION_HEADERS, ZanixInteractor } from '@zanix/server'
 import { HttpError } from '@zanix/errors'
 import { createJWT, decodeJWT, JWT_KEY_ENV, verifyJWT, ZanixAuthProvider } from '@zanix/auth'
-import { NotifierProvider } from '@zanix/notifications'
+import { isTemplatesResourceEnabled, NotifierProvider } from '@zanix/notifications'
 import { resolveBehavior, resolveConfig, resolveResource } from '@zanix/app/runtime'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
-import { RolesRepository } from '../repositories/roles/entity.provider.ts'
 import { PasswordService } from './password.interactor.ts'
 import {
   LOGIN_ACTIONS,
@@ -22,7 +20,7 @@ import {
   SERVICE_ID,
   TOKEN_EXPIRATION,
 } from 'utils/constants.ts'
-import { resolveEffectivePermissions as defaultResolveEffectivePermissions } from 'utils/rbac.ts'
+import { permissionsForAccount } from './session-permissions.ts'
 
 /** Resolves this service's own signing key for a fresh, self-issued token (never derived from an
  * existing token's `kid`, unlike `@zanix/auth`'s internal `getSecretByToken` — there is no existing
@@ -190,11 +188,12 @@ export class AuthService extends ZanixInteractor {
       // No first/last name populated from an OTP code — there's no provider profile response to
       // draw one from at all here, same as `loginWithOauthCallback`'s own reasoning for GitHub.
       const profile = await this.providers.get(UsersRepository).registerUser({})
-      // `defaultRoleId` — see `auth.app.ts`'s own config doc. Without a `roleId`,
-      // `resolveSessionPermissions` below short-circuits to `[]`. Resolved identically in
+      // `defaultRoleId` — see `auth.app.ts`'s own config doc. Without a role,
+      // `permissionsForAccount` below short-circuits to `[]`. Resolved identically in
       // `loginWithOauthCallback`, so both self-registration paths assign the same role.
-      const roleId = resolveConfig<string>('auth', 'defaultRoleId') || undefined
-      await this.providers.get(AuthRepository).registerAuth({ email, userId: profile.id, roleId })
+      const defaultRole = resolveConfig<string>('auth', 'defaultRoleId') || undefined
+      const roleIds = defaultRole ? [defaultRole] : undefined
+      await this.providers.get(AuthRepository).registerAuth({ email, userId: profile.id, roleIds })
       // Re-fetched rather than trusting the just-created document — same reasoning as
       // `loginWithOauthCallback`'s own identical re-fetch.
       auth = await this.providers.get(AuthRepository).findByEmail(
@@ -208,7 +207,7 @@ export class AuthService extends ZanixInteractor {
       }, { useWorker: 'one-time' })
 
       await this.providers.get(UsersRepository).assertActive(auth.userId)
-      const permissions = await this.resolveSessionPermissions(auth.roleId)
+      const permissions = await permissionsForAccount(this.providers, auth)
       const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
         subject: auth.id,
         permissions,
@@ -240,7 +239,7 @@ export class AuthService extends ZanixInteractor {
     }
     const wasInactive = profile?.status === 'INACTIVE'
 
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
     const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
       subject: auth.id,
       permissions,
@@ -436,7 +435,9 @@ export class AuthService extends ZanixInteractor {
       twoFactorAuthConfig: { method: 'totp', triggerOn: [...LOGIN_ACTIONS] },
     }, { applyProtection: true })
 
-    if (auth?.email) {
+    // The notice is a database-only template: without `TEMPLATES_BACKEND=local` it does not exist
+    // (the worker would fail to render it), so it is not sent.
+    if (auth?.email && isTemplatesResourceEnabled('local')) {
       // `zanixTemplate` is typed against `@zanix/notifications`' own BUILT-IN registry only —
       // `'totp-enabled'` is a real, database-only template this project seeds itself
       // (`auth.app.ts`'s `setup`), genuinely unknown to that static type. Cast, not a mistake.
@@ -631,7 +632,7 @@ export class AuthService extends ZanixInteractor {
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
     // Same cast as `finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
       | AuthSessionOptions['accessExpiration']
@@ -756,12 +757,12 @@ export class AuthService extends ZanixInteractor {
       const profile = await this.providers.get(UsersRepository).registerUser({})
       // `defaultRoleId` — see `loginWithOTPCallback`'s own identical resolution and `auth.app.ts`'s
       // config doc.
-      const roleId = resolveConfig<string>('auth', 'defaultRoleId') || undefined
+      const defaultRole = resolveConfig<string>('auth', 'defaultRoleId') || undefined
       await this.providers.get(AuthRepository).registerAuth({
         email,
         oauthProvider: provider,
         userId: profile.id,
-        roleId,
+        roleIds: defaultRole ? [defaultRole] : undefined,
       })
       // Re-fetched (rather than trusting the just-created document directly) so `auth` goes
       // through the exact same hydration/data-policy path `findByEmail` already gives every
@@ -1010,7 +1011,7 @@ export class AuthService extends ZanixInteractor {
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
     // Same cast as `finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
       | AuthSessionOptions['accessExpiration']
@@ -1041,7 +1042,7 @@ export class AuthService extends ZanixInteractor {
    * that verification would then go on to accept — if verification fails, `session.refreshTokens()`
    * still throws its own real, user-facing error regardless of what this speculatively returned.
    * Never throws itself, by design — a missing/malformed token here just means no permissions get
-   * pre-resolved (`resolveSessionPermissions(undefined)` already short-circuits to `[]`), never a
+   * pre-resolved (`permissionsForAccount(undefined)` already short-circuits to `[]`), never a
    * premature error ahead of `session.refreshTokens()`'s own.
    *
    * Resolves `token` the same way `@zanix/auth`'s own `refreshSessionTokensBase` does — an
@@ -1078,7 +1079,7 @@ export class AuthService extends ZanixInteractor {
    * back the pair already issued to the first one. `@zanix/auth`'s blocklist alone enforces reuse
    * detection here.
    *
-   * Also re-resolves this account's CURRENT permissions (the same `resolveSessionPermissions` a
+   * Also re-resolves this account's CURRENT permissions (the same `permissionsForAccount` a
    * login uses) and passes them as `session.refreshTokens`'s own `sessionOptions` override, so a
    * role reassignment made after the original login takes effect on the very next refresh — never
    * only on a full re-login. See `decodeRefreshSubject`'s own doc for how the account is looked up
@@ -1098,7 +1099,7 @@ export class AuthService extends ZanixInteractor {
         | HydratedAuth
         | undefined
       : undefined
-    const permissions = await this.resolveSessionPermissions(auth?.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
 
     // `oldToken`/`payload` (the verified token's own decoded claims) are deliberately excluded
     // from `tokens` below — `auth` is already resolved via `decodeRefreshSubject` ahead of this
@@ -1177,7 +1178,7 @@ export class AuthService extends ZanixInteractor {
       return this.loginWithOTP(auth.email.unmask(), { is2FA: true, notifier: sFA.method })
     }
 
-    const permissions = await this.resolveSessionPermissions(auth.roleId)
+    const permissions = await permissionsForAccount(this.providers, auth)
     const accessExpiration = resolveConfiguredAccessExpiration() as
       | AuthSessionOptions['accessExpiration']
       | undefined
@@ -1206,38 +1207,6 @@ export class AuthService extends ZanixInteractor {
       id: authId,
       lastLoginAt: new Date(),
     }, { applyProtection: true })
-  }
-
-  /**
-   * Resolves the effective, flat permission-code list for `roleId` (`[]` when the account has no
-   * role assigned — an authenticated-but-unprivileged session, matching `AuthTokenValidation`
-   * with no `permissions` option). Delegates the actual role→permissions evaluation to
-   * `auth.app.ts`'s own `resolveEffectivePermissions` behavior, falling back to its default
-   * (`utils/rbac.ts`'s own `resolveEffectivePermissions`) when no host override is registered or
-   * no app was ever activated (e.g. this class's own unit tests) — same "override, else default"
-   * precedence every other `resolveBehavior` call site in this file already follows (see
-   * `totpProvisioningLabel` above) — so a host can swap in a different evaluation strategy (a
-   * role hierarchy, an external policy engine, ...) without forking this method.
-   *
-   * Called from every LOGIN path (each call site above) AND from `refreshTokens`, via
-   * `decodeRefreshSubject` — `@zanix/auth`'s `session.refreshTokens(token, sessionOptions)`
-   * accepts a `sessionOptions` override merged over the refresh token's own originally-embedded
-   * `AuthSessionOptions`, which is what makes re-resolving permissions on refresh (not just at
-   * login) actually take effect. A role/permission change therefore takes effect on the very next
-   * refresh, not only the next full login — see `refreshTokens`'s own doc, and
-   * `RolesService.assignRole`'s own doc for why a forced refresh-token revoke on reassignment is
-   * unnecessary.
-   */
-  private async resolveSessionPermissions(roleId?: string): Promise<string[]> {
-    if (!roleId) return []
-    const role = await this.providers.get(RolesRepository).findById(roleId, {
-      populate: 'permissions',
-    }) as PopulatedRole
-    const strategy = resolveBehavior<(role: PopulatedRole) => string[]>(
-      'auth',
-      'resolveEffectivePermissions',
-    ) ?? defaultResolveEffectivePermissions
-    return strategy(role)
   }
 
   /**

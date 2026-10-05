@@ -60,7 +60,7 @@ const defaultUsersRepo = () => ({
 })
 
 const defaultRolesRepo = () => ({
-  findById: fn((..._args: unknown[]): unknown => undefined),
+  findManyWithPermissions: fn((..._args: unknown[]): unknown => []),
 })
 
 function buildService(opts: {
@@ -333,17 +333,17 @@ Deno.test('recoveryCallback: no role assigned embeds an empty permissions list',
     (authProvider.otp.authenticate.calls[0]?.[2] as { permissions?: string[] }).permissions,
     [],
   )
-  assertEquals(rolesRepo.findById.calls.length, 0)
+  assertEquals(rolesRepo.findManyWithPermissions.calls.length, 0)
 })
 
 Deno.test('recoveryCallback: with a role assigned, embeds its resolved active permissions', async () => {
   const { service, authProvider } = buildService({
-    authRepo: { findByEmail: fn(() => baseAuth({ roleId: 'role-1' })) },
+    authRepo: { findByEmail: fn(() => baseAuth({ roleIds: ['role-1'] })) },
     rolesRepo: {
-      findById: fn(() => ({
+      findManyWithPermissions: fn(() => [{
         id: 'role-1',
         permissions: [{ id: 'p1', code: 'zanix-iam:role-read', isActive: true }],
-      })),
+      }]),
     },
   })
   await service.recoveryCallback('jane@example.com', '123456')

@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "zanix": {
     "project": "space-server"
   },
@@ -79,8 +79,8 @@
     "server/": "./src/server/",
     "@zanix/app": "jsr:@zanix/app@^1.0.4",
     "@zanix/app/runtime": "jsr:@zanix/app@^1.0.4/runtime",
-    "@zanix/auth": "jsr:@zanix/auth@^1.6.0",
-    "@zanix/auth/core": "jsr:@zanix/auth@^1.6.0/core",
+    "@zanix/auth": "jsr:@zanix/auth@^1.7.0",
+    "@zanix/auth/core": "jsr:@zanix/auth@^1.7.0/core",
     "@zanix/space": "jsr:@zanix/space@^1.16.0",
     "@zanix/space/react": "jsr:@zanix/space@^1.16.0/react",
     "@zanix/space/preact": "jsr:@zanix/space@^1.16.0/preact",

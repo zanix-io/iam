@@ -39,7 +39,7 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
    * it's stored masked).
    *
    * @param authData Fields to persist — `email` is required, everything else is optional at
-   *   creation time (e.g. a not-yet-set password for an OAuth2-only account).
+   *   creation time (e.g. a not-yet-set password for an OAuth2-only account), `roleIds` included.
    */
   public async registerAuth(authData: Partial<AuthenticationAttrs> & { email: string }) {
     const emailKeyId = await computeEmailKeyId(authData.email)
@@ -51,6 +51,49 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
   public findById(authId?: string) {
     if (!authId) return undefined
     return this.Model.findById(authId).exec()
+  }
+
+  /** Finds the `auth` record linked to the `users` profile `userId`. */
+  public findByUserId(userId?: string) {
+    if (!userId) return undefined
+    return this.Model.findOne({ userId }).exec()
+  }
+
+  /** The `{ id, userId, roleIds }` of the accounts linked to the profiles `userIds`, with one
+   * query; only what a listing needs to join accounts to people. */
+  public async findRolesByUserIds(userIds: string[]) {
+    if (!userIds.length) return []
+    const accounts = await this.Model.find({ userId: { $in: userIds } }).select('userId roleIds')
+      .exec()
+    return accounts.map((account) => ({
+      id: String(account.id),
+      userId: String(account.userId),
+      roleIds: (account.roleIds ?? []).map(String),
+    }))
+  }
+
+  /** How many accounts hold `roleId`. */
+  public countHolders(roleId: string) {
+    return this.Model.countDocuments({ roleIds: roleId }).exec()
+  }
+
+  /** One page of the accounts holding `roleId`, as `{ id, userId }`, plus how many hold it. */
+  public async searchHolders(roleId: string, options: { page?: number; limit?: number } = {}) {
+    const result = await this.Model.paginate({
+      page: options.page,
+      limit: options.limit,
+      sort: { _id: 1 },
+      filter: { roleIds: roleId },
+    })
+    return {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      docs: result.docs.map((account) => ({
+        id: String(account.id),
+        userId: account.userId ? String(account.userId) : undefined,
+      })),
+    }
   }
 
   /**
@@ -93,5 +136,63 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
     }
 
     return this.Model.updateOne({ _id: id }, opts, { useDataPolicies: applyProtection }).exec()
+  }
+
+  /**
+   * Adds `roleIds` to the roles of an account, atomically (`$addToSet`): a role it already holds
+   * stays where it is, the new ones go after. Concurrent additions never undo each other.
+   * ⚠️ Validate that the account and the roles exist before calling.
+   */
+  public addRoleIds(authId: string, roleIds: string[]) {
+    return this.Model.updateOne({ _id: authId }, { $addToSet: { roleIds: { $each: roleIds } } })
+      .exec()
+  }
+
+  /**
+   * Replaces the roles of an account with `next`, only if they are still exactly `expected` (the
+   * list the caller read and checked its rules against). Answers whether the write happened; a
+   * `false` means the account changed in between and the caller must read it again.
+   */
+  public async replaceRoleIds(authId: string, expected: string[], next: string[]) {
+    const result = await this.Model.updateOne(
+      { _id: authId, ...this.#rolesAre(expected) },
+      { $set: { roleIds: next } },
+    ).exec()
+    return result.matchedCount > 0
+  }
+
+  /**
+   * Removes `roleIds` from an account (`$pull`), only if its roles are still exactly `expected`.
+   * Answers whether the write happened, like {@linkcode replaceRoleIds}.
+   */
+  public async pullRoleIds(authId: string, expected: string[], roleIds: string[]) {
+    const result = await this.Model.updateOne(
+      { _id: authId, ...this.#rolesAre(expected) },
+      { $pull: { roleIds: { $in: roleIds } } },
+    ).exec()
+    return result.matchedCount > 0
+  }
+
+  /** The filter matching an account whose `roleIds` are exactly `roleIds` (an empty list also
+   * matches an account that has no `roleIds` field yet). */
+  #rolesAre(roleIds: string[]) {
+    return roleIds.length
+      ? { roleIds }
+      : { $or: [{ roleIds: { $exists: false } }, { roleIds: { $size: 0 } }] }
+  }
+
+  /**
+   * The accounts, other than `exceptAuthId`, that hold at least one of `roleIds`, as
+   * `{ id, userId? }` — only what the caller needs to ask whether each can still sign in.
+   */
+  public async findHoldersOfRoleIds(roleIds: string[], exceptAuthId?: string) {
+    const holders = await this.Model.find({
+      roleIds: { $in: roleIds },
+      ...(exceptAuthId ? { _id: { $ne: exceptAuthId } } : {}),
+    }).select('userId').exec()
+    return holders.map((holder) => ({
+      id: String(holder.id ?? holder._id),
+      userId: holder.userId ? String(holder.userId) : undefined,
+    }))
   }
 }

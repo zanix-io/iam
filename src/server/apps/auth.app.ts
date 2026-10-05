@@ -16,7 +16,7 @@ import {
   resolveCaptchaAdapter,
   resolveCaptchaProvider,
 } from '@zanix/auth'
-import { TemplatesAdminRepository } from '@zanix/notifications'
+import { isTemplatesResourceEnabled, TemplatesAdminRepository } from '@zanix/notifications'
 import { defaultRoleId, isSelfRegistrationEnabled, SERVICE_ID } from 'utils/constants.ts'
 import { resolveEffectivePermissions } from 'utils/rbac.ts'
 
@@ -224,6 +224,9 @@ const authApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
     // seeded idempotently here rather than via a one-off manual CRUD call, so a fresh environment
     // gets it automatically. `create()` throws `CONFLICT` once already seeded — expected on every
     // boot after the first, not a real failure.
+    // Without `TEMPLATES_BACKEND=local` there is no templates model to write to: every template
+    // renders from code and there is nothing to seed.
+    if (!isTemplatesResourceEnabled('local')) return
     try {
       await ctx.resolve(TemplatesAdminRepository).create({
         channel: 'email',

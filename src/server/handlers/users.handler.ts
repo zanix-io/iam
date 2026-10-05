@@ -17,6 +17,7 @@ import {
 } from './rtos/user-settings.ts'
 import { UsersService } from '../interactors/users.interactor.ts'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
+import { AdminMutationRateLimit } from 'utils/admin-rate-limit.ts'
 
 /** Either `userRead` or `userWrite` may list/view — `AuthTokenValidation`'s `permissions` list
  * is OR, not AND. */
@@ -120,6 +121,7 @@ export class UsersController extends ZanixController<UsersService> {
    * Admin-scoped: `:id` is arbitrary, and this is the only route that can change ANOTHER account's
    * `status`. */
   @Patch(':id', { Params: UserIdParamsRTO, Body: AdminEditUserRTO })
+  @AdminMutationRateLimit()
   @AuthTokenValidation({ permissions: RBAC_PERMISSIONS.userWrite })
   public updateById(ctx: HandlerContext<{ body: AdminEditUserRTO; params: UserIdParamsRTO }>) {
     const { id } = ctx.payload.params

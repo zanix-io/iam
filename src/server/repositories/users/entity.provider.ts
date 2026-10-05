@@ -3,6 +3,7 @@ import type { UsersAttrs } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
 import { HttpError } from '@zanix/errors'
+import { blocksSignIn, SIGN_IN_BLOCKING_USER_STATUS } from 'utils/constants.ts'
 
 /**
  * Provider for the `users` model — profile data for this project's `users` domain. See
@@ -100,12 +101,44 @@ export class UsersRepository extends ZanixProvider<{ database: ZanixMongoConnect
     const user = await this.findById(userId)
     if (!user) return
 
-    if (user.status === 'INACTIVE') {
-      throw new HttpError('FORBIDDEN', { message: 'This account has been deactivated.' })
-    }
-    if (user.status === 'DELETED') {
-      throw new HttpError('FORBIDDEN', { message: 'This account no longer exists.' })
-    }
+    if (!blocksSignIn(user.status)) return
+    throw new HttpError('FORBIDDEN', {
+      message: user.status === 'DELETED'
+        ? 'This account no longer exists.'
+        : 'This account has been deactivated.',
+    })
+  }
+
+  /**
+   * The ids, among `userIds`, of the profiles whose `status` blocks sign-in (see
+   * {@linkcode blocksSignIn}) — one query. An id with no profile is not in the answer, matching
+   * `assertActive`, which lets an account with no profile through.
+   */
+  public async findSignInBlockedIds(userIds: string[]): Promise<Set<string>> {
+    if (!userIds.length) return new Set()
+    const users = await this.Model.find({
+      _id: { $in: userIds },
+      status: { $in: SIGN_IN_BLOCKING_USER_STATUS },
+    }).select('_id').exec()
+    return new Set(users.map((user) => String(user.id ?? user._id)))
+  }
+
+  /** The profiles whose id is in `ids`, with one query. */
+  public findManyByIds(ids: string[]) {
+    if (!ids.length) return Promise.resolve([])
+    return this.Model.find({ _id: { $in: ids } }).exec()
+  }
+
+  /**
+   * Sets a profile's `status` to `previous` only if it is still `expected`; the undo of a status
+   * change that left nobody able to manage roles. Answers whether it matched.
+   */
+  public async restoreStatus(userId: string, expected: UserStatus, previous: UserStatus) {
+    const result = await this.Model.updateOne(
+      { _id: userId, status: expected },
+      { $set: { status: previous } },
+    ).exec()
+    return result.matchedCount > 0
   }
 
   /**

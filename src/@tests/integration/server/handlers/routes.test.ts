@@ -5,11 +5,13 @@ import 'server/handlers/login.handler.ts'
 import 'server/handlers/password.handler.ts'
 import 'server/handlers/users.handler.ts'
 import 'server/handlers/roles.handler.ts'
+import 'server/handlers/audit.handler.ts'
 import 'server/handlers/permissions.handler.ts'
 import 'server/handlers/grant-access.handler.ts'
 import 'server/handlers/oauth-provider.handler.ts'
 import 'server/handlers/templates.handler.ts'
 import {
+  adminMutationRateLimit,
   criticalRateLimit,
   freeRateLimit,
   loginMethodsRateLimit,
@@ -126,6 +128,22 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'PATCH /roles/:id': ['update', { Params: 'RoleIdParamsRTO', Body: 'EditRoleRTO' }],
     'DELETE /roles/:id': ['remove', { Params: 'RoleIdParamsRTO' }],
     'POST /roles/assign': ['assign', { Body: 'AssignRoleRTO' }],
+    'GET /roles/:id/holders': [
+      'holders',
+      { Params: 'RoleIdParamsRTO', Search: 'SearchPaginationRTO' },
+    ],
+    'POST /roles/add': ['add', { Body: 'AccountRolesRTO' }],
+    'POST /roles/remove': ['removeFromAccount', { Body: 'AccountRolesRTO' }],
+    'GET /roles/accounts/:authId': ['getAccountRoles', { Params: 'AuthIdParamsRTO' }],
+    'GET /roles/accounts/:authId/permissions': [
+      'getAccountPermissions',
+      { Params: 'AuthIdParamsRTO' },
+    ],
+    'PUT /roles/accounts/:authId': [
+      'setAccountRoles',
+      { Params: 'AuthIdParamsRTO', Body: 'SetRolesRTO' },
+    ],
+    'GET /audit': ['search', { Search: 'SearchAuditRTO' }],
     'POST /permissions': ['create', { Body: 'CreatePermissionRTO' }],
     'GET /permissions': ['search', { Search: 'SearchPermissionsRTO' }],
     'GET /permissions/:id': ['getById', { Params: 'PermissionIdParamsRTO' }],
@@ -170,6 +188,81 @@ Deno.test('REST routes: phone/confirm authenticates, then overrides the rate lim
   ])
 })
 
+const ADMIN_MUTATION_ROUTES = [
+  'POST /roles',
+  'PATCH /roles/:id',
+  'DELETE /roles/:id',
+  'POST /roles/assign',
+  'POST /roles/add',
+  'POST /roles/remove',
+  'PUT /roles/accounts/:authId',
+  'POST /permissions',
+  'PATCH /permissions/:id',
+  'PATCH /users/:id',
+]
+
+Deno.test('REST routes: administration mutations authenticate, then override the limit, then rate-limit', () => {
+  for (const key of ADMIN_MUTATION_ROUTES) {
+    assertEquals(
+      routes[key].guards.map(guardKind).slice(1),
+      ['jwt', 'rateLimit'],
+      `${key} must authenticate before it is counted, and carry the administration limit`,
+    )
+  }
+})
+
+Deno.test('REST routes: an operator gets adminMutationRateLimit mutations per window, across tokens and routes; another operator has their own', async () => {
+  const cache = fakeRateLimitCache()
+  // Sessions as the token validation leaves them: `id` is the token's jti, `subject` the account.
+  // No test below sets `id` to the account: the guard under test must do that.
+  const tokenOf = (subject: string, jti: string) => ({
+    id: jti,
+    subject,
+    type: 'user',
+    rateLimit: 1000,
+  })
+  const counted = (key: string) =>
+    routes[key].guards.filter((guard) => guardKind(guard) === 'rateLimit')
+  let tokens = 0
+
+  // Every request carries a NEW token of operator-1 (a login, a refresh), as a real client would.
+  const allowed = await allowedBeforeLimit(
+    counted('POST /roles/add'),
+    () => guardContext(cache, { session: tokenOf('operator-1', `jti-${tokens++}`) }),
+    adminMutationRateLimit + 5,
+  )
+  assertEquals(allowed, adminMutationRateLimit)
+  // Same operator, another token, another administration route: the bucket is already spent.
+  assertEquals(
+    await allowedBeforeLimit(
+      counted('PATCH /roles/:id'),
+      () => guardContext(cache, { session: tokenOf('operator-1', `jti-${tokens++}`) }),
+      3,
+    ),
+    0,
+  )
+  // A different operator has a bucket of their own.
+  assertEquals(
+    await allowedBeforeLimit(
+      counted('POST /roles/add'),
+      () => guardContext(cache, { session: tokenOf('operator-2', `jti-${tokens++}`) }),
+      3,
+    ),
+    3,
+  )
+  assert(cache.keys.every((key) => key.includes('iam:admin-mutations-')))
+  assert(cache.keys.some((key) => key.endsWith('-subject:operator-1')))
+  assert(!cache.keys.some((key) => key.includes('jti-')), 'the token id is never the bucket key')
+})
+
+Deno.test('REST routes: reads and self-service routes carry no administration limit', () => {
+  for (
+    const key of ['GET /roles', 'GET /roles/:id/holders', 'GET /audit', 'PATCH /users/deactivate']
+  ) {
+    assert(!routes[key].guards.map(guardKind).includes('rateLimit'), key)
+  }
+})
+
 const SELF_SCOPED_ROUTES = [
   'POST /login/:oauth/link',
   'DELETE /login/:oauth',
@@ -212,6 +305,13 @@ const ADMIN_ROUTE_PERMISSIONS: Record<string, string[]> = {
   'PATCH /roles/:id': [P.roleWrite],
   'DELETE /roles/:id': [P.roleWrite],
   'POST /roles/assign': [P.roleWrite],
+  'GET /roles/:id/holders': [P.roleRead, P.roleWrite],
+  'POST /roles/add': [P.roleWrite],
+  'POST /roles/remove': [P.roleWrite],
+  'GET /roles/accounts/:authId': [P.roleRead, P.roleWrite],
+  'GET /roles/accounts/:authId/permissions': [P.roleRead, P.roleWrite],
+  'GET /audit': [P.auditRead],
+  'PUT /roles/accounts/:authId': [P.roleWrite],
   'POST /permissions': [P.permissionWrite],
   'GET /permissions': [P.permissionRead, P.permissionWrite],
   'GET /permissions/:id': [P.permissionRead, P.permissionWrite],
@@ -375,4 +475,26 @@ Deno.test('REST routes: /oauth/authorize and /oauth/token allow their own per-cl
     const allowed = await allowedBeforeLimit(routes[key].guards, () => guardContext(cache))
     assertEquals(allowed, ANONYMOUS_ROUTE_LIMITS[key].limit, `${key} per-client limit`)
   }
+})
+
+Deno.test('REST routes: no administration route accepts a service credential (`api` session); templates, which does on purpose, is the contrast', async () => {
+  const read = (file: string) =>
+    Deno.readTextFile(new URL(`../../../../server/handlers/${file}`, import.meta.url))
+  for (
+    const file of [
+      'roles.handler.ts',
+      'permissions.handler.ts',
+      'users.handler.ts',
+      'audit.handler.ts',
+    ]
+  ) {
+    // deno-lint-ignore no-await-in-loop
+    const source = await read(file)
+    assert(!/type:\s*\[/.test(source), `${file} must not accept more than one session type`)
+    assert(!source.includes("'api'"), `${file} must not mention an api session`)
+  }
+  assert(
+    /type:\s*\[/.test(await read('templates.handler.ts')),
+    'the contrast: templates accepts both',
+  )
 })

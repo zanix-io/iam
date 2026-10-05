@@ -23,7 +23,7 @@ type StubModel = {
 }
 type SeederEntry = { handler: (model: StubModel) => Promise<void> }
 
-Deno.test('seeders.dev: seeds the dev auth account with the superadmin roleId', async () => {
+Deno.test('seeders.dev: seeds the dev auth account with the superadmin roleIds', async () => {
   let capturedData: Record<string, unknown>[] | undefined
   let capturedOptions: Record<string, unknown> | undefined
 
@@ -47,7 +47,7 @@ Deno.test('seeders.dev: seeds the dev auth account with the superadmin roleId', 
   assertEquals(DEV_AUTH_EMAIL, `dev@${SERVICE_ID}.local`)
   assertEquals(capturedData?.[0].emailKeyId, await computeEmailKeyId(DEV_AUTH_EMAIL))
   assertEquals(capturedData?.[0].password, DEV_AUTH_PASSWORD)
-  assertEquals(capturedData?.[0].roleId, SUPERADMIN_ROLE_ID)
+  assertEquals(capturedData?.[0].roleIds, [SUPERADMIN_ROLE_ID])
   // No 2FA state on this seed — must stay password-only, see `seeders.dev.ts`'s own doc.
   assertEquals(capturedData?.[0].twoFactorAuthConfig, undefined)
   assertEquals(capturedData?.[0].totpSecret, undefined)

@@ -359,3 +359,36 @@ Deno.test('resolvePostLoginRedirect: an absolute-looking but unparseable redirec
     })
   })
 })
+
+Deno.test('blocksSignIn: INACTIVE and DELETED block, ACTIVE and a missing profile do not', async () => {
+  const { blocksSignIn, SIGN_IN_BLOCKING_USER_STATUS } = await import('utils/constants.ts')
+  assertEquals([...SIGN_IN_BLOCKING_USER_STATUS], ['INACTIVE', 'DELETED'])
+  assertEquals(blocksSignIn('INACTIVE'), true)
+  assertEquals(blocksSignIn('DELETED'), true)
+  assertEquals(blocksSignIn('ACTIVE'), false)
+  assertEquals(blocksSignIn(undefined), false)
+})
+
+Deno.test('audit retention defaults to 12 months and the administration limit to 30 per minute', async () => {
+  const constants = await import('utils/constants.ts')
+  assertEquals(constants.auditRetentionDays, 365)
+  assertEquals(constants.adminMutationRateLimit, 30)
+  assertEquals(constants.adminMutationRateLimitWindowSeconds, 60)
+  assertEquals(constants.MAX_PERMISSIONS_PER_ROLE, 200)
+})
+
+Deno.test('every stable error code is distinct and written in UPPER_SNAKE_CASE', async () => {
+  const { IAM_ERROR_CODES } = await import('utils/constants.ts')
+  const codes = Object.values(IAM_ERROR_CODES)
+  assertEquals(new Set(codes).size, codes.length)
+  for (const code of codes) assertMatch(code, /^[A-Z]+(?:_[A-Z]+)*$/)
+})
+
+Deno.test('EDITABLE_USER_STATUS and SIGN_IN_BLOCKING_USER_STATUS differ in meaning; the relation the code relies on is that every editable status blocks sign-in and ACTIVE is never editable', async () => {
+  const { EDITABLE_USER_STATUS, SIGN_IN_BLOCKING_USER_STATUS, blocksSignIn } = await import(
+    'utils/constants.ts'
+  )
+  for (const status of EDITABLE_USER_STATUS) assertEquals(blocksSignIn(status), true, status)
+  assertEquals((EDITABLE_USER_STATUS as readonly string[]).includes('ACTIVE'), false)
+  assertEquals((SIGN_IN_BLOCKING_USER_STATUS as readonly string[]).includes('ACTIVE'), false)
+})

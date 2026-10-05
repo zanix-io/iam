@@ -62,3 +62,55 @@ Deno.test('SERVICE_ID: a value with characters outside letters/hyphens fails the
     await assertRejects(freshConstants, InternalError, 'must contain only letters and hyphens')
   })
 })
+
+Deno.test('AUDIT_RETENTION_DAYS sets how long audit events are kept; anything but a positive integer is the default', async () => {
+  await withEnv({ AUDIT_RETENTION_DAYS: '90' }, async () => {
+    assertEquals((await freshConstants()).auditRetentionDays, 90)
+  })
+  for (const invalid of ['0', '-5', '1.5', 'abc', '']) {
+    // deno-lint-ignore no-await-in-loop
+    await withEnv({ AUDIT_RETENTION_DAYS: invalid }, async () => {
+      assertEquals((await freshConstants()).auditRetentionDays, 365, `"${invalid}"`)
+    })
+  }
+})
+
+Deno.test('ADMIN_MUTATION_RATELIMIT and its window override the administration limit', async () => {
+  await withEnv(
+    { ADMIN_MUTATION_RATELIMIT: '5', ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS: '120' },
+    async () => {
+      const constants = await freshConstants()
+      assertEquals(constants.adminMutationRateLimit, 5)
+      assertEquals(constants.adminMutationRateLimitWindowSeconds, 120)
+    },
+  )
+})
+
+Deno.test('ADMIN_MUTATION_RATELIMIT and its window: unset or empty is the default, a positive integer is used', async () => {
+  for (
+    const unset of [{} as Record<string, string>, {
+      ADMIN_MUTATION_RATELIMIT: '',
+      ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS: '',
+    } as Record<string, string>]
+  ) {
+    // deno-lint-ignore no-await-in-loop
+    await withEnv(unset, async () => {
+      const constants = await freshConstants()
+      assertEquals(constants.adminMutationRateLimit, 30)
+      assertEquals(constants.adminMutationRateLimitWindowSeconds, 60)
+    })
+  }
+})
+
+Deno.test('ADMIN_MUTATION_RATELIMIT and its window: anything but a positive integer stops the boot with a stable code', async () => {
+  for (const name of ['ADMIN_MUTATION_RATELIMIT', 'ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS']) {
+    for (const value of ['-5', '0', '1.5', 'abc', '10x', '1e3', ' 7']) {
+      // deno-lint-ignore no-await-in-loop
+      await withEnv({ [name]: value }, async () => {
+        const error = await assertRejects(() => freshConstants(), InternalError)
+        assertEquals((error as InternalError).code, 'IAM_INVALID_POSITIVE_INTEGER_ENV')
+        assertEquals(error.message.includes(name), true, `${name}=${value}`)
+      })
+    }
+  }
+})

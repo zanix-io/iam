@@ -5,6 +5,276 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-10-05
+
+### Upgrading from 1.x (read this first)
+
+This release changes the stored shape of `auth` and adds fields and a collection. Take a backup, run
+the steps in order, on the database `iam` uses (`MONGO_DB_NAME`), in `mongosh`, with MongoDB 4.2 or
+later, and only then start the new version. The collections are `auths`, `roles`, `permissions`,
+`users` and `role_audit_events` (the names Mongoose gives the models `auth`, `roles`, `permissions`,
+`users` and `role_audit_events`; check them with `show collections`).
+
+```sh
+for collection in auths roles; do
+  mongodump --uri "$MONGO_URI" --db "$MONGO_DB_NAME" --collection "$collection" \
+    --out ./backup-before-2.0
+done
+```
+
+`auths` is what steps 3, 4 and 8 change and `roles` what step 6 changes; nothing else is modified.
+Restoring both with `mongorestore` undoes the whole upgrade.
+
+**1. Count before.**
+
+```js
+db.auths.countDocuments({ roleId: { $exists: true } }) // accounts with a role: N
+db.auths.countDocuments({ roleId: { $exists: true, $not: { $type: 'objectId' } } }) // should be 0
+```
+
+If the second count is not 0, those accounts hold a `roleId` that is not an id. Check what they hold
+before going on, because step 4 removes the field from every one of them, silently:
+
+```js
+db.auths.aggregate([
+  { $match: { roleId: { $exists: true, $not: { $type: 'objectId' } } } },
+  { $group: { _id: { $type: '$roleId' }, accounts: { $sum: 1 } } },
+])
+```
+
+A `roleId` of type `string` is an id stored as text; step 2 converts it. A `null` has no role to
+keep, and the others (numbers, objects) are not roles at all; step 4 removes them and those accounts
+stay without roles.
+
+**2. Convert a `roleId` stored as text.** An id written as a string would be skipped by step 3 and
+then dropped by step 4. This turns the ones that are valid ids into ids and leaves the rest (`null`)
+for step 4; a string that is not a valid id becomes `null` too. Running it again matches nothing.
+
+```js
+db.auths.updateMany({ roleId: { $type: 'string' } }, [
+  { $set: { roleId: { $convert: { input: '$roleId', to: 'objectId', onError: null } } } },
+])
+```
+
+**3. Copy `roleId` into `roleIds`.** It keeps an existing `roleIds` and otherwise builds it from
+`roleId`, and it only matches a real id, so it never produces `[null]`. Running it again matches
+nothing.
+
+```js
+db.auths.updateMany({ roleId: { $type: 'objectId' } }, [
+  {
+    $set: {
+      roleIds: {
+        $cond: [
+          { $gt: [{ $size: { $ifNull: ['$roleIds', []] } }, 0] },
+          '$roleIds',
+          ['$roleId'],
+        ],
+      },
+    },
+  },
+  { $unset: 'roleId' },
+])
+```
+
+**4. Remove a `roleId` that is not an id.**
+
+```js
+db.auths.updateMany({ roleId: { $exists: true } }, { $unset: { roleId: '' } })
+```
+
+**5. Count after.**
+
+```js
+db.auths.countDocuments({ roleId: { $exists: true } }) // 0
+db.auths.countDocuments({ 'roleIds.0': { $exists: true } }) // N, plus any account that already had roleIds
+```
+
+**6. Mark the seeded `superadmin` as a system role.** The seeder only inserts, so it does not touch
+a role that already exists. Without this step `superadmin` is still guarded (only a holder of `*`
+can edit or delete a role that carries `*`) but it is not immutable for that holder, and a holder of
+`*` could rename or delete it.
+
+```js
+db.roles.updateOne({ _id: ObjectId('693000000000000000000201'), isSystem: { $exists: false } }, {
+  $set: { isSystem: true },
+})
+```
+
+**7. Look at old data the new rules would reject (read-only), after step 3.** Roles written before
+`name`, `code` and `description` were validated can break the new shape; they keep working and are
+only checked when edited. This lists them:
+
+```js
+const edge = '[^\\s\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]'
+const body = '[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]*'
+const shape = new RegExp(`^${edge}(?:${body}${edge})?$`, 'u')
+const code = /^[a-z0-9]+(?:[-_.:][a-z0-9]+)*$/
+const within = (text, min, max) =>
+  typeof text === 'string' && text.length >= min && text.length <= max
+db.roles.find().forEach((role) => {
+  const ok = within(role.name, 2, 80) && shape.test(role.name) &&
+    within(role.code, 2, 64) && code.test(role.code) &&
+    within(role.description, 1, 500) && shape.test(role.description)
+  if (!ok) printjson({ _id: role._id, code: role.code, name: role.name })
+})
+```
+
+**8. Remove role ids that point at no role.** Before this release, deleting a role left its id in
+the accounts that held it; the session ignored it. Count them, then remove them:
+
+```js
+const existing = db.roles.find({}, { _id: 1 }).toArray().map((role) => role._id)
+db.auths.countDocuments({ roleIds: { $elemMatch: { $nin: existing } } })
+db.auths.updateMany({ roleIds: { $elemMatch: { $nin: existing } } }, {
+  $pull: { roleIds: { $nin: existing } },
+})
+```
+
+**Rolling back to 1.2.0.** 1.2.0 reads `roleId` and ignores `roleIds`, so after migrating, accounts
+have no role on 1.2.0. To go back, give each migrated account its first role again (an account with
+several roles keeps only that one on 1.2.0; `roleIds` stays in the document and 1.2.0 ignores it),
+or restore the backup of `auths` taken above if no account changed since:
+
+```js
+db.auths.updateMany({ 'roleIds.0': { $exists: true } }, [
+  { $set: { roleId: { $arrayElemAt: ['$roleIds', 0] } } },
+])
+```
+
+The audit collection (`role_audit_events`) is new and 1.2.0 never writes it; leave it or drop it.
+
+### Changed
+
+- **BREAKING: the `roleId` field of the `auth` model is replaced by `roleIds`**, a list of `roles`
+  ids (`AuthenticationAttrs.roleIds`, indexed). An account can hold several roles, and a session
+  carries the union, without repeats, of the permissions of every role in it.
+  `resolveEffectivePermissions` keeps its one-role signature: `iam` calls it for each role and
+  merges the results. `roleId` is gone from the schema, the types, `AuthRepository.registerAuth` and
+  the seeders, and nothing reads it: an account that still has only `roleId` has no role, so
+  **existing documents must be migrated before this version runs** (see "Upgrading from 1.x" above
+  for the commands, the counts to check and the rollback).
+- The role assigned by `defaultRoleId` at registration, the dev account and the first-administrator
+  seeder are written as `roleIds`; the default role is the first entry and adding roles after it
+  does not replace it. `POST /api/roles/assign` `{ authId, roleId }` keeps its request: the role
+  becomes the account's only one. To give an account an extra role and keep the ones it has, use
+  `POST /api/roles/add`.
+- **Role administration enforces rules on every path, and they were all absent before.**
+  - _Grant only what you hold._ `role-write` is not superadmin. Assigning, adding or removing roles,
+    creating a role, editing a role's permissions, deleting a role, turning a permission on or off
+    (`isActive`) and blocking a person (`PATCH /api/users/:id` to `INACTIVE`/`DELETED`) are refused
+    (`403`) when they add or take away a permission the caller does not hold (`*` holds all; only
+    `*` can grant `*`), using `@zanix/auth`'s `scopeValidation`. A caller's own account is refused
+    too. Deactivating or deleting your own account is exempt.
+  - _The caller is an account, read from the database, not the token._ After the route's
+    `@AuthTokenValidation({ permissions })` passes, every mutation of roles, permissions and account
+    status requires that the caller is an account (`403`, `ACTOR_NOT_ACCOUNT`: a service credential
+    never is, as an `api` session or as a token whose subject is not an account id), that it can
+    sign in (`ACTOR_NOT_ACTIVE`) and that it still holds the permission of the route
+    (`ACTOR_LACKS_PERMISSION`: `role-write`, `permission-write` or `user-write`, `*` included), with
+    the roles it holds now, so a demoted administrator stops acting at once even for what grants
+    nothing (renaming a role, creating one with no permissions). One read of the caller, folded into
+    the roles query the operation makes; the ordinary request path and session issuance are
+    unchanged. `POST /users/register` and `POST /permissions` need it too. Deactivating or deleting
+    your own account is exempt.
+  - _An administrator remains._ No change may leave no account able to manage roles (a role whose
+    active permissions include `role-write` or `*`) that can sign in (`409`). It covers changing an
+    account's roles, editing or deleting a role, setting a profile `INACTIVE`/`DELETED` (including
+    `deactivate` and `DELETE /api/users`) and deactivating a permission. An account counts when its
+    profile is not `INACTIVE`/`DELETED`, the rule `UsersRepository.assertActive` applies at login,
+    now shared as `blocksSignIn`; an account with no profile counts. Roles with a `tenantId` count
+    like any other. Every one of these paths is written to the audit trail, checked before writing,
+    counted again after, and undone with a `409` if two requests together removed the last
+    administrator (an undo that cannot be applied is a `500`, `LAST_ADMINISTRATOR_UNDO_FAILED`).
+    Changing an account's roles writes only if the account still holds what was read (up to three
+    attempts); `add` is one atomic `$addToSet`.
+- **Deleting a role that accounts hold is refused** (`409`, `ROLE_HAS_HOLDERS`, with the count and
+  the first holder ids in `meta`) instead of leaving dangling role ids. Remove the role from its
+  holders first.
+- **System roles.** `roles.isSystem` is optional and immutable; a system role is never edited or
+  deleted (`403`, `ROLE_IS_SYSTEM`), and only a holder of `*` creates one. The seeded `superadmin`
+  is a system role. A role without the field behaves as before; an installation that already has
+  `superadmin` marks it in step 6 of "Upgrading from 1.x".
+- **Strict role input.** `name` (2 to 80 characters), `code` (lowercase letters and digits joined by
+  `-`, `_`, `.`, `:`) and `description` (1 to 500) are validated with `@zanix/validator`, rejecting
+  control, bidirectional and zero-width characters and edge spaces; a role carries at most 200
+  permissions (`MAX_PERMISSIONS_PER_ROLE`) and a repeated permission is stored once. `roleIds` takes
+  at most 50 ids per request. Roles created before this can hold values the new shape would reject;
+  they are only checked when edited.
+- **Edits can carry the version they read.** `PATCH /api/roles/:id` and `PATCH /api/permissions/:id`
+  take an optional `updatedAt`; if the record changed since, the edit is refused (`409`,
+  `ROLE_VERSION_CONFLICT` / `PERMISSION_VERSION_CONFLICT`). Optional so existing clients keep
+  working; `console` should always send it. Without it, a change of a role's permissions is still
+  conditioned on the version the request read (it was decided from that state), so a concurrent edit
+  fails it with `ROLE_VERSION_CONFLICT` to be repeated; only name and description alone are
+  last-wins.
+- **Stable error codes.** Every refusal of these rules has a `code` in the response
+  (`ROLE_SELF_CHANGE`, `ROLE_GRANT_EXCEEDS_SCOPE` with `meta.missing`, `ACTOR_NOT_ACCOUNT`,
+  `ACTOR_NOT_ACTIVE`, `ACTOR_LACKS_PERMISSION`, `LAST_ADMINISTRATOR`, `ROLE_HAS_HOLDERS`,
+  `ROLE_IS_SYSTEM`, `ROLE_VERSION_CONFLICT`, `PERMISSION_VERSION_CONFLICT`,
+  `ROLE_CONCURRENT_CHANGE`), exported as `IAM_ERROR_CODES`.
+- **A rate limit for administration mutations**: roles, permissions and `PATCH /api/users/:id` are
+  limited per operator (the account, not the access token: a new login does not start a new count)
+  in a bucket of their own, `ADMIN_MUTATION_RATELIMIT` requests (default 30) per
+  `ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS` (default 60). It is `@zanix/auth`'s native
+  `RateLimitGuard` with an explicit `limit` and `key: 'subject'`: the figure is an absolute count
+  (never read as a `RATE_LIMIT_PLANS` index) and the `X-Znx-RateLimit-Limit`/`-Remaining` headers of
+  those routes report it.
+- **`@zanix/auth` is `^1.7.0`** (it was `^1.6.0`), the first version with `RateLimitGuard`'s `limit`
+  and `key` options and `missingScopes`. The grant rule uses `missingScopes(required, held)`;
+  `utils/rbac.ts` no longer has its own `missingPermissions`.
+- `GET /api/users/search` and `GET /api/users/:id` also return each person's `authId` and `roleIds`;
+  `GET /api/roles/:id` also returns `holderCount`.
+- Sessions read the roles of an account with one query (`RolesRepository.findManyWithPermissions`),
+  and `AuthService` and `PasswordService` share one resolution (`permissionsForAccount`, in
+  `interactors/session-permissions.ts`; `utils/rbac.ts` keeps only pure functions).
+- An account that stores a role twice (a `roleIds` with a repeated id) can be changed: the
+  conditional writes compare the array exactly as stored instead of a de-duplicated copy.
+
+### Fixed
+
+- **The server starts without `TEMPLATES_BACKEND=local`.** `auth.app.ts` seeded the database-only
+  `totp-enabled` template at boot whatever the setting, so without the variable (the documented
+  default, "templates render from code") the templates model did not exist and the server failed
+  before listening. The seeding now runs only when `TEMPLATES_BACKEND=local`
+  (`isTemplatesResourceEnabled('local')`), the "TOTP enabled" notice (that template) is sent only
+  then, and `/api/templates`, which would have answered `500` on every call, answers `404`
+  (`TEMPLATES_BACKEND_DISABLED`) to a caller allowed to use it.
+- `ADMIN_MUTATION_RATELIMIT` and `ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS` are validated as positive
+  integers: a value that is set and is not (`-5`, `0`, `1.5`, `abc`) stops the boot
+  (`IAM_INVALID_POSITIVE_INTEGER_ENV`); it used to be accepted, and `-5` made every mutation a
+  `429`. Unset or empty is still the default.
+
+### Added
+
+- Role endpoints for the list, all gated by `role-write` (reading by `role-read` or `role-write`):
+  `POST /api/roles/add` `{ authId, roleIds }`, `POST /api/roles/remove` `{ authId, roleIds }`,
+  `PUT /api/roles/accounts/:authId` `{ roleIds }` and `GET /api/roles/accounts/:authId`, backed by
+  `RolesService.addRoles`, `removeRoles`, `setRoles` and `getAccountRoles`.
+- `GET /api/roles/:id/holders`: one page of the people holding a role (`authId`, `userId`, name and
+  status, no contact data) with the total.
+- `GET /api/roles/accounts/:authId/permissions`: what an account can do today, each permission with
+  the roles it comes from, resolved with the same `resolveEffectivePermissions` sessions use.
+- **Audit trail.** Every mutation of roles, permissions and account status is written to the new
+  `role_audit_events` collection, rejected attempts included whatever the reason (a rule, a missing
+  record, a caller that is not an active account, `PATCH /users/:id` among them): `pending` before
+  the change, then `ok`, `denied`, `conflict` or `error` with the rejection's `code`; it records the
+  request as asked apart from the ids before and after, and the id of what was just created. It
+  holds ids, codes and counts, never contact data or secrets, and fails closed (no event, no
+  change). A `pending` event whose request died is found with `result=pending` and an age bound
+  (`docs/authorization.md`). `GET /api/audit` lists it, newest first, filtered by actor, target,
+  action, result and date range (`sortBy` only on `createdAt`, `actor`, `action`, `result`), with
+  the new permission `audit-read` (seeded). Events expire after `AUDIT_RETENTION_DAYS` (default 365,
+  a TTL index; the `collMod` to change it on an existing database is in `docs/configuration.md`).
+- `effectiveRoleIds`, `unionPermissions`, `resolveRolePermissions`, `permissionsOfRoles`,
+  `storedRoleIds` in `utils/rbac.ts`; `RolesRepository.findManyByIds`, `findManyWithPermissions`,
+  `findAllWithPermissions`, `replacePermissions` and `restoreRole`;
+  `AuthRepository.findHoldersOfRoleIds`, `addRoleIds`, `replaceRoleIds`, `pullRoleIds`,
+  `findByUserId`, `findRolesByUserIds`, `countHolders` and `searchHolders`;
+  `UsersRepository.findSignInBlockedIds`, `findManyByIds` and `restoreStatus`;
+  `PermissionsRepository.restoreActive`; `blocksSignIn` and `SIGN_IN_BLOCKING_USER_STATUS` in
+  `utils/constants.ts`.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added

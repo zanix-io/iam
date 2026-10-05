@@ -100,7 +100,7 @@ function buildService(opts: {
       [UsersRepository, usersRepo],
       [ZanixAuthProvider, authProvider],
       [NotifierProvider, notifier],
-      [RolesRepository, { findById: () => undefined }],
+      [RolesRepository, { findManyWithPermissions: () => [] }],
     ]),
   )
   mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))

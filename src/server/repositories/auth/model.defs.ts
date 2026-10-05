@@ -78,8 +78,9 @@ export type AuthenticationAttrs = {
   totpSecret?: string
   oauthProvider?: typeof OAUTH_PROVIDERS[number]
   oauthRefreshToken?: string
-  /** The assigned `roles` document — see `RolesService.assignRole`. Unset means no permissions. */
-  roleId?: string
+  /** The assigned `roles` documents, in assignment order — see `RolesService`. A session carries
+   * the union of their permissions. Empty or unset means no permissions. */
+  roleIds?: string[]
   lastLoginAt?: Date
   createdAt: Date
   updatedAt: Date
@@ -137,9 +138,9 @@ registerModel<AuthenticationAttrs>({
       type: String,
       enum: NOTIFIERS.filter((notifier) => notifier !== 'email'),
     },
-    roleId: {
-      type: Schema.Types.ObjectId,
-      ref: 'roles',
+    roleIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'roles' }],
+      default: undefined,
     },
     twoFactorAuthConfig: TwoFactorAuthConfigSchema,
     password: {
@@ -163,6 +164,11 @@ registerModel<AuthenticationAttrs>({
   },
   extensions: {
     seeders,
+  },
+  callback: (schema) => {
+    // Backs `AuthRepository.findHoldersOfRoleIds` (the last-administrator check).
+    schema.index({ roleIds: 1 })
+    return schema
   },
   options: {
     timestamps: true,

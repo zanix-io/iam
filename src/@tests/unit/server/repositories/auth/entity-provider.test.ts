@@ -106,3 +106,123 @@ Deno.test('AuthRepository.findById: a given id queries the model by that id', as
   assertEquals(await repo.findById('auth-1') as unknown, { id: 'auth-1' })
   assertEquals(calls.findById, [['auth-1']])
 })
+
+Deno.test('AuthRepository.registerAuth: persists roleIds as given, and no role fields when none', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, created } = recordingModel()
+  const repo = buildRepository(Model)
+  await repo.registerAuth({ email: 'a@example.com', roleIds: ['r1', 'r2'] })
+  await repo.registerAuth({ email: 'b@example.com' })
+  const [withRoles, withoutRoles] = created as Record<string, unknown>[]
+  assertEquals(withRoles.roleIds, ['r1', 'r2'])
+  assertEquals('roleIds' in withoutRoles, false)
+  assertEquals('roleId' in withRoles, false)
+})
+
+Deno.test('AuthRepository.addRoleIds: one atomic $addToSet of the given roles', async () => {
+  const { recordingModel } = await import('../../../helpers/mock-model.ts')
+  const { Model, calls } = recordingModel()
+  await buildRepository(Model).addRoleIds('auth-1', ['r1', 'r2'])
+  assertEquals(calls.updateOne, [[
+    { _id: 'auth-1' },
+    { $addToSet: { roleIds: { $each: ['r1', 'r2'] } } },
+  ]])
+})
+
+Deno.test('AuthRepository.replaceRoleIds/pullRoleIds: conditioned on the roles still being the ones read', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: 1 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  assertEquals(await repo.replaceRoleIds('auth-1', ['r1', 'r2'], ['r3']), true)
+  assertEquals(await repo.pullRoleIds('auth-1', ['r1', 'r2'], ['r2']), true)
+  assertEquals(updateOne.calls, [
+    [{ _id: 'auth-1', roleIds: ['r1', 'r2'] }, { $set: { roleIds: ['r3'] } }],
+    [{ _id: 'auth-1', roleIds: ['r1', 'r2'] }, { $pull: { roleIds: { $in: ['r2'] } } }],
+  ])
+})
+
+Deno.test('AuthRepository.replaceRoleIds: an account with no roles matches a missing or empty roleIds', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: 0 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  assertEquals(await repo.replaceRoleIds('auth-1', [], ['r1']), false, 'no match is reported')
+  assertEquals(updateOne.calls[0][0], {
+    _id: 'auth-1',
+    $or: [{ roleIds: { $exists: false } }, { roleIds: { $size: 0 } }],
+  })
+})
+
+Deno.test('AuthRepository.findHoldersOfRoleIds: holders of any role, except the given account, as ids', async () => {
+  const find = fn((_filter: Record<string, unknown>) => ({
+    select: (_fields: string) => ({
+      exec: () => Promise.resolve([{ id: 'a1', userId: 'u1' }, { _id: 'a2' }]),
+    }),
+  }))
+  const repo = buildRepository({ find })
+  assertEquals(await repo.findHoldersOfRoleIds(['r1', 'r2'], 'auth-1'), [
+    { id: 'a1', userId: 'u1' },
+    { id: 'a2', userId: undefined },
+  ])
+  await repo.findHoldersOfRoleIds(['r1'])
+  assertEquals(find.calls, [
+    [{ roleIds: { $in: ['r1', 'r2'] }, _id: { $ne: 'auth-1' } }],
+    [{ roleIds: { $in: ['r1'] } }],
+  ])
+})
+
+Deno.test('AuthRepository.findByUserId / findRolesByUserIds: the account of a profile, and the roles of many in one query', async () => {
+  const findOne = fn((_filter: Record<string, unknown>) => ({ exec: () => Promise.resolve('doc') }))
+  const find = fn((_filter: Record<string, unknown>) => ({
+    select: (_fields: string) => ({
+      exec: () =>
+        Promise.resolve([
+          { id: 'a1', userId: 'u1', roleIds: ['r1', 'r2'] },
+          { id: 'a2', userId: 'u2' },
+        ]),
+    }),
+  }))
+  const repo = buildRepository({ findOne, find })
+  assertEquals(await repo.findByUserId('u1') as unknown, 'doc')
+  assertEquals(repo.findByUserId(undefined), undefined)
+  assertEquals(
+    await repo.findRolesByUserIds(['u1', 'u2']),
+    [
+      { id: 'a1', userId: 'u1', roleIds: ['r1', 'r2'] },
+      { id: 'a2', userId: 'u2', roleIds: [] },
+    ],
+  )
+  assertEquals(await repo.findRolesByUserIds([]), [])
+  assertEquals(findOne.calls, [[{ userId: 'u1' }]])
+  assertEquals(find.calls, [[{ userId: { $in: ['u1', 'u2'] } }]])
+})
+
+Deno.test('AuthRepository.countHolders / searchHolders: how many hold a role, and one page of who', async () => {
+  const countDocuments = fn((_filter: Record<string, unknown>) => ({
+    exec: () => Promise.resolve(7),
+  }))
+  const paginate = fn((_options: Record<string, unknown>) =>
+    Promise.resolve({
+      total: 7,
+      page: 2,
+      limit: 3,
+      docs: [{ id: 'a1', userId: 'u1' }, { id: 'a2' }],
+    })
+  )
+  const repo = buildRepository({ countDocuments, paginate })
+  assertEquals(await repo.countHolders('r1'), 7)
+  assertEquals(await repo.searchHolders('r1', { page: 2, limit: 3 }), {
+    total: 7,
+    page: 2,
+    limit: 3,
+    docs: [{ id: 'a1', userId: 'u1' }, { id: 'a2', userId: undefined }],
+  })
+  assertEquals(countDocuments.calls, [[{ roleIds: 'r1' }]])
+  assertEquals(paginate.calls, [[{
+    page: 2,
+    limit: 3,
+    sort: { _id: 1 },
+    filter: { roleIds: 'r1' },
+  }]])
+})

@@ -22,10 +22,11 @@
    - [Consuming iam](./docs/consuming-iam.md)
    - [API reference](./docs/api-reference.md)
    - [See more](./docs/see-more.md)
-8. [Contributing](#contributing)
-9. [Changelog](#changelog)
-10. [License](#license)
-11. [Resources](#resources)
+8. [Testing](#testing)
+9. [Contributing](#contributing)
+10. [Changelog](#changelog)
+11. [License](#license)
+12. [Resources](#resources)
 
 ## Description
 
@@ -49,6 +50,12 @@ levels.
   OAuth2. See [Authentication flows](./docs/authentication-flows.md).
 - **Self-registration** on a first one-time-code or OAuth2 sign-in, closable per instance, with an
   optional default role.
+- **Role administration you can trust**: grant only what you hold (decided from the caller's current
+  roles, not the token), an administrator always remains, system roles are untouchable, a role with
+  holders is not deleted, edits can carry the version they read, every refusal has a stable `code`,
+  and every change (rejected ones too) is written to an audit trail with a configurable retention.
+- **Several roles per account**: an account holds a list of roles and its permissions are their
+  union; roles are added, removed or set through `/api/roles` without losing the default role.
 - **Sessions**: refresh-token rotation that re-resolves permissions on every refresh.
 - **Account self-service**: sign-in methods (OAuth2 link/unlink, password add/remove, TOTP, phone
   and code channel), password recovery, deactivation with confirmed reactivation, and deletion.
@@ -193,6 +200,33 @@ is available under the `/api` prefix (see the [REST API reference](./docs/rest-a
   service: hosted redirect, page/component import, or headless SDK.
 - [API reference](./docs/api-reference.md) — every published subpath and symbol.
 - [See more](./docs/see-more.md) — where each concern is implemented in the source.
+
+## Testing
+
+```sh
+deno test --allow-all --frozen
+```
+
+runs the unit and integration suites, which need no services, and skips the end-to-end scenarios.
+Those (`src/@tests/functional/e2e/`) start the real server as a child process on a throw-away
+database and call it over HTTP with tokens issued by its own login, so they need a MongoDB they may
+write to:
+
+```sh
+IAM_TEST_MONGO_URI=mongodb://127.0.0.1:27017 deno test --allow-all --frozen
+```
+
+Without `IAM_TEST_MONGO_URI` they are skipped. The migration scenario also needs `mongosh` on the
+`PATH` (it runs the commands of the CHANGELOG exactly as written) and is skipped without it.
+
+What the scenarios guarantee, so they can run against a machine that holds real data: each server
+gets its own database named `znx_iam_test_<random>`, created by the run and dropped when it ends
+(the harness refuses any other name, and never names `zanix_iam` or any other database); a random
+port and random JWT and data keys that are never printed; a clean environment, so nothing from a
+developer's `.env` reaches it; its own copy of `deno.lock`, so the repository's is never modified;
+and no Redis (the server uses its in-memory fallback, so there are no keys to namespace or clean).
+Every server is stopped in a `finally`, and a run that is killed leaves at most a `znx_iam_test_*`
+database behind, which `db.getMongo().getDBNames()` shows.
 
 ## Contributing
 

@@ -23,6 +23,7 @@ For typed clients over these endpoints, see the
 - [Passwords (`/api/pwd`)](#passwords-apipwd)
 - [Users (`/api/users`)](#users-apiusers)
 - [Roles (`/api/roles`)](#roles-apiroles)
+- [Audit trail (`/api/audit`)](#audit-trail-apiaudit)
 - [Permissions (`/api/permissions`)](#permissions-apipermissions)
 - [Grant Access (`/api/grant-access`)](#grant-access-apigrant-access)
 - [Notification templates (`/api/templates`)](#notification-templates-apitemplates)
@@ -49,7 +50,10 @@ The limit is requests per `RATE_LIMIT_WINDOW_SECONDS` (default 60, `@zanix/auth`
 | `criticalRateLimit`     | `CRITICAL_RATELIMIT`      | `1`     |
 | `loginMethodsRateLimit` | `LOGIN_METHODS_RATELIMIT` | `2`     |
 
-An exceeded limit answers `429` with `Retry-After` and the `X-Znx-RateLimit-*` headers.
+An exceeded limit answers `429` with `Retry-After` and the `X-Znx-RateLimit-*` headers. The
+administration mutations (roles, permissions, `PATCH /api/users/:id`) can also answer `429` from
+their own per-operator bucket (`iam:admin-mutations`, `ADMIN_MUTATION_RATELIMIT`), on top of the
+session's; see [Authorization](./authorization.md#rate-limit).
 
 **Captcha.** `@CaptchaGuard()` is active only when a captcha provider is configured (see
 [Configuration](./configuration.md#captcha)). It then requires the `X-Znx-Captcha-Token` header:
@@ -237,30 +241,96 @@ by `PasswordService`.
 
 ### Roles (`/api/roles`)
 
-| Method and path          | Permission                  | Request                                                                |
-| ------------------------ | --------------------------- | ---------------------------------------------------------------------- |
-| `POST /api/roles`        | `role-write`                | Body `{ name, code, description, tenantId?, permissions: ObjectId[] }` |
-| `GET /api/roles`         | `role-read` or `role-write` | Query `query?`, `tenantId?`, `page`, `limit`                           |
-| `GET /api/roles/:id`     | `role-read` or `role-write` | Param `id`; answers the role with `permissions` populated              |
-| `PATCH /api/roles/:id`   | `role-write`                | Body `{ name?, description?, permissions? }`                           |
-| `DELETE /api/roles/:id`  | `role-write`                | Param `id`                                                             |
-| `POST /api/roles/assign` | `role-write`                | Body `{ authId, roleId }`                                              |
+| Method and path                               | Permission                  | Request                                                                                                 |
+| --------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `POST /api/roles`                             | `role-write`                | Body `{ name, code, description, tenantId?, permissions: ObjectId[], isSystem? }` (see below)           |
+| `GET /api/roles`                              | `role-read` or `role-write` | Query `query?`, `tenantId?`, `page`, `limit`                                                            |
+| `GET /api/roles/:id`                          | `role-read` or `role-write` | Param `id`; the role with `permissions` populated, its `updatedAt` and `holderCount`                    |
+| `GET /api/roles/:id/holders`                  | `role-read` or `role-write` | Param `id`, query `page`, `limit`; `{ docs: [{ authId, userId, firstName, lastName, status }], total }` |
+| `PATCH /api/roles/:id`                        | `role-write`                | Body `{ name?, description?, permissions?, updatedAt? }`                                                |
+| `DELETE /api/roles/:id`                       | `role-write`                | Param `id`; refused while accounts hold the role                                                        |
+| `POST /api/roles/assign`                      | `role-write`                | Body `{ authId, roleId }`; replaces every role of the account                                           |
+| `POST /api/roles/add`                         | `role-write`                | Body `{ authId, roleIds: ObjectId[] }`; keeps the roles it holds                                        |
+| `POST /api/roles/remove`                      | `role-write`                | Body `{ authId, roleIds: ObjectId[] }`; ignores roles it does not hold                                  |
+| `GET /api/roles/accounts/:authId`             | `role-read` or `role-write` | Param `authId`; answers `{ authId, roleIds }`                                                           |
+| `GET /api/roles/accounts/:authId/permissions` | `role-read` or `role-write` | Param `authId`; `{ authId, roleIds, permissions: [{ code, roles: [roleId] }] }`                         |
+| `PUT /api/roles/accounts/:authId`             | `role-write`                | Body `{ roleIds: ObjectId[] }`; the exact list, empty clears it                                         |
 
-`409` when `code` already exists (per `tenantId`); `400` when a permission id does not exist; `404`
-for an unknown role, or (on `assign`) an unknown sign-in record. `authId` is the `auth` record id —
-the session subject — not the `users` profile id.
+`name` is 2 to 80 characters, `code` 2 to 64 of lowercase letters and digits joined by `-`, `_`, `.`
+or `:`, `description` 1 to 500; none may hold control, bidirectional or zero-width characters or
+start or end with a space. `permissions` takes at most 200 ids, and a repeated id is stored once.
+`isSystem` marks a system role and only a holder of `*` may send it. `PATCH` and `DELETE` of a
+system role answer `403`.
+
+`GET /api/roles/accounts/:authId/permissions` is what the account can do today, resolved with the
+same `resolveEffectivePermissions` strategy sessions use, with the role each permission comes from.
+`GET /api/users/search` and `GET /api/users/:id` return each person's `authId` and `roleIds`.
+
+`updatedAt` on `PATCH` is the version the client read (the role's `updatedAt`); sent, the edit is
+refused with `409` if the role changed since. Optional: omitted, the last edit wins. A client that
+edits from a form should always send it.
+
+`400` when a permission id does not exist or a field breaks its shape; `404` for an unknown role, or
+(on the account operations) an unknown sign-in record; `409` when `code` already exists (per
+`tenantId`). `authId` is the `auth` record id — the session subject — not the `users` profile id.
+
+`add`, `remove` and `PUT` answer `{ response: 'roles updated', roleIds }` with the account's roles
+afterwards; `add` and `remove` need at least one id and `roleIds` takes at most 50 (`400`
+otherwise), and repeating either changes nothing. The change reaches the account's sessions at their
+next refresh. The mutations are limited per operator (see
+[Authorization](./authorization.md#rate-limit)).
+
+**Refusals and their codes.** Every rejection of the role rules carries a stable `code` in the error
+response, so a client chooses its message by code. Where a code comes with data, it is in `meta`.
+
+| Status | `code`                           | When                                                                                    |
+| ------ | -------------------------------- | --------------------------------------------------------------------------------------- |
+| `403`  | `ROLE_SELF_CHANGE`               | The operation targets the caller's own account.                                         |
+| `403`  | `ROLE_GRANT_EXCEEDS_SCOPE`       | It adds or takes away a permission the caller does not hold; `meta.missing` lists them. |
+| `403`  | `ROLE_IS_SYSTEM`                 | A system role is edited or deleted.                                                     |
+| `403`  | `ACTOR_NOT_ACCOUNT`              | The caller is a service credential, not an account.                                     |
+| `403`  | `ACTOR_NOT_ACTIVE`               | The caller's account no longer exists or cannot sign in.                                |
+| `403`  | `ACTOR_LACKS_PERMISSION`         | The caller no longer holds the route's permission; `meta.required` names it.            |
+| `409`  | `LAST_ADMINISTRATOR`             | It would leave no account able to manage roles and sign in.                             |
+| `409`  | `ROLE_HAS_HOLDERS`               | The role to delete is held; `meta.holderCount` and `meta.holderIds` (the first 20).     |
+| `409`  | `ROLE_VERSION_CONFLICT`          | The role changed since the `updatedAt` sent.                                            |
+| `409`  | `PERMISSION_VERSION_CONFLICT`    | The permission changed since the `updatedAt` sent.                                      |
+| `409`  | `ROLE_CONCURRENT_CHANGE`         | An account's roles kept changing under the request; repeat it.                          |
+| `500`  | `LAST_ADMINISTRATOR_UNDO_FAILED` | A change left nobody able to manage roles and could not be undone; restore one by hand. |
+
+The rules themselves are in [Authorization](./authorization.md#roles-and-sessions). Creating,
+editing and deleting a role, `PATCH /api/users/:id` (a `status` that blocks sign-in),
+`PATCH /api/users/deactivate`, `DELETE /api/users` and `PATCH /api/permissions/:id` follow them too.
+
+### Audit trail (`/api/audit`)
+
+| Method and path  | Permission   | Request                                                                                                                                                                                                 |
+| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/audit` | `audit-read` | Query `actor?`, `targetKind?` (`role`, `account`, `permission`, `user`), `targetId?`, `action?`, `result?` (`pending`, `ok`, `denied`, `conflict`, `error`), `from?`, `to?` (ISO 8601), `page`, `limit` |
+
+Newest first; `sortBy` may only name `createdAt`, `actor`, `action` or `result` (`400` otherwise).
+An event has `actor`, `actorType`, `action` (`<domain>.<operation>`, e.g. `roles.add`), `target`
+`{ kind, id }`, `request` (what was asked), `before` and `after` (ids and plain values), `result`,
+`reason` (the rejection's `code`, or the status name), `requestId` and `createdAt`. `400` when a
+date is not a real date or `from` is after `to`. A query parameter the endpoint does not know is
+ignored; so is a `sortBy` key with a dot (`sortBy[target.id]`), which the query parser does not
+accept as a sort key, and the default order applies. An order outside the closed list is never
+applied. See [Authorization](./authorization.md#audit-trail).
 
 ### Permissions (`/api/permissions`)
 
-| Method and path              | Permission                              | Request                                                    |
-| ---------------------------- | --------------------------------------- | ---------------------------------------------------------- |
-| `POST /api/permissions`      | `permission-write`                      | Body `{ code, name, description, categories?, isActive? }` |
-| `GET /api/permissions`       | `permission-read` or `permission-write` | Query `query?`, `page`, `limit`                            |
-| `GET /api/permissions/:id`   | `permission-read` or `permission-write` | Param `id`                                                 |
-| `PATCH /api/permissions/:id` | `permission-write`                      | Body `{ name?, description?, categories?, isActive? }`     |
+| Method and path              | Permission                              | Request                                                            |
+| ---------------------------- | --------------------------------------- | ------------------------------------------------------------------ |
+| `POST /api/permissions`      | `permission-write`                      | Body `{ code, name, description, categories?, isActive? }`         |
+| `GET /api/permissions`       | `permission-read` or `permission-write` | Query `query?`, `page`, `limit`                                    |
+| `GET /api/permissions/:id`   | `permission-read` or `permission-write` | Param `id`                                                         |
+| `PATCH /api/permissions/:id` | `permission-write`                      | Body `{ name?, description?, categories?, isActive?, updatedAt? }` |
 
 `code` must match `module:action` (letters, digits and hyphens on each side). `409` for a duplicate
-code, `404` for an unknown id. There is no delete; deactivate with `isActive: false`.
+code, `404` for an unknown id. There is no delete; deactivate with `isActive: false`. Turning a
+permission on or off needs the caller to hold it, and turning it off must leave an account able to
+manage roles; `updatedAt` is the version read (`409` if the permission changed since, optional). See
+[Authorization](./authorization.md#roles-and-sessions).
 
 ### Grant Access (`/api/grant-access`)
 

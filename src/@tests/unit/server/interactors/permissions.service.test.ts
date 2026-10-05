@@ -4,7 +4,13 @@ import { HttpError } from '@zanix/errors'
 import { PermissionsService } from 'server/interactors/permissions.interactor.ts'
 import { PermissionsRepository } from 'server/repositories/permissions/entity.provider.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
+import { buildWorld, perm, role } from '../../helpers/role-world.ts'
 
+/**
+ * `PermissionsService`: creating, editing and reading the catalog. The rules an edit shares with
+ * the rest of role administration (grant only what you hold, an administrator remains) have their
+ * own files: `permissions.service.grant-rules.test.ts` and `roles.service.admin-remains.test.ts`.
+ */
 const basePermission = (overrides: Record<string, unknown> = {}) => ({
   id: 'perm-1',
   code: 'zanix-iam:role-read',
@@ -14,85 +20,89 @@ const basePermission = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const defaultPermissionsRepo = () => ({
-  createPermission: fn((..._args: unknown[]) => ({})),
-  findById: fn((..._args: unknown[]): unknown => basePermission()),
-  findByCode: fn((..._args: unknown[]): unknown => undefined),
-  updatePermission: fn((..._args: unknown[]) => ({})),
-  searchPermissions: fn((..._args: unknown[]) => ({ docs: [basePermission()], total: 1 })),
-})
-
-function buildService(opts: {
-  permissionsRepo?: Partial<ReturnType<typeof defaultPermissionsRepo>>
-  session?: Record<string, unknown>
-} = {}) {
-  const permissionsRepo = { ...defaultPermissionsRepo(), ...opts.permissionsRepo }
-
-  const service = new PermissionsService('ctx-1')
-  mockAccessor(
-    service,
-    'providers',
-    mapGetter([[PermissionsRepository, permissionsRepo]]),
-  )
-  mockAccessor(service, 'context', { session: opts.session ?? { subject: 'admin-1' } })
-
-  return { service, permissionsRepo }
-}
-
 Deno.test('createPermission: throws CONFLICT when the code already exists', async () => {
-  const { service } = buildService({
-    permissionsRepo: { findByCode: fn(() => basePermission()) },
-  })
+  const w = buildWorld({ roles: [role('r', [perm('shop:buy')])] })
   await assertRejects(
-    () => service.createPermission({ code: 'zanix-iam:role-read' } as never),
+    () =>
+      w.permissions.createPermission({ code: 'shop:buy', name: 'n', description: 'd' } as never),
     HttpError,
     'already exists',
   )
+  assertEquals(w.state.createdPermissions, [])
 })
 
-Deno.test('createPermission: on success persists the permission with the caller as createdBy', async () => {
-  const { service, permissionsRepo } = buildService()
-  const result = await service.createPermission({
-    code: 'zanix-iam:role-read',
-    name: 'Read roles',
-    description: 'x',
+Deno.test('createPermission: persists the permission with the caller as createdBy, and audits it with the new id', async () => {
+  const w = buildWorld()
+  const result = await w.permissions.createPermission({
+    code: 'shop:sell',
+    name: 'Sell',
+    description: 'Sell things',
+    categories: ['shop'],
     isActive: true,
   } as never)
   assertEquals(result, { response: 'permission created' })
-  const created = permissionsRepo.createPermission.calls[0]?.[0] as Record<string, unknown>
-  assertEquals(created.createdBy, 'admin-1')
+  assertEquals(w.state.createdPermissions, [{
+    code: 'shop:sell',
+    name: 'Sell',
+    description: 'Sell things',
+    categories: ['shop'],
+    isActive: true,
+    createdBy: 'caller',
+  }])
+  const [event] = w.events('permissions.create')
+  assertEquals([event.result, (event.target as { id?: string }).id], ['ok', 'p-new-1'])
+})
+
+Deno.test('createPermission: needs permission-write now, not only in the token', async () => {
+  const w = buildWorld({ session: { subject: 'caller', scope: ['zanix-iam:role-read'] } })
+  await assertRejects(
+    () => w.permissions.createPermission({ code: 'a:b', name: 'n', description: 'd' } as never),
+    HttpError,
+    'permission-write',
+  )
+  assertEquals(w.state.createdPermissions, [])
+  assertEquals(w.state.audit.map((event) => event.result), ['denied'])
 })
 
 Deno.test('editPermission: throws NOT_FOUND when the permission does not exist', async () => {
-  const { service } = buildService({ permissionsRepo: { findById: fn(() => undefined) } })
+  const w = buildWorld()
   await assertRejects(
-    () => service.editPermission('missing', {} as never),
+    () => w.permissions.editPermission('missing', { name: 'x' } as never),
     HttpError,
     'not found',
   )
 })
 
-Deno.test('editPermission: on success updates the permission with the given fields', async () => {
-  const { service, permissionsRepo } = buildService()
-  const result = await service.editPermission('perm-1', { isActive: false } as never)
+Deno.test('editPermission: on success updates the permission with the given fields only', async () => {
+  const w = buildWorld({ roles: [role('r', [perm('shop:buy')])] })
+  const result = await w.permissions.editPermission('p-shop:buy', {
+    isActive: false,
+    name: undefined,
+  } as never)
   assertEquals(result, { response: 'permission edited' })
-  assertEquals(permissionsRepo.updatePermission.calls[0], [{ isActive: false, id: 'perm-1' }])
+  assertEquals(w.state.updatedPermissions, [{ isActive: false, id: 'p-shop:buy' }])
 })
+
+// The reads go through the repository alone.
+function reads(permission: unknown) {
+  const permissionsRepo = {
+    findById: fn((..._args: unknown[]): unknown => permission),
+    searchPermissions: fn((..._args: unknown[]) => ({ docs: [basePermission()], total: 1 })),
+  }
+  const service = new PermissionsService('ctx-1')
+  mockAccessor(service, 'providers', mapGetter([[PermissionsRepository, permissionsRepo]]))
+  mockAccessor(service, 'context', { session: { subject: 'admin-1', type: 'user' } })
+  return service
+}
 
 Deno.test('getPermissionById: throws NOT_FOUND when the permission does not exist', async () => {
-  const { service } = buildService({ permissionsRepo: { findById: fn(() => undefined) } })
-  await assertRejects(() => service.getPermissionById('missing'), HttpError, 'not found')
-})
-
-Deno.test('getPermissions: returns the paginated catalog', async () => {
-  const { service } = buildService()
-  const result = await service.getPermissions({})
-  assertEquals(result.total, 1)
-  assertEquals(result.docs[0].id, 'perm-1')
+  await assertRejects(() => reads(undefined).getPermissionById('missing'), HttpError, 'not found')
 })
 
 Deno.test('getPermissionById: returns the permission when it exists', async () => {
-  const { service, permissionsRepo } = buildService()
-  assertEquals(await service.getPermissionById('perm-1') as unknown, basePermission())
-  assertEquals(permissionsRepo.findById.calls, [['perm-1']])
+  assertEquals(await reads(basePermission()).getPermissionById('perm-1'), basePermission())
+})
+
+Deno.test('getPermissions: returns the paginated catalog', async () => {
+  assertEquals((await reads(undefined).getPermissions({})).total, 1)
 })

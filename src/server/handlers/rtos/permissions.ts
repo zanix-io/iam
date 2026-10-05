@@ -1,6 +1,7 @@
-import { BaseRTO, IsBoolean, IsObjectID, IsString } from '@zanix/validator'
+import { BaseRTO, IsBoolean, IsObjectID, IsString, Match } from '@zanix/validator'
 import { SearchPaginationRTO } from '@zanix/datamaster'
 import { IsPermission } from './validations/is-permission.ts'
+import { VERSION_PATTERN } from './roles.ts'
 
 /** `POST /permissions` body. */
 export class CreatePermissionRTO extends BaseRTO {
@@ -33,6 +34,13 @@ export class EditPermissionRTO extends BaseRTO {
 
   @IsBoolean({ expose: true, optional: true })
   accessor isActive: boolean | undefined
+
+  /** The version of the permission the client read (its `updatedAt`, ISO 8601). Optional: sent,
+   * the edit applies only if the permission is still at that version (otherwise `409`,
+   * `PERMISSION_VERSION_CONFLICT`); omitted, the last edit wins. */
+  @Match(VERSION_PATTERN, { expose: true, optional: true })
+  @IsString({ expose: true, optional: true })
+  accessor updatedAt: string | undefined
 }
 
 /** `:id` route param shared by every `permissions` by-id endpoint. */

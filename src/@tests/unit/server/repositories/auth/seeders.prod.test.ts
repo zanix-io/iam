@@ -66,7 +66,7 @@ Deno.test('resolveFirstAdminAuthData: seeds the fixed-id account, linked to FIRS
           emailKeyId: await computeEmailKeyId('admin@example.com'),
           password: 'Sup3rSecret!',
           userId: FIRST_ADMIN_USER_ID,
-          roleId: SUPERADMIN_ROLE_ID,
+          roleIds: [SUPERADMIN_ROLE_ID],
         })
       }),
   )

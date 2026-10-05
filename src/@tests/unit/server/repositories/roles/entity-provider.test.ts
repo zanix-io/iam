@@ -103,8 +103,77 @@ Deno.test('RolesRepository: createRole saves a new document; updateRole/deleteRo
   assertEquals(await repo.createRole(data) as unknown, { id: 'saved-1', ...data })
   assertEquals(created, [data])
 
-  await repo.updateRole({ id: 'role-1', name: 'Renamed' })
+  await repo.updateRole({ id: 'role-1', name: 'Renamed', description: undefined })
   await repo.deleteRole('role-1')
   assertEquals(calls.updateOne, [[{ _id: 'role-1' }, { $set: { name: 'Renamed' } }]])
   assertEquals(calls.deleteOne, [[{ _id: 'role-1' }]])
+})
+
+Deno.test('RolesRepository.findManyByIds: one $in query; no ids never queries', async () => {
+  const find = fn((_filter: Record<string, unknown>) => ({
+    exec: () => Promise.resolve(['plain']),
+  }))
+  const repo = buildRepository({ find })
+  assertEquals(await repo.findManyByIds(['r1', 'r2']) as unknown, ['plain'])
+  assertEquals(await repo.findManyByIds([]), [])
+  assertEquals(find.calls, [[{ _id: { $in: ['r1', 'r2'] } }]])
+})
+
+Deno.test('RolesRepository.findManyWithPermissions/findAllWithPermissions: populate permissions', async () => {
+  const populate = fn((_path: string) => ({ exec: () => Promise.resolve(['populated']) }))
+  const find = fn((_filter: Record<string, unknown>) => ({ populate }))
+  const repo = buildRepository({ find })
+  assertEquals(await repo.findManyWithPermissions(['r1']) as unknown, ['populated'])
+  assertEquals(await repo.findManyWithPermissions([]), [])
+  assertEquals(await repo.findAllWithPermissions() as unknown, ['populated'])
+  assertEquals(find.calls, [[{ _id: { $in: ['r1'] } }], [{}]])
+  assertEquals(populate.calls, [['permissions'], ['permissions']])
+})
+
+Deno.test('RolesRepository.updateRole: with a version it matches only that updatedAt, and answers whether it matched', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: updateOne.calls.length === 1 ? 1 : 0 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  const version = new Date('2026-01-01T00:00:00.000Z')
+  assertEquals(await repo.updateRole({ id: 'role-1', name: 'A' }, { ifUpdatedAt: version }), true)
+  assertEquals(await repo.updateRole({ id: 'role-1', name: 'B' }, { ifUpdatedAt: version }), false)
+  assertEquals(updateOne.calls[0], [
+    { _id: 'role-1', updatedAt: version },
+    { $set: { name: 'A' } },
+  ])
+})
+
+Deno.test('RolesRepository.replacePermissions: conditioned on the permissions still being the ones written', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: 1 }),
+  }))
+  assertEquals(await buildRepository({ updateOne }).replacePermissions('r1', ['p2'], ['p1']), true)
+  assertEquals(updateOne.calls[0], [
+    { _id: 'r1', permissions: ['p2'] },
+    { $set: { permissions: ['p1'] } },
+  ])
+})
+
+Deno.test('RolesRepository.restoreRole: puts the role back with its id only if none exists', async () => {
+  const updateOne = fn(
+    (_filter: Record<string, unknown>, _update: Record<string, unknown>, _options: unknown) => ({
+      exec: () => Promise.resolve({ upsertedCount: updateOne.calls.length === 1 ? 1 : 0 }),
+    }),
+  )
+  const repo = buildRepository({ updateOne })
+  const snapshot = {
+    id: 'r1',
+    name: 'Editor',
+    code: 'editor',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+  assertEquals(await repo.restoreRole(snapshot as never), true)
+  assertEquals(await repo.restoreRole(snapshot as never), false)
+  assertEquals(updateOne.calls[0], [
+    { _id: 'r1' },
+    { $setOnInsert: { name: 'Editor', code: 'editor' } },
+    { upsert: true },
+  ])
 })

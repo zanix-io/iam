@@ -37,8 +37,8 @@ const data = [{
   userId: DEV_USER_ID,
   // The `superadmin` role (wildcard permission), so a fresh environment's first login has full
   // administrative access. `seedManyByIdIfMissing` only inserts (`$setOnInsert`), so a record
-  // already seeded without `roleId` keeps lacking it; assign it with `RolesService.assignRole`.
-  roleId: SUPERADMIN_ROLE_ID,
+  // already seeded without roles keeps lacking them; assign it with `RolesService.addRoles`.
+  roleIds: [SUPERADMIN_ROLE_ID],
 }]
 
 /** This project's dev-only bootstrap `auth` account (`DEV_AUTH_ID`), upserted on boot via

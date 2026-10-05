@@ -30,6 +30,9 @@ export const RBAC_PERMISSION_GRANT_ACCESS_WRITE_ID = '693000000000000000000108'
 /** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
 export const RBAC_PERMISSION_TEMPLATES_ACCESS_ID = '693000000000000000000109'
 
+/** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
+export const RBAC_PERMISSION_AUDIT_READ_ID = '693000000000000000000110'
+
 /** Every seeded permission: the wildcard plus one entry per `RBAC_PERMISSIONS` code. */
 export const SEEDED_PERMISSIONS = [
   {
@@ -102,6 +105,13 @@ export const SEEDED_PERMISSIONS = [
     code: RBAC_PERMISSIONS.templatesAccess,
     name: 'Manage notification templates',
     description: 'Use the `/templates` CRUD API over database-backed template overrides.',
+    isActive: true,
+  },
+  {
+    id: RBAC_PERMISSION_AUDIT_READ_ID,
+    code: RBAC_PERMISSIONS.auditRead,
+    name: 'Read the audit trail',
+    description: 'List the recorded changes to roles, permissions and account status.',
     isActive: true,
   },
 ]

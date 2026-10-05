@@ -9,9 +9,18 @@ import { HttpError } from '@zanix/errors'
 import { Interactor, ZanixInteractor } from '@zanix/server'
 import { NotifierProvider } from '@zanix/notifications'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
+import { RolesRepository } from '../repositories/roles/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
 import { PasswordService } from './password.interactor.ts'
-import { SERVICE_ID } from 'utils/constants.ts'
+import { audited } from './audit.ts'
+import {
+  assertCanGrant,
+  authorizeActor,
+  changeProtectingAdministrator,
+  permissionsOfUser,
+  serialized,
+} from './role-admin.ts'
+import { blocksSignIn, RBAC_PERMISSIONS, SERVICE_ID } from 'utils/constants.ts'
 
 /**
  * Business logic for the `users` domain — profile/settings management and administrative
@@ -51,10 +60,14 @@ export class UsersService extends ZanixInteractor {
    * already-built password-recovery flow (`PasswordService.recovery`) rather than an admin
    * choosing/knowing it.
    *
-   * @throws {HttpError} `CONFLICT` when `email` is already registered.
+   * The caller must still hold `user-write` in the database, not only in its token
+   * (`ACTOR_LACKS_PERMISSION`).
+   *
+   * @throws {HttpError} `CONFLICT` when `email` is already registered; `FORBIDDEN` as above.
    */
   public async registerUser(data: UserRegisterRTO) {
     const { email, password, firstName, lastName, phoneNumber } = data
+    await authorizeActor(this.providers, this.context.session, RBAC_PERMISSIONS.userWrite)
 
     const existing = await this.providers.get(AuthRepository).findByEmail(email)
     if (existing) {
@@ -129,11 +142,21 @@ export class UsersService extends ZanixInteractor {
    * `deleteOwnAccount` for `'DELETED'`), never back to `'ACTIVE'`. A later successful OTP or OAuth2
    * login offers reactivation behind an explicit confirmation step — see `AuthService`'s own header
    * doc for that carve-out.
+   *
+   * @throws {HttpError} `CONFLICT` when this is the last account able to manage roles.
    */
   public async deactivateOwnAccount() {
     const auth = await this.resolveOwnAuth()
-    await this.providers.get(UsersRepository).updateUser({ id: auth.userId, status: 'INACTIVE' })
-    return { response: 'account deactivated' }
+    return await audited(
+      this.providers,
+      this.context,
+      {
+        action: 'users.deactivate-own',
+        target: { kind: 'user', id: auth.userId },
+        request: { status: 'INACTIVE' },
+      },
+      (note) => this.#blockProfile(auth.userId, 'INACTIVE', {}, 'account deactivated', note),
+    )
   }
 
   /**
@@ -141,15 +164,26 @@ export class UsersService extends ZanixInteractor {
    * Self-scoped via `resolveOwnAuth()`, the same structural guarantee as `deactivateOwnAccount`'s
    * own doc. Unlike a self-deactivate, this is NOT reversible through any login path —
    * `'DELETED'` never reactivates (see `AuthService`'s own header doc).
+   *
+   * @throws {HttpError} `CONFLICT` when this is the last account able to manage roles.
    */
   public async deleteOwnAccount() {
     const auth = await this.resolveOwnAuth()
-    await this.providers.get(UsersRepository).updateUser({ id: auth.userId, status: 'DELETED' })
-    return { response: 'account deleted' }
+    return await audited(
+      this.providers,
+      this.context,
+      {
+        action: 'users.delete-own',
+        target: { kind: 'user', id: auth.userId },
+        request: { status: 'DELETED' },
+      },
+      (note) => this.#blockProfile(auth.userId, 'DELETED', {}, 'account deleted', note),
+    )
   }
 
   /**
-   * Gets a profile by `id`. Admin-scoped — gated at the handler level by `RBAC_PERMISSIONS.userRead`/
+   * Gets a profile by `id`, with the `authId` of its account and that account's `roleIds` (the
+   * link the roles endpoints need; ids only, no contact data). Admin-scoped — gated at the handler level by `RBAC_PERMISSIONS.userRead`/
    * `userWrite` (see `UsersController`'s own doc).
    *
    * @throws {HttpError} `NOT_FOUND` when no profile exists for `id`.
@@ -157,7 +191,15 @@ export class UsersService extends ZanixInteractor {
   public async getUserById(id: string) {
     const user = await this.providers.get(UsersRepository).findById(id)
     if (!user) throw new HttpError('NOT_FOUND', { message: 'User not found.' })
-    return user
+    const [account] = await this.#accountsOf([user])
+    return { ...serialized(user), authId: account?.id, roleIds: account?.roleIds ?? [] }
+  }
+
+  /** The accounts linked to `profiles`, with one query. */
+  #accountsOf(profiles: readonly { id?: unknown }[]) {
+    return this.providers.get(AuthRepository).findRolesByUserIds(
+      profiles.map((profile) => String(profile.id)),
+    )
   }
 
   /**
@@ -171,24 +213,100 @@ export class UsersService extends ZanixInteractor {
    * valid until it naturally expires — stateless JWTs having no revocation list is an accepted,
    * ecosystem-wide tradeoff, not a gap specific to this method.
    *
-   * @throws {HttpError} `NOT_FOUND` when no profile exists for `id`.
+   * Every edit is audited (`users.edit`, or `users.block` when the new status blocks sign-in) and
+   * needs the caller to still hold `user-write` in the database (`ACTOR_LACKS_PERMISSION`).
+   * Blocking a person is refused with `FORBIDDEN` (`ROLE_GRANT_EXCEEDS_SCOPE`) when the person's
+   * roles grant a permission the caller doesn't hold — a `user-write` holder cannot block someone
+   * it does not cover.
+   *
+   * @throws {HttpError} `NOT_FOUND` when no profile exists for `id`; `FORBIDDEN` as above;
+   *   `CONFLICT` (`LAST_ADMINISTRATOR`) when the profile belongs to the last account able to manage
+   *   roles.
    */
-  public async updateUserById(id: string, data: AdminEditUserRTO) {
-    const user = await this.providers.get(UsersRepository).findById(id)
-    if (!user) throw new HttpError('NOT_FOUND', { message: 'User not found.' })
+  public updateUserById(id: string, data: AdminEditUserRTO) {
+    const status = blocksSignIn(data.status) ? data.status : undefined
+    return audited(
+      this.providers,
+      this.context,
+      {
+        action: status ? 'users.block' : 'users.edit',
+        target: { kind: 'user', id },
+        request: { status: data.status },
+      },
+      async (note) => {
+        // Blocking a person takes away everything their roles grant, so the caller must hold it
+        // all; the role catalog read for that is reused by the last-administrator check.
+        const catalog = status
+          ? await this.providers.get(RolesRepository).findAllWithPermissions()
+          : undefined
+        const held = await authorizeActor(
+          this.providers,
+          this.context.session,
+          RBAC_PERMISSIONS.userWrite,
+          catalog,
+        )
+        const user = await this.providers.get(UsersRepository).findById(id)
+        if (!user) throw new HttpError('NOT_FOUND', { message: 'User not found.' })
+        if (!status) {
+          await this.providers.get(UsersRepository).updateUser({ ...data, id }, {
+            applyProtection: true,
+          })
+          return { response: 'user updated' }
+        }
+        assertCanGrant(held, await permissionsOfUser(this.providers, id, catalog ?? []))
+        return await this.#blockProfile(id, status, data, 'user updated', note, catalog)
+      },
+    )
+  }
 
-    await this.providers.get(UsersRepository).updateUser({ ...data, id }, {
-      applyProtection: true,
-    })
-
-    return { response: 'user updated' }
+  /**
+   * Moves the profile `userId` to a status that blocks sign-in through
+   * `changeProtectingAdministrator`: the last account able to manage roles cannot be blocked, and
+   * if two requests together blocked the last ones, the status is put back. `fields` are the other
+   * edits of the same request, written together with the status. Runs inside the audit event of
+   * its caller.
+   */
+  async #blockProfile(
+    userId: string,
+    status: 'INACTIVE' | 'DELETED',
+    fields: Partial<AdminEditUserRTO>,
+    response: string,
+    note: Parameters<Parameters<typeof audited>[3]>[0],
+    catalog?: Parameters<typeof changeProtectingAdministrator>[3],
+  ) {
+    const repository = this.providers.get(UsersRepository)
+    const previous = (await repository.findById(userId))?.status ?? 'ACTIVE'
+    note({ before: { status: previous }, after: { status } })
+    await changeProtectingAdministrator(
+      this.providers,
+      { kind: 'user-blocked', userId },
+      {
+        write: async () => {
+          await repository.updateUser({ ...fields, id: userId, status }, { applyProtection: true })
+          return true
+        },
+        undo: () => repository.restoreStatus(userId, status, previous),
+      },
+      catalog,
+    )
+    return { response }
   }
 
   /**
    * Paginated, filterable/searchable admin listing of profiles — the real hydrated documents,
-   * returned as-is. See `getOwnProfile`'s own doc for why entries are never hand-adapted.
+   * returned as-is, each with the `authId` and `roleIds` of its account (`roleIds` is `[]`, and
+   * `authId` absent, for a profile with no account). See `getOwnProfile`'s own doc for why entries
+   * are never hand-adapted.
    */
   public async searchUsers(options: Partial<SearchUsersRTO>) {
-    return await this.providers.get(UsersRepository).searchUsers(options)
+    const page = await this.providers.get(UsersRepository).searchUsers(options)
+    const accounts = new Map((await this.#accountsOf(page.docs)).map((a) => [a.userId, a]))
+    return {
+      ...page,
+      docs: page.docs.map((user) => {
+        const account = accounts.get(String(user.id))
+        return { ...serialized(user), authId: account?.id, roleIds: account?.roleIds ?? [] }
+      }),
+    }
   }
 }

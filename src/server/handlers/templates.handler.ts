@@ -1,4 +1,6 @@
+import { isTemplatesResourceEnabled } from '@zanix/notifications'
 import { createTemplatesController } from '@zanix/notifications/templates-api'
+import { HttpError } from '@zanix/errors'
 import { jwtValidationGuard } from '@zanix/auth'
 import { RBAC_PERMISSIONS } from 'utils/constants.ts'
 
@@ -21,6 +23,18 @@ const templatesController: ReturnType<typeof createTemplatesController> = create
         permissions: [RBAC_PERMISSIONS.templatesAccess],
         type: ['user', 'api'],
       }),
+      // Without `TEMPLATES_BACKEND=local` the templates model does not exist, so the controller
+      // would fail with a 500 on every call: answer what is true instead. Checked per request, after
+      // the token, so only a caller allowed to use the API learns it is off.
+      () => {
+        if (!isTemplatesResourceEnabled('local')) {
+          throw new HttpError('NOT_FOUND', {
+            message: 'The templates API needs TEMPLATES_BACKEND=local.',
+            code: 'TEMPLATES_BACKEND_DISABLED',
+          })
+        }
+        return {}
+      },
     ],
   },
 )

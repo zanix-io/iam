@@ -104,7 +104,7 @@ const defaultUsersRepo = () => ({
 })
 
 const defaultRolesRepo = () => ({
-  findById: fn((..._args: unknown[]): unknown => undefined),
+  findManyWithPermissions: fn((..._args: unknown[]): unknown => []),
 })
 
 const defaultPasswordService = () => ({
@@ -264,38 +264,83 @@ Deno.test('loginWithPassword: no role assigned embeds an empty permissions list,
     (authProvider.session.generateTokens.calls[0]?.[0] as { permissions?: string[] }).permissions,
     [],
   )
-  assertEquals(rolesRepo.findById.calls.length, 0)
+  assertEquals(rolesRepo.findManyWithPermissions.calls.length, 0)
 })
 
 Deno.test('loginWithPassword: with a role assigned, embeds its resolved active permissions', async () => {
   const { service, authProvider, rolesRepo } = buildService({
-    authRepo: { findByEmail: fn(() => baseAuth({ roleId: 'role-1' })) },
+    authRepo: { findByEmail: fn(() => baseAuth({ roleIds: ['role-1'] })) },
     rolesRepo: {
-      findById: fn(() => ({
+      findManyWithPermissions: fn(() => [{
         id: 'role-1',
         permissions: [
           { id: 'p1', code: 'zanix-iam:role-read', isActive: true },
           { id: 'p2', code: 'zanix-iam:role-write', isActive: false },
         ],
-      })),
+      }]),
     },
   })
   await service.loginWithPassword('jane@example.com', 'secret')
-  assertEquals(rolesRepo.findById.calls[0], ['role-1', { populate: 'permissions' }])
+  assertEquals(rolesRepo.findManyWithPermissions.calls[0], [['role-1']])
   assertEquals(
     (authProvider.session.generateTokens.calls[0]?.[0] as { permissions?: string[] }).permissions,
     ['zanix-iam:role-read'],
   )
 })
 
+Deno.test('loginWithPassword: with several roles, embeds the union of their permissions without repeats', async () => {
+  const roles: Record<string, unknown> = {
+    'role-web': {
+      id: 'role-web',
+      permissions: [{ id: 'p1', code: 'web:user', isActive: true }],
+    },
+    'role-seller': {
+      id: 'role-seller',
+      permissions: [
+        { id: 'p1', code: 'web:user', isActive: true },
+        { id: 'p2', code: 'seller:manage', isActive: true },
+        { id: 'p3', code: 'seller:off', isActive: false },
+      ],
+    },
+  }
+  const { service, authProvider, rolesRepo } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ roleIds: ['role-web', 'role-seller'] })) },
+    rolesRepo: {
+      findManyWithPermissions: fn((ids: unknown) => (ids as string[]).map((id) => roles[id])),
+    },
+  })
+  await service.loginWithPassword('jane@example.com', 'secret')
+  assertEquals(rolesRepo.findManyWithPermissions.calls, [[['role-web', 'role-seller']]])
+  assertEquals(
+    (authProvider.session.generateTokens.calls[0]?.[0] as { permissions?: string[] }).permissions,
+    ['web:user', 'seller:manage'],
+  )
+})
+
+Deno.test('loginWithPassword: a role that no longer exists adds nothing and the others still apply', async () => {
+  const { service, authProvider } = buildService({
+    authRepo: { findByEmail: fn(() => baseAuth({ roleIds: ['gone', 'role-1'] })) },
+    rolesRepo: {
+      findManyWithPermissions: fn(
+        () => [{ id: 'role-1', permissions: [{ id: 'p1', code: 'web:user', isActive: true }] }],
+      ),
+    },
+  })
+  await service.loginWithPassword('jane@example.com', 'secret')
+  assertEquals(
+    (authProvider.session.generateTokens.calls[0]?.[0] as { permissions?: string[] }).permissions,
+    ['web:user'],
+  )
+})
+
 Deno.test('loginWithOTPCallback: embeds the resolved role permissions', async () => {
   const { service, authProvider } = buildService({
-    authRepo: { findByEmail: fn(() => baseAuth({ roleId: 'role-1' })) },
+    authRepo: { findByEmail: fn(() => baseAuth({ roleIds: ['role-1'] })) },
     rolesRepo: {
-      findById: fn(() => ({
+      findManyWithPermissions: fn(() => [{
         id: 'role-1',
         permissions: [{ id: 'p1', code: 'zanix-iam:role-read', isActive: true }],
-      })),
+      }]),
     },
   })
   await service.loginWithOTPCallback('jane@example.com', '123456')
@@ -397,13 +442,13 @@ Deno.test("loginWithOTPCallback: self-provisioning assigns auth.app.ts's configu
     await service.loginWithOTPCallback('new@example.com', '123456')
 
     const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
-    assertEquals(registered.roleId, 'role-default-member')
+    assertEquals(registered.roleIds, ['role-default-member'])
   } finally {
     setConfigOverride('auth', 'defaultRoleId', '')
   }
 })
 
-Deno.test('loginWithOTPCallback: with no defaultRoleId configured, self-provisioning passes roleId undefined', async () => {
+Deno.test('loginWithOTPCallback: with no defaultRoleId configured, self-provisioning passes roleIds undefined', async () => {
   let lookups = 0
   const { service, authRepo } = buildService({
     authRepo: {
@@ -416,7 +461,7 @@ Deno.test('loginWithOTPCallback: with no defaultRoleId configured, self-provisio
   await service.loginWithOTPCallback('new@example.com', '123456')
 
   const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
-  assertEquals(registered.roleId, undefined)
+  assertEquals(registered.roleIds, undefined)
 })
 
 Deno.test('loginWithOTPCallback: no existing account, invalid code, never provisions anything', async () => {
@@ -631,14 +676,14 @@ Deno.test('loginWithTOTPCallback: embeds the resolved role permissions', async (
   const { service, authProvider } = buildService({
     authRepo: {
       findByEmail: fn(() =>
-        baseAuth({ roleId: 'role-1', totpSecret: { decrypt: () => 'SECRET' } })
+        baseAuth({ roleIds: ['role-1'], totpSecret: { decrypt: () => 'SECRET' } })
       ),
     },
     rolesRepo: {
-      findById: fn(() => ({
+      findManyWithPermissions: fn(() => [{
         id: 'role-1',
         permissions: [{ id: 'p1', code: 'zanix-iam:role-read', isActive: true }],
-      })),
+      }]),
     },
   })
   await service.loginWithTOTPCallback('jane@example.com', '123456')
@@ -687,13 +732,13 @@ Deno.test('loginWithTOTPCallback: passes refreshExpiration when REFRESH_TOKEN_EX
 Deno.test('refreshTokens: reflects a role change made after the original login', async () => {
   const { service, rolesRepo, authProvider } = buildService({
     authRepo: {
-      findById: fn(() => baseAuth({ roleId: 'role-1' })),
+      findById: fn(() => baseAuth({ roleIds: ['role-1'] })),
     },
     rolesRepo: {
-      findById: fn(() => ({
+      findManyWithPermissions: fn(() => [{
         id: 'role-1',
         permissions: [{ id: 'p1', code: 'zanix-iam:role-write', isActive: true }],
-      })),
+      }]),
     },
   })
   await service.refreshTokens(fakeRefreshToken('auth-1'))
@@ -701,9 +746,29 @@ Deno.test('refreshTokens: reflects a role change made after the original login',
   // and passed straight through as `session.refreshTokens`'s own `sessionOptions` override. A
   // role reassigned after the original login (see `RolesService.assignRole`'s own doc) is
   // reflected on the very next refresh, with no forced re-login needed.
-  assertEquals(rolesRepo.findById.calls[0], ['role-1', { populate: 'permissions' }])
+  assertEquals(rolesRepo.findManyWithPermissions.calls[0], [['role-1']])
   assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
     permissions: ['zanix-iam:role-write'],
+  })
+})
+
+Deno.test('refreshTokens: after a role is added, the next refresh carries the union of both roles', async () => {
+  const roles: Record<string, unknown> = {
+    'role-web': { id: 'role-web', permissions: [{ id: 'p1', code: 'web:user', isActive: true }] },
+    'role-seller': {
+      id: 'role-seller',
+      permissions: [{ id: 'p2', code: 'seller:manage', isActive: true }],
+    },
+  }
+  const { service, authProvider } = buildService({
+    authRepo: { findById: fn(() => baseAuth({ roleIds: ['role-web', 'role-seller'] })) },
+    rolesRepo: {
+      findManyWithPermissions: fn((ids: unknown) => (ids as string[]).map((id) => roles[id])),
+    },
+  })
+  await service.refreshTokens(fakeRefreshToken('auth-1'))
+  assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
+    permissions: ['web:user', 'seller:manage'],
   })
 })
 
@@ -712,7 +777,7 @@ Deno.test('refreshTokens: with no account resolvable from the token, still asks 
     authRepo: { findById: fn(() => undefined) },
   })
   await assertRejects(() => service.refreshTokens(fakeRefreshToken('missing-auth')), HttpError)
-  assertEquals(rolesRepo.findById.calls.length, 0)
+  assertEquals(rolesRepo.findManyWithPermissions.calls.length, 0)
   assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], { permissions: [] })
 })
 
@@ -822,17 +887,25 @@ Deno.test('totpConfirm: throws FORBIDDEN when the code does not verify', async (
 })
 
 Deno.test('totpConfirm: on success persists the secret and sends the totp-enabled notification', async () => {
-  const { service, authRepo, notifier } = buildService()
-  const result = await service.totpConfirm('SECRET', '123456')
-  assertEquals(result, { response: 'TOTP enabled' })
-  const update = authRepo.updateAuth.calls[0]?.[0] as Record<string, unknown>
-  assertEquals(update.totpSecret, 'SECRET')
-  assertEquals(
-    (update.twoFactorAuthConfig as { method: string }).method,
-    'totp',
-  )
-  assertEquals(notifier.email.calls.length, 1)
-  assertEquals((notifier.email.calls[0]?.[0] as { to: string }).to, 'jane@example.com')
+  await withEnv('TEMPLATES_BACKEND', 'local', async () => {
+    const { service, authRepo, notifier } = buildService()
+    const result = await service.totpConfirm('SECRET', '123456')
+    assertEquals(result, { response: 'TOTP enabled' })
+    const update = authRepo.updateAuth.calls[0]?.[0] as Record<string, unknown>
+    assertEquals(update.totpSecret, 'SECRET')
+    assertEquals((update.twoFactorAuthConfig as { method: string }).method, 'totp')
+    assertEquals(notifier.email.calls.length, 1)
+    assertEquals((notifier.email.calls[0]?.[0] as { to: string }).to, 'jane@example.com')
+  })
+})
+
+Deno.test('totpConfirm: without TEMPLATES_BACKEND=local the secret is persisted and no database-only notice is sent', async () => {
+  await withEnv('TEMPLATES_BACKEND', undefined, async () => {
+    const { service, authRepo, notifier } = buildService()
+    assertEquals(await service.totpConfirm('SECRET', '123456'), { response: 'TOTP enabled' })
+    assertEquals(authRepo.updateAuth.calls.length, 1)
+    assertEquals(notifier.email.calls.length, 0)
+  })
 })
 
 Deno.test('disableTotp: throws UNAUTHORIZED with no session', async () => {
@@ -1161,7 +1234,7 @@ Deno.test("loginWithOauthCallback: self-provisioning assigns auth.app.ts's confi
     await service.loginWithOauthCallback('code', 'google')
 
     const registered = authRepo.registerAuth.calls[0]?.[0] as Record<string, unknown>
-    assertEquals(registered.roleId, 'role-default-member')
+    assertEquals(registered.roleIds, ['role-default-member'])
   } finally {
     setConfigOverride('auth', 'defaultRoleId', '')
   }

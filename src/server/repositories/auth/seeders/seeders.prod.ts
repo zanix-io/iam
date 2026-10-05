@@ -23,11 +23,11 @@ export type FirstAdminAuthData = {
   emailKeyId: string
   password: string
   userId: string
-  roleId: string
+  roleIds: string[]
 }
 
 /**
- * Opt-in only — see {@linkcode FIRST_ADMIN_EMAIL_ENV}'s own doc. `roleId: SUPERADMIN_ROLE_ID` is
+ * Opt-in only — see {@linkcode FIRST_ADMIN_EMAIL_ENV}'s own doc. `roleIds: [SUPERADMIN_ROLE_ID]` is
  * set directly here, at creation, rather than via a separate `RolesService.assignRole` call
  * afterward (the manual step `roles/seeders/seeders.prod.ts`'s own doc describes) — assigning a
  * role to an ALREADY-existing account is what that service method is for; this account doesn't
@@ -52,7 +52,7 @@ export async function resolveFirstAdminAuthData(): Promise<FirstAdminAuthData[]>
     emailKeyId: await computeEmailKeyId(firstAdminEmail),
     password: firstAdminPassword,
     userId: FIRST_ADMIN_USER_ID,
-    roleId: SUPERADMIN_ROLE_ID,
+    roleIds: [SUPERADMIN_ROLE_ID],
   }]
 }
 

@@ -5,7 +5,7 @@ import seeders from './seeders/main.ts'
 
 /**
  * The `roles` collection — a named, reusable bundle of `permissions` (see that model's own doc)
- * assignable to an `auth` account via its single `roleId` ref (`AuthenticationAttrs.roleId`).
+ * assignable to an `auth` account through its `roleIds` refs (`AuthenticationAttrs.roleIds`); an account may hold several.
  *
  * **What "multi-tenancy" means here — SaaS-shaped, not multi-product**: this project serves ONE
  * product per deployment. `tenantId` below is that ONE product's own
@@ -17,10 +17,10 @@ import seeders from './seeders/main.ts'
  *
  * `tenantId` (a plain, opaque, unowned foreign id — no `ref:`; tenants/organizations are owned by
  * another system, never this project) gives optional per-customer/organization scoping for this
- * one product. `auth.roleId` (a SINGLE ref) still only ever points at ONE role at a time — a `tenantId`
+ * one product. A `tenantId`
  * absent means a global/system role (assignable regardless of tenant), present means a
- * tenant-scoped one, so `auth.roleId`'s single-ref shape simply widens what "one role" can mean
- * per code, without needing a tenant-scoped catalog structure of its own. `permissions` stays
+ * tenant-scoped one, so `auth.roleIds` can mix both without needing a tenant-scoped catalog
+ * structure of its own. `permissions` stays
  * completely untouched by this — see that model's own doc for why its catalog stays
  * global/tenant-agnostic. See `AuthenticationAttrs`'s own doc (`../auth/model.defs.ts`) for why
  * `auth`/`users` deliberately carry no equivalent field.
@@ -41,6 +41,12 @@ export type RolesAttrs = {
   /** Ref array to `permissions` — `PermissionsAttrs[]` once populated (see
    * `RolesRepository.findById`'s own `populate` option), plain id strings otherwise. */
   permissions: string[] | PermissionsAttrs[]
+  /**
+   * A system role (the seeded `superadmin`): it cannot be edited or deleted by anyone. Optional and
+   * immutable once set — only an actor holding `*` can create a role with it. A role without the
+   * field behaves as a non-system one.
+   */
+  isSystem?: boolean
   /** The `users.id` of the admin who created this role — unset for a seeded/system entry. */
   createdBy?: string
   createdAt: Date
@@ -72,6 +78,10 @@ registerModel<RolesAttrs>({
       type: [Schema.Types.ObjectId],
       ref: 'permissions',
       required: true,
+    },
+    isSystem: {
+      type: Boolean,
+      immutable: true,
     },
     createdBy: {
       type: Schema.Types.ObjectId,

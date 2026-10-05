@@ -1,7 +1,9 @@
 import type { ZanixMongoConnector } from '@zanix/datamaster'
+import type { PopulatedRoleDoc } from 'utils/rbac.ts'
 import type { RolesAttrs } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
+import { definedOnly } from 'utils/defined-only.ts'
 
 /**
  * Provider for the `roles` model — named permission bundles assignable to an `auth` account. See
@@ -43,6 +45,32 @@ export class RolesRepository extends ZanixProvider<{ database: ZanixMongoConnect
   }
 
   /**
+   * Finds the roles whose id is in `ids` with ONE query. A missing id is simply absent from the
+   * answer, and the answer's order is not the order of `ids`.
+   */
+  public findManyByIds(ids: string[]) {
+    if (!ids.length) return Promise.resolve([])
+    return this.Model.find({ _id: { $in: ids } }).exec()
+  }
+
+  /** Like {@linkcode findManyByIds}, with each role's `permissions` populated. */
+  public findManyWithPermissions(ids: string[]): Promise<PopulatedRoleDoc[]> {
+    if (!ids.length) return Promise.resolve([])
+    return this.#populated({ _id: { $in: ids } })
+  }
+
+  /** Every role with its `permissions` populated. */
+  public findAllWithPermissions(): Promise<PopulatedRoleDoc[]> {
+    return this.#populated({})
+  }
+
+  /** `populate` types `permissions` as the ref ids; the query returns the permission documents. */
+  async #populated(filter: Record<string, unknown>): Promise<PopulatedRoleDoc[]> {
+    return await this.Model.find(filter).populate('permissions')
+      .exec() as unknown as PopulatedRoleDoc[]
+  }
+
+  /**
    * Finds a role by its `code`, scoped to `tenantId` — the exact tuple the `{code, tenantId}`
    * unique index enforces. Omitting `tenantId` looks up the GLOBAL role for that `code` only
    * (`tenantId` absent, i.e. `$exists: false`), never any tenant-scoped one — a plain `{ code }`
@@ -55,15 +83,47 @@ export class RolesRepository extends ZanixProvider<{ database: ZanixMongoConnect
   }
 
   /**
-   * Updates an existing role.
+   * Updates an existing role. With `options.ifUpdatedAt` the write happens only if the role's
+   * `updatedAt` is still that instant (optimistic version check); answers whether it matched.
    * ⚠️ Ensure that only existing records are updated, or validate their existence before
    * performing the update.
    *
    * @param data Fields to update — must include `id`.
    */
-  public updateRole(data: Partial<RolesAttrs> & { id: string }) {
+  public async updateRole(
+    data: Partial<RolesAttrs> & { id: string },
+    options: { ifUpdatedAt?: Date } = {},
+  ) {
     const { id, ...rest } = data
-    return this.Model.updateOne({ _id: id }, { $set: rest }).exec()
+    const filter = options.ifUpdatedAt ? { _id: id, updatedAt: options.ifUpdatedAt } : { _id: id }
+    const result = await this.Model.updateOne(filter, { $set: definedOnly(rest) }).exec()
+    return result.matchedCount > 0
+  }
+
+  /**
+   * Replaces a role's `permissions` with `next` only if they are still exactly `expected`; the
+   * undo of an edit that left nobody able to manage roles. Answers whether it matched.
+   */
+  public async replacePermissions(roleId: string, expected: string[], next: string[]) {
+    const result = await this.Model.updateOne(
+      { _id: roleId, permissions: expected },
+      { $set: { permissions: next } },
+    ).exec()
+    return result.matchedCount > 0
+  }
+
+  /**
+   * Puts a deleted role back with the same id, if no role has that id; the undo of a delete.
+   * `snapshot` is the role as it was read, `id` included.
+   */
+  public async restoreRole(snapshot: Partial<RolesAttrs> & { id: string }) {
+    const { id, createdAt: _createdAt, updatedAt: _updatedAt, ...fields } = snapshot
+    const result = await this.Model.updateOne(
+      { _id: id },
+      { $setOnInsert: fields },
+      { upsert: true },
+    ).exec()
+    return result.upsertedCount > 0
   }
 
   /** Deletes a role by `id`. */

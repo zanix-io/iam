@@ -124,10 +124,11 @@ export const loginMethodsRateLimit: number = Number(Deno.env.get(LOGIN_METHODS_R
  * self-registration path (OTP or OAuth2 — see `AuthService.loginWithOTPCallback`/
  * `loginWithOauthCallback`, both of which resolve `auth.app.ts`'s `defaultRoleId` config through
  * this same constant). Unset (the default), a fresh account gets no role and therefore no
- * permissions at all (`resolveSessionPermissions` short-circuits on `!roleId`) — a consumer that
- * wants new accounts to reach its own ordinary authenticated-user routes seeds a role holding
- * whatever permission its own session guard checks (e.g. an `app:user` permission) and points this
- * env var at its `id`.
+ * permissions at all (`resolveSessionPermissions` short-circuits on an empty role list) — a
+ * consumer that wants new accounts to reach its own ordinary authenticated-user routes seeds a role
+ * holding whatever permission its own session guard checks (e.g. an `app:user` permission) and
+ * points this env var at its `id`. It is the account's first role: `RolesService.addRoles` keeps it and
+ * appends to it, while `assignRole` replaces it.
  */
 export const DEFAULT_ROLE_ID_ENV = 'DEFAULT_ROLE_ID'
 
@@ -197,7 +198,34 @@ export const PRIVACY_NOTICE_URL_ENV = 'PRIVACY_NOTICE_URL'
  */
 export const USER_STATUS = ['ACTIVE', 'INACTIVE', 'DELETED'] as const
 
-/** The subset of `USER_STATUS` an admin can set via the edit-by-id endpoint — see its own doc. */
+/**
+ * The profile statuses that block sign-in: `UsersRepository.assertActive` (the gate every login,
+ * refresh and recovery path runs) refuses them, and every other "can this account sign in" question
+ * (such as the last-role-administrator check in `RolesService`) asks {@linkcode blocksSignIn}
+ * instead of restating the list.
+ */
+export const SIGN_IN_BLOCKING_USER_STATUS = ['INACTIVE', 'DELETED'] as const
+
+/** Whether a `users` profile with this `status` cannot sign in; a missing profile never blocks. */
+export const blocksSignIn = (
+  status?: string,
+): status is typeof SIGN_IN_BLOCKING_USER_STATUS[number] =>
+  (SIGN_IN_BLOCKING_USER_STATUS as readonly string[]).includes(status ?? '')
+
+/** Most permissions one role may carry (`CreateRoleRTO`, `EditRoleRTO`). */
+export const MAX_PERMISSIONS_PER_ROLE = 200
+
+/** Most role ids one role-assignment request may carry (`AccountRolesRTO`, `SetRolesRTO`). */
+export const MAX_ROLE_IDS_PER_REQUEST = 50
+
+/**
+ * The statuses an admin may SET through the edit-by-id endpoint (`PATCH /users/:id`). A different
+ * concept from {@linkcode SIGN_IN_BLOCKING_USER_STATUS}, the statuses that block sign-in: today
+ * the two lists hold the same values, but one says what an edit may write (never `ACTIVE`, so an
+ * edit cannot reactivate) and the other what the login gate refuses, and either may change alone.
+ * The one relation `UsersService.updateUserById` relies on is fixed by a test: every editable
+ * status is one that blocks sign-in (so every status edit goes through the last-administrator rule).
+ */
 export const EDITABLE_USER_STATUS = ['INACTIVE', 'DELETED'] as const
 
 /** The `purpose` claim `AuthService.challengeReactivation`'s own short-lived token carries — lets
@@ -472,9 +500,96 @@ export const RBAC_PERMISSIONS = {
   grantAccessWrite: `${PERMISSIONS_PREFIX}:grant-access-write`,
   userRead: `${PERMISSIONS_PREFIX}:user-read`,
   userWrite: `${PERMISSIONS_PREFIX}:user-write`,
+  /** Gates `GET /audit`, the persistent record of role, permission and account-status changes. */
+  auditRead: `${PERMISSIONS_PREFIX}:audit-read`,
   /** Gates `templates.handler.ts`'s own `/templates` CRUD API — one permission for the whole
    * controller (no read/write split, matching that guard's own single-permission shape). */
   templatesAccess: `${PERMISSIONS_PREFIX}:templates-access`,
+} as const
+
+/** Env var name for how many days an audit event is kept — see {@linkcode auditRetentionDays}. */
+export const AUDIT_RETENTION_DAYS_ENV = 'AUDIT_RETENTION_DAYS'
+
+/**
+ * How many days an audit event (`role_audit_events`) is kept before MongoDB's TTL monitor deletes
+ * it. A positive integer; anything else, or unset, is the default 365 (12 months). It is read at
+ * boot and becomes the `expireAfterSeconds` of the collection's TTL index, so changing it on an
+ * existing collection needs the `collMod` command `docs/configuration.md` shows.
+ */
+export const auditRetentionDays: number = (() => {
+  const days = Number(Deno.env.get(AUDIT_RETENTION_DAYS_ENV))
+  return Number.isInteger(days) && days > 0 ? days : 365
+})()
+
+/** Env var name for {@linkcode adminMutationRateLimit}. */
+export const ADMIN_MUTATION_RATELIMIT_ENV = 'ADMIN_MUTATION_RATELIMIT'
+
+/** Env var name for {@linkcode adminMutationRateLimitWindowSeconds}. */
+export const ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS_ENV = 'ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS'
+
+/**
+ * Reads a positive-integer env var, `fallback` when it is unset or empty. A value that is set and is
+ * not a positive integer (`-5`, `1.5`, `abc`, `0`) is a configuration mistake that would otherwise
+ * be absorbed silently (a negative limit would answer 429 to every mutation), so it stops the boot.
+ *
+ * @throws {InternalError} `IAM_INVALID_POSITIVE_INTEGER_ENV` naming the variable.
+ */
+export function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = Deno.env.get(name)
+  if (raw === undefined || raw === '') return fallback
+  const value = Number(raw)
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1) {
+    throw new InternalError(`${name} must be a positive integer — got: "${raw}"`, {
+      code: 'IAM_INVALID_POSITIVE_INTEGER_ENV',
+    })
+  }
+  return value
+}
+
+/**
+ * Requests per window one operator may make to the administration mutations (roles, permissions
+ * and account status), in a bucket of their own so it never shares a counter with the session's
+ * general limit. A positive integer; defaults to 30. Anything else stops the boot (see
+ * {@linkcode positiveIntegerEnv}).
+ */
+export const adminMutationRateLimit: number = positiveIntegerEnv(ADMIN_MUTATION_RATELIMIT_ENV, 30)
+
+/** The window of {@linkcode adminMutationRateLimit}, in seconds: a positive integer, default 60. */
+export const adminMutationRateLimitWindowSeconds: number = positiveIntegerEnv(
+  ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS_ENV,
+  60,
+)
+
+/**
+ * The stable `code` of every rejection the role-administration rules produce, so a client chooses
+ * its message by code instead of reading English text. Carried in the error response's `code`;
+ * the data a code comes with (the missing permissions, the holders) is in `meta`.
+ */
+export const IAM_ERROR_CODES = {
+  /** The caller is a service credential, not an account. */
+  actorNotAccount: 'ACTOR_NOT_ACCOUNT',
+  /** The caller's account no longer exists or can no longer sign in. */
+  actorNotActive: 'ACTOR_NOT_ACTIVE',
+  /** The caller no longer holds the permission this operation needs; `meta.required` names it. */
+  actorLacksPermission: 'ACTOR_LACKS_PERMISSION',
+  /** An operation targeted the caller's own account. */
+  roleSelfChange: 'ROLE_SELF_CHANGE',
+  /** A change adds or takes away a permission the actor does not hold. `meta.missing` lists them. */
+  roleGrantExceedsScope: 'ROLE_GRANT_EXCEEDS_SCOPE',
+  /** A change would leave no account able to manage roles and sign in. */
+  lastAdministrator: 'LAST_ADMINISTRATOR',
+  /** Such a change was written, left nobody able to manage roles, and could not be undone. */
+  lastAdministratorUndoFailed: 'LAST_ADMINISTRATOR_UNDO_FAILED',
+  /** A role with holders cannot be deleted. `meta` has `holderCount` and `holderIds`. */
+  roleHasHolders: 'ROLE_HAS_HOLDERS',
+  /** A system role cannot be edited or deleted. */
+  roleIsSystem: 'ROLE_IS_SYSTEM',
+  /** The role changed since the version the client sent. */
+  roleVersionConflict: 'ROLE_VERSION_CONFLICT',
+  /** The permission changed since the version the client sent. */
+  permissionVersionConflict: 'PERMISSION_VERSION_CONFLICT',
+  /** An account's roles kept changing under the request. */
+  roleConcurrentChange: 'ROLE_CONCURRENT_CHANGE',
 } as const
 
 /**

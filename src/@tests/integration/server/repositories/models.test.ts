@@ -6,6 +6,7 @@ import 'server/repositories/users/model.defs.ts'
 import 'server/repositories/roles/model.defs.ts'
 import 'server/repositories/permissions/model.defs.ts'
 import 'server/repositories/grant-access/model.defs.ts'
+import 'server/repositories/audit/model.defs.ts'
 import authSeeders from 'server/repositories/auth/seeders/main.ts'
 import usersSeeders from 'server/repositories/users/seeders/main.ts'
 import rolesSeeders from 'server/repositories/roles/seeders/main.ts'
@@ -21,7 +22,14 @@ import permissionsProd from 'server/repositories/permissions/seeders/seeders.pro
 import permissionsDev from 'server/repositories/permissions/seeders/seeders.dev.ts'
 import grantAccessProd from 'server/repositories/grant-access/seeders/seeders.prod.ts'
 import grantAccessDev from 'server/repositories/grant-access/seeders/seeders.dev.ts'
-import { LOGIN_ACTIONS, NOTIFIERS, OAUTH_PROVIDERS, USER_STATUS } from 'utils/constants.ts'
+import {
+  auditRetentionDays,
+  LOGIN_ACTIONS,
+  NOTIFIERS,
+  OAUTH_PROVIDERS,
+  USER_STATUS,
+} from 'utils/constants.ts'
+import { AUDIT_RESULTS, AUDIT_TARGET_KINDS } from 'server/repositories/audit/model.defs.ts'
 
 /**
  * Every `model.defs.ts` registered into `@zanix/datamaster`'s real model registry (read back via
@@ -51,7 +59,9 @@ function indexesOf(model: Model) {
 }
 
 Deno.test('models: registers every collection the repositories read', () => {
-  for (const name of ['auth', 'users', 'roles', 'permissions', 'grant_accesses']) {
+  for (
+    const name of ['auth', 'users', 'roles', 'permissions', 'grant_accesses', 'role_audit_events']
+  ) {
     assert(models[name], `model "${name}" must be registered`)
   }
 })
@@ -66,6 +76,14 @@ Deno.test('models/auth: emailKeyId is the unique lookup key; secrets carry prote
   assertEquals(definition.otpNotifier.enum, NOTIFIERS.filter((notifier) => notifier !== 'email'))
   assertEquals(definition.oauthProvider.enum, OAUTH_PROVIDERS)
   assertEquals(models.auth.options, { timestamps: true })
+})
+
+Deno.test('models/auth: roleIds is the list of role refs and is indexed; there is no roleId', () => {
+  const { roleIds, roleId } = models.auth.definition
+  assertEquals(roleIds.type[0].ref, 'roles')
+  assertEquals(roleIds.default, undefined, 'a legacy document must not read back as roleIds: []')
+  assertEquals(roleId, undefined)
+  assertEquals(indexesOf(models.auth), [[{ roleIds: 1 }]])
 })
 
 Deno.test('models/auth: the 2FA sub-schema restricts triggerOn to the known login actions', () => {
@@ -84,6 +102,25 @@ Deno.test('models/users: status is required, restricted to USER_STATUS and defau
 Deno.test('models/roles: one role per {code, tenantId} (a missing tenantId is the global scope)', () => {
   assertEquals(indexesOf(models.roles), [[{ code: 1, tenantId: 1 }, { unique: true }]])
   assertEquals(models.roles.definition.permissions.ref, 'permissions')
+})
+
+Deno.test('models/roles: isSystem is optional and immutable once set', () => {
+  const { isSystem } = models.roles.definition
+  assertEquals([isSystem.type, isSystem.immutable, isSystem.required], [Boolean, true, undefined])
+})
+
+Deno.test('models/role_audit_events: events expire after the retention, and can be found by actor, target and action', () => {
+  const { definition } = models.role_audit_events
+  assertEquals(definition.result.enum, AUDIT_RESULTS)
+  assertEquals(definition.target.kind.enum, AUDIT_TARGET_KINDS)
+  assertEquals([definition.action.required, definition.result.required], [true, true])
+  assertEquals(models.role_audit_events.options, { timestamps: true })
+  assertEquals(indexesOf(models.role_audit_events), [
+    [{ createdAt: 1 }, { expireAfterSeconds: auditRetentionDays * 24 * 60 * 60 }],
+    [{ actor: 1, createdAt: -1 }],
+    [{ 'target.id': 1, createdAt: -1 }],
+    [{ action: 1, createdAt: -1 }],
+  ])
 })
 
 Deno.test('models/permissions: code is unique and isActive defaults to true', () => {

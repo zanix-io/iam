@@ -85,3 +85,30 @@ Deno.test('PermissionsRepository: create/findByCode/update/search build the expe
     }],
   ])
 })
+
+Deno.test('PermissionsRepository.updatePermission: a version limits the write to that updatedAt, and the answer says if it matched', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: updateOne.calls.length === 1 ? 1 : 0 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  const version = new Date('2026-01-01T00:00:00.000Z')
+  assertEquals(
+    await repo.updatePermission({ id: 'p1', name: 'N', isActive: undefined }, {
+      ifUpdatedAt: version,
+    }),
+    true,
+  )
+  assertEquals(
+    await repo.updatePermission({ id: 'p1', name: 'M' }, { ifUpdatedAt: version }),
+    false,
+  )
+  assertEquals(updateOne.calls[0], [{ _id: 'p1', updatedAt: version }, { $set: { name: 'N' } }])
+})
+
+Deno.test('PermissionsRepository.restoreActive: flips isActive back only if it is still what was written', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: 1 }),
+  }))
+  assertEquals(await buildRepository({ updateOne }).restoreActive('p1', false, true), true)
+  assertEquals(updateOne.calls[0], [{ _id: 'p1', isActive: false }, { $set: { isActive: true } }])
+})

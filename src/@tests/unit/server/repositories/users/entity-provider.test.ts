@@ -115,3 +115,38 @@ Deno.test('UsersRepository.findById: a falsy id short-circuits without querying 
   assertEquals(repo.findById(''), undefined)
   assertEquals(calls.findById, undefined)
 })
+
+Deno.test('UsersRepository.findSignInBlockedIds: one query for the profiles whose status blocks sign-in', async () => {
+  const find = fn((_filter: Record<string, unknown>) => ({
+    select: (_fields: string) => ({
+      exec: () => Promise.resolve([{ id: 'u2' }, { _id: 'u3' }]),
+    }),
+  }))
+  const repo = buildRepository({ find })
+  assertEquals(await repo.findSignInBlockedIds(['u1', 'u2', 'u3']), new Set(['u2', 'u3']))
+  assertEquals(find.calls, [[{
+    _id: { $in: ['u1', 'u2', 'u3'] },
+    status: { $in: ['INACTIVE', 'DELETED'] },
+  }]])
+  assertEquals(await repo.findSignInBlockedIds([]), new Set())
+  assertEquals(find.calls.length, 1)
+})
+
+Deno.test('UsersRepository.findManyByIds: one $in query, nothing for no ids', async () => {
+  const find = fn((_filter: Record<string, unknown>) => ({ exec: () => Promise.resolve(['a']) }))
+  const repo = buildRepository({ find })
+  assertEquals(await repo.findManyByIds(['u1', 'u2']) as unknown, ['a'])
+  assertEquals(await repo.findManyByIds([]), [])
+  assertEquals(find.calls, [[{ _id: { $in: ['u1', 'u2'] } }]])
+})
+
+Deno.test('UsersRepository.restoreStatus: puts the previous status back only if the current one is still the one written', async () => {
+  const updateOne = fn((_filter: Record<string, unknown>, _update: Record<string, unknown>) => ({
+    exec: () => Promise.resolve({ matchedCount: 0 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  assertEquals(await repo.restoreStatus('u1', 'INACTIVE', 'ACTIVE'), false)
+  assertEquals(updateOne.calls[0], [{ _id: 'u1', status: 'INACTIVE' }, {
+    $set: { status: 'ACTIVE' },
+  }])
+})

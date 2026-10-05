@@ -1,5 +1,6 @@
 import { Controller, Get, type HandlerContext, Patch, Post, ZanixController } from '@zanix/server'
 import { AuthTokenValidation } from '@zanix/auth'
+import { AdminMutationRateLimit } from 'utils/admin-rate-limit.ts'
 import {
   CreatePermissionRTO,
   EditPermissionRTO,
@@ -18,6 +19,7 @@ const anyPermissionPermission = [RBAC_PERMISSIONS.permissionRead, RBAC_PERMISSIO
 export class PermissionsController extends ZanixController<PermissionsService> {
   /** Creates a new permission. */
   @Post('', { Body: CreatePermissionRTO })
+  @AdminMutationRateLimit()
   @AuthTokenValidation({ permissions: RBAC_PERMISSIONS.permissionWrite })
   public create(ctx: HandlerContext<{ body: CreatePermissionRTO }>) {
     return this.interactor.createPermission(ctx.payload.body)
@@ -39,6 +41,7 @@ export class PermissionsController extends ZanixController<PermissionsService> {
 
   /** Edits a permission by `:id`. */
   @Patch(':id', { Params: PermissionIdParamsRTO, Body: EditPermissionRTO })
+  @AdminMutationRateLimit()
   @AuthTokenValidation({ permissions: RBAC_PERMISSIONS.permissionWrite })
   public update(
     ctx: HandlerContext<{ params: PermissionIdParamsRTO; body: EditPermissionRTO }>,

@@ -2,6 +2,7 @@ import type { ZanixMongoConnector } from '@zanix/datamaster'
 import type { PermissionsAttrs } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
+import { definedOnly } from 'utils/defined-only.ts'
 
 /**
  * Provider for the `permissions` model — the flat permission-code catalog `roles` documents
@@ -44,15 +45,34 @@ export class PermissionsRepository extends ZanixProvider<{ database: ZanixMongoC
   }
 
   /**
-   * Updates an existing permission.
+   * Updates an existing permission. With `options.ifUpdatedAt` the write happens only if the
+   * permission's `updatedAt` is still that instant (optimistic version check); answers whether it
+   * matched.
    * ⚠️ Ensure that only existing records are updated, or validate their existence before
    * performing the update.
    *
    * @param data Fields to update — must include `id`.
    */
-  public updatePermission(data: Partial<PermissionsAttrs> & { id: string }) {
+  public async updatePermission(
+    data: Partial<PermissionsAttrs> & { id: string },
+    options: { ifUpdatedAt?: Date } = {},
+  ) {
     const { id, ...rest } = data
-    return this.Model.updateOne({ _id: id }, { $set: rest }).exec()
+    const filter = options.ifUpdatedAt ? { _id: id, updatedAt: options.ifUpdatedAt } : { _id: id }
+    const result = await this.Model.updateOne(filter, { $set: definedOnly(rest) }).exec()
+    return result.matchedCount > 0
+  }
+
+  /**
+   * Sets a permission's `isActive` to `previous` only if it is still `expected`; the undo of a
+   * deactivation that left nobody able to manage roles. Answers whether it matched.
+   */
+  public async restoreActive(id: string, expected: boolean, previous: boolean) {
+    const result = await this.Model.updateOne(
+      { _id: id, isActive: expected },
+      { $set: { isActive: previous } },
+    ).exec()
+    return result.matchedCount > 0
   }
 
   /** Paginated, filterable/searchable listing of the permission catalog. `query` matches across
