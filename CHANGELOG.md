@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-10-12
+
+### Changed
+
+- **`@zanix/notifications` is now `^1.4.0`** (was `^1.3.0`). With `TEMPLATES_BACKEND=remote`, `iam`
+  no longer has to ask the central service to pull its code templates on every message: set
+  `TEMPLATES_SERVICE_SYNC=false` when `iam` is not in the central registry (see the configuration
+  doc). Without it, each message sent from a one-time worker asked once and the central service
+  answered `UNKNOWN_SERVICE` every time. 1.4.0 also reports that answer as information, not as a
+  warning, and hands over to the code the templates an older seeder rewrote.
+
 ## [2.2.1] - 2026-10-12
 
 ### Added

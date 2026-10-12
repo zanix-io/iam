@@ -157,6 +157,13 @@ are sent through `@zanix/notifications`. Each channel registers only when its va
 | `WHATSAPP_PROVIDER`                                             | Chooses the WhatsApp provider when both are configured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `TEMPLATES_BACKEND`                                             | `local` (or `remote`, from a central catalog that carries `totp-enabled`) stores templates in the database, making them editable through `/api/templates` and syncing the `totp-enabled` template and the texts of the messages into the database (`@zanix/notifications`' catalog: a subject is the text `<template>.subject`) (the account-security notice that confirms TOTP is enabled is sent only then). Unset, templates render from code, nothing is seeded, the server starts normally and `/api/templates` answers `404` (`TEMPLATES_BACKEND_DISABLED`). |
 
+**Rendering from a central catalog.** With `TEMPLATES_BACKEND=remote`, `iam` reads its templates and
+texts from a central service (`TEMPLATES_SERVICE_URL`, `_PATH_PREFIX`, `_ID`, `_AUTH_ID`) and signs
+the calls with its own `JWK_PRI_<id>`; the central catalog must carry `totp-enabled` and
+`totp-disabled`, which `iam` registers only for a `local` catalog. When `iam` is not listed in that
+service's registry, set `TEMPLATES_SERVICE_SYNC=false`: otherwise every message asks the central
+service to pull `iam`'s code templates and is told it does not know `iam`.
+
 **Language of the messages.** Every message carries the language of the request that triggers it:
 `?lang=` (a BCP 47 tag such as `es`), else `Accept-Language`, else `NOTIFICATIONS_DEFAULT_LANG` of
 `@zanix/notifications` (`en` unless set). The words are that library's message catalog; `iam` sets

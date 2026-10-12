@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "zanix": {
     "project": "space-server"
   },
@@ -89,7 +89,7 @@
     "@zanix/space/comet/preact": "jsr:@zanix/space@^1.16.0/comet/preact",
     "@zanix/space/testing": "jsr:@zanix/space@^1.16.0/testing",
     "@zanix/server": "jsr:@zanix/server@^4.3.0",
-    "@zanix/notifications": "jsr:@zanix/notifications@^1.3.0",
+    "@zanix/notifications": "jsr:@zanix/notifications@^1.4.0",
     "@zanix/datamaster": "jsr:@zanix/datamaster@^1.11.1",
     "@zanix/asyncmq": "jsr:@zanix/asyncmq@^0.9.1",
     "@zanix/asyncmq/jobs": "jsr:@zanix/asyncmq@^0.9.1/jobs",
