@@ -179,7 +179,7 @@ export async function handleLoginEntryAction(
     }`
     let result: Awaited<ReturnType<LoginClient['login']>>
     try {
-      result = await client(options.loginClient).login(email, password)
+      result = await client(options.loginClient).login(email, password, lang)
     } catch (e) {
       if (!(e instanceof RestClientError)) throw e
       if (e.realHttpStatus === 403) return back(`${stepQuery}&error=${INVALID_PASSWORD_ERROR}`)
@@ -236,7 +236,7 @@ export async function handleLoginEntryAction(
   }
 
   try {
-    await client(options.otpClient).request(email)
+    await client(options.otpClient).request(email, undefined, lang)
   } catch (e) {
     if (!(e instanceof RestClientError)) throw e
     if (e.realHttpStatus === 403 && options.registration !== 'closed') {
@@ -374,7 +374,7 @@ export async function handleOtpVerifyAction(
 
   let result: Awaited<ReturnType<OtpClient['verify']>>
   try {
-    result = await client(options.otpClient).verify(email, options.code)
+    result = await client(options.otpClient).verify(email, options.code, lang)
   } catch (e) {
     if (!(e instanceof RestClientError)) throw e
     if (e.realHttpStatus === 403) return back(`error=${INVALID_CODE_ERROR}`)
@@ -454,7 +454,7 @@ export async function handleRecoveryRequestAction(
     callbackPath: (email: string) => string
   },
 ): Promise<Response> {
-  await client(options.passwordClient).requestRecovery(options.email)
+  await client(options.passwordClient).requestRecovery(options.email, ctx.params.lang)
   return redirectResponse(new URL(options.callbackPath(options.email), ctx.url))
 }
 
@@ -502,7 +502,11 @@ export async function handlePasswordLoginAction(
 ): Promise<Response> {
   let result: Awaited<ReturnType<LoginClient['login']>>
   try {
-    result = await client(options.loginClient).login(options.email, options.password)
+    result = await client(options.loginClient).login(
+      options.email,
+      options.password,
+      ctx.params.lang,
+    )
   } catch (e) {
     if (e instanceof RestClientError) return redirectResponse(options.failurePath)
     throw e
@@ -706,7 +710,7 @@ export async function handleOtpResendAction(
   if (await options.cooldown.endsAt(email)) return redirectResponse(destination)
 
   try {
-    await client(options.otpClient).request(email, options.notifier)
+    await client(options.otpClient).request(email, options.notifier, lang)
   } catch (e) {
     // Real, confirmed gap this closes (Track H E2E, 28 sep 2026): an upstream dispatch failure —
     // a genuine `RestClientError` from `OtpClient.request` (a live case: `iam`'s own

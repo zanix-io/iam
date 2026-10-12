@@ -7,6 +7,7 @@ import type {
 
 import { HttpError } from '@zanix/errors'
 import { Interactor, ZanixInteractor } from '@zanix/server'
+import { contextMessageLang } from 'utils/message-lang.ts'
 import { NotifierProvider } from '@zanix/notifications'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { RolesRepository } from '../repositories/roles/entity.provider.ts'
@@ -24,7 +25,6 @@ import {
   blocksSignIn,
   IAM_ERROR_CODES,
   RBAC_PERMISSIONS,
-  SERVICE_ID,
   USER_READ_PERMISSIONS,
 } from 'utils/constants.ts'
 import { effectiveRoleIds } from 'utils/rbac.ts'
@@ -97,8 +97,8 @@ export class UsersService extends ZanixInteractor {
 
     await this.providers.get(NotifierProvider).email({
       to: email,
-      subject: `Welcome to ${SERVICE_ID}`,
       zanixTemplate: 'welcome',
+      lang: contextMessageLang(this.context),
       data: {},
     }, { useWorker: 'one-time' })
 

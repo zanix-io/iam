@@ -74,9 +74,14 @@ export class PasswordClient extends IamApiClient {
    * Requests a password-recovery code for `email`, delivered out of band. Complete with
    * {@link confirmRecovery}. Always returns the same generic confirmation whether or not an
    * account exists for `email`, to avoid leaking account existence.
+   *
+   * @param lang The language of the recovery message (a BCP 47 tag such as `es`). Omitted, `iam` uses
+   * the request's `Accept-Language`.
    */
-  public requestRecovery(email: string): Promise<MessageResponse> {
-    return this.http.get<MessageResponse>(`pwd/recovery/${encodeURIComponent(email)}`)
+  public requestRecovery(email: string, lang?: string): Promise<MessageResponse> {
+    return this.http.get<MessageResponse>(
+      `pwd/recovery/${encodeURIComponent(email)}${this.langQuery(lang)}`,
+    )
   }
 
   /**

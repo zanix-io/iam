@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-10-12
+
+### Added
+
+- **The messages `iam` sends go out in the language of the request.** Sign-in codes (`login-otp`,
+  `password-recovery`, SMS and WhatsApp `otp`), `welcome`, `password-changed` and `totp-enabled`
+  carry a `lang`, read from `?lang=` (a BCP 47 tag such as `es`) or, without it, from the
+  `Accept-Language` header; with neither, `NOTIFICATIONS_DEFAULT_LANG` applies. A guard
+  (`messageLangGuard`) records it on every route that can send a message: `POST /login/login`,
+  `GET /login/otp/:email`, `POST /login/otp/callback`, `POST /login/:oauth/callback`,
+  `POST /login/totp/confirm`, `POST /login/phone/enroll`, `POST /pwd/change`, `POST /pwd/add`,
+  `GET /pwd/recovery/:email` and `POST /users/register`. The tag is validated; an invalid one is
+  ignored.
+- **The SDK clients take the language.** `OtpClient.request(email, notifier?, lang?)` and
+  `verify(email, code, lang?)`, `PasswordClient.requestRecovery(email, lang?)`,
+  `LoginClient.login(email, password, lang?)` and `oauthCallback(provider, code, lang?)` send
+  `?lang=`; the hosted pages (`ui/space/login-pages`) pass the route's `{lang}`.
+
+### Changed
+
+- The language of a request is read with `isLangTag` and `parseAcceptLanguage` from `@zanix/utils`
+  (`^4.10.0`), no longer with copies of this project's own: an `Accept-Language` entry with `q=0` or
+  a malformed tag is skipped.
+- **No email subject is set by `iam` any more.** The subjects (`Welcome to <service>`,
+  `Your
+  password was changed`...) were fixed English strings. They are now the text
+  `<template>.subject` of the `@zanix/notifications` message catalog (≥ 1.3.0), in the message's
+  language, so a host changes or translates them by editing the catalog. An email still takes a
+  `subject` passed on the message.
+- **`totp-enabled` is registered, not seeded from `setup`.** `auth.app.ts` registers the template
+  and its English and Spanish texts with `registerTemplateSeeds`; the library syncs it like its
+  built-ins (added when missing, an edit never overwritten, a host's registration of the same name
+  or keys replaces it). The app declares no `setup` any more. Requires `@zanix/notifications`
+  `^1.3.0` (raised from `^1.2.3`).
+
 ## [2.1.0] - 2026-10-05
 
 ### Added

@@ -95,3 +95,14 @@ Deno.test('PasswordClient.removePassword: deletes pwd/remove with a bearer heade
     assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
   })
 })
+
+Deno.test('PasswordClient.requestRecovery: lang rides as ?lang=', async () => {
+  await withMockFetch([{ status: 200, body: {} }, { status: 200, body: {} }], async (calls) => {
+    const { PasswordClient } = await import('../../../sdk/client/password.client.ts')
+    const client = new PasswordClient({ baseUrl: 'https://iam.example.com' })
+    await client.requestRecovery('a@b.com', 'es')
+    await client.requestRecovery('a@b.com')
+    assertEquals(calls[0].url, 'https://iam.example.com/pwd/recovery/a%40b.com?lang=es')
+    assertEquals(calls[1].url, 'https://iam.example.com/pwd/recovery/a%40b.com')
+  })
+})

@@ -59,3 +59,23 @@ Deno.test('OtpClient.request: a notifier override is sent as the ?notifier= quer
     )
   })
 })
+
+Deno.test('OtpClient.request: lang rides as ?lang=, after ?notifier= when both are given', async () => {
+  await withMockFetch([{ status: 200, body: {} }, { status: 200, body: {} }], async (calls) => {
+    const client = new OtpClient({ baseUrl: BASE_URL })
+    await client.request('a@b.com', undefined, 'es')
+    await client.request('a@b.com', 'sms', 'es-MX')
+    assertEquals(calls[0].url, `${BASE_URL}/login/otp/a%40b.com?lang=es`)
+    assertEquals(calls[1].url, `${BASE_URL}/login/otp/a%40b.com?notifier=sms&lang=es-MX`)
+  })
+})
+
+Deno.test('OtpClient.verify: lang rides as ?lang= so the welcome message of a first sign-in is in it', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { accessToken: 'a', refreshToken: 'r', expiresAt: 1 } }],
+    async (calls) => {
+      await new OtpClient({ baseUrl: BASE_URL }).verify('user@example.com', '123456', 'es')
+      assertEquals(calls[0].url, `${BASE_URL}/login/otp/callback?lang=es`)
+    },
+  )
+})

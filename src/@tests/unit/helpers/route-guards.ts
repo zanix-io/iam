@@ -105,8 +105,10 @@ export function guardContext(
   return {
     id: 'ctx-test',
     req: {
+      url: 'http://localhost/',
       headers: new Headers({ 'x-forwarded-for': options.ip ?? '203.0.113.7', ...options.headers }),
     },
+    url: new URL('http://localhost/'),
     cookies: options.cookies ?? {},
     locals: options.session ? { session: { ...options.session } } : {},
     providers: {

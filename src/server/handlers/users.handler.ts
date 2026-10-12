@@ -2,6 +2,7 @@ import {
   Controller,
   Delete,
   Get,
+  Guard,
   type HandlerContext,
   Patch,
   Post,
@@ -18,6 +19,7 @@ import {
 } from './rtos/user-settings.ts'
 import { UsersService } from '../interactors/users.interactor.ts'
 import { RBAC_PERMISSIONS, USER_READ_PERMISSIONS } from 'utils/constants.ts'
+import { messageLangGuard } from 'utils/message-lang.ts'
 import { AdminLookupRateLimit, AdminMutationRateLimit } from 'utils/admin-rate-limit.ts'
 
 /** Either `userRead` or `userWrite` may list/view — see `USER_READ_PERMISSIONS`. */
@@ -49,6 +51,7 @@ export class UsersController extends ZanixController<UsersService> {
    * caller's own.
    */
   @Post('register', { Body: UserRegisterRTO })
+  @Guard(messageLangGuard())
   @AuthTokenValidation({ permissions: RBAC_PERMISSIONS.userWrite })
   public register(ctx: HandlerContext<{ body: UserRegisterRTO }>) {
     return this.interactor.registerUser(ctx.payload.body)

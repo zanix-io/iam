@@ -3,6 +3,7 @@ import type { AuthenticationAttrs, HydratedAuth } from '../repositories/auth/mod
 import type { AuthSessionOptions, GitHubOAuth2Connector, GoogleOAuth2Connector } from '@zanix/auth'
 
 import { Interactor, SESSION_HEADERS, ZanixInteractor } from '@zanix/server'
+import { contextMessageLang } from 'utils/message-lang.ts'
 import { HttpError } from '@zanix/errors'
 import { createJWT, decodeJWT, JWT_KEY_ENV, verifyJWT, ZanixAuthProvider } from '@zanix/auth'
 import { isTemplatesResourceEnabled, NotifierProvider } from '@zanix/notifications'
@@ -201,8 +202,8 @@ export class AuthService extends ZanixInteractor {
       ) as unknown as HydratedAuth
       await this.providers.get(NotifierProvider).email({
         to: email,
-        subject: `Welcome to ${SERVICE_ID}`,
         zanixTemplate: 'welcome',
+        lang: contextMessageLang(this.context),
         data: {},
       }, { useWorker: 'one-time' })
 
@@ -443,8 +444,8 @@ export class AuthService extends ZanixInteractor {
       // (`auth.app.ts`'s `setup`), genuinely unknown to that static type. Cast, not a mistake.
       await this.providers.get(NotifierProvider).email({
         to: auth.email.unmask(),
-        subject: 'Two-factor authentication enabled',
         zanixTemplate: 'totp-enabled',
+        lang: contextMessageLang(this.context),
         data: {},
       } as never, { useWorker: 'one-time' })
     }
@@ -510,6 +511,7 @@ export class AuthService extends ZanixInteractor {
     await this.providers.get(NotifierProvider).sendMessage('sms', {
       to: phone,
       zanixTemplate: 'otp',
+      lang: contextMessageLang(this.context),
       data: { code, ttl: ttl / 60 },
     } as never, { useWorker: 'one-time' })
 
@@ -770,8 +772,8 @@ export class AuthService extends ZanixInteractor {
       auth = await this.providers.get(AuthRepository).findByEmail(email) as unknown as HydratedAuth
       await this.providers.get(NotifierProvider).email({
         to: email,
-        subject: `Welcome to ${SERVICE_ID}`,
         zanixTemplate: 'welcome',
+        lang: contextMessageLang(this.context),
         data: {},
       }, { useWorker: 'one-time' })
     } else if (auth.oauthProvider !== provider) {

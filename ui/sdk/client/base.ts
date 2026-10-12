@@ -40,4 +40,13 @@ export abstract class IamApiClient extends RestClient {
   protected refreshIdentityHeaders(refreshToken: string): Record<string, string> {
     return { [SESSION_HEADERS.user.token as string]: refreshToken }
   }
+
+  /**
+   * The `?lang=` suffix that asks `iam` to send the message a call triggers (a sign-in code, a
+   * welcome mail...) in `lang`, a BCP 47 tag such as `es`; empty when `lang` is omitted, and `iam`
+   * falls back to the request's `Accept-Language`. `separator` is `&` when the path already has a query.
+   */
+  protected langQuery(lang: string | undefined, separator: '?' | '&' = '?'): string {
+    return lang ? `${separator}lang=${encodeURIComponent(lang)}` : ''
+  }
 }

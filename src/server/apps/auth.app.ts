@@ -3,7 +3,7 @@ import type { ZanixConnector } from '@zanix/server'
 
 import { defineZanixApp } from '@zanix/app'
 import { registerResourceType } from '@zanix/app/runtime'
-import { HttpError, InternalError } from '@zanix/errors'
+import { InternalError } from '@zanix/errors'
 import {
   GITHUB_OAUTH2_CLIENT_ID_ENV,
   GITHUB_OAUTH2_CLIENT_SECRET_ENV,
@@ -16,7 +16,7 @@ import {
   resolveCaptchaAdapter,
   resolveCaptchaProvider,
 } from '@zanix/auth'
-import { isTemplatesResourceEnabled, TemplatesAdminRepository } from '@zanix/notifications'
+import { registerTemplateSeeds } from '@zanix/notifications'
 import { defaultRoleId, isSelfRegistrationEnabled, SERVICE_ID } from 'utils/constants.ts'
 import { resolveEffectivePermissions } from 'utils/rbac.ts'
 
@@ -61,15 +61,36 @@ registerResourceType('captcha-provider', () => {
 })
 
 /**
- * Raw Handlebars source for the `totp-enabled` email template — a genuinely project-specific
- * event none of `@zanix/notifications`' built-in templates cover. Database-backed templates (`TEMPLATES_BACKEND=local`) render `hbs` directly,
- * with no compile step of its own to run — unlike the package's own precompiled code templates.
+ * The `totp-enabled` email — a genuinely project-specific event none of `@zanix/notifications`'
+ * built-in templates cover — and its words, in English and Spanish. Registered with the library,
+ * which syncs it into the templates collection like its own built-ins (`TEMPLATES_BACKEND=local`;
+ * with any other mode there is no collection and this has no effect): added when missing, kept up
+ * to date while nobody edits it, an operator's edit never overwritten, and a host that registers
+ * the same `{channel, name}` or keys replaces it. The words are a catalog read with `{{t}}`, so
+ * the message goes out in the language of the request (`?lang=`, `Accept-Language`).
  */
-const TOTP_ENABLED_TEMPLATE_HBS = `
-<h1>Two-factor authentication enabled</h1>
-<p>Two-factor authentication (authenticator app) has been enabled on your ${SERVICE_ID} account.</p>
-<p>If you did not perform this action, please contact support immediately.</p>
-`.trim()
+registerTemplateSeeds({
+  templates: [{
+    channel: 'email',
+    name: 'totp-enabled',
+    description: 'Sent when an account enables TOTP (authenticator-app) 2FA.',
+    hbs: "<h1>{{t 'totp-enabled.title'}}</h1>\n<p>{{t 'totp-enabled.content'}}</p>",
+  }],
+  messages: {
+    en: {
+      'totp-enabled.subject': 'Two-factor authentication enabled',
+      'totp-enabled.title': 'Two-factor authentication enabled',
+      'totp-enabled.content':
+        `Two-factor authentication (authenticator app) has been enabled on your ${SERVICE_ID} account. If you did not perform this action, please contact support immediately.`,
+    },
+    es: {
+      'totp-enabled.subject': 'Verificación en dos pasos activada',
+      'totp-enabled.title': 'Verificación en dos pasos activada',
+      'totp-enabled.content':
+        `Se activó la verificación en dos pasos (app de autenticación) en tu cuenta de ${SERVICE_ID}. Si no fuiste tú, contacta a soporte de inmediato.`,
+    },
+  },
+})
 
 const resources: Record<string, { type: string; options: Record<string, unknown> }> = {}
 
@@ -215,28 +236,6 @@ const authApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
         'evaluated (a hierarchy, a wildcard-expansion policy, an external policy engine) ' +
         'without forking `AuthService`/`PasswordService`.',
     },
-  },
-  setup: async (ctx) => {
-    // `@zanix/notifications` has no built-in template for this event (its email templates are
-    // `welcome`/`password-changed`/`password-recovery`/`login-otp`/`new-login`/`data-table`) — a
-    // genuinely project-specific, database-only
-    // template (`TEMPLATES_BACKEND=local` required — see this project's own README/`.env.example`),
-    // seeded idempotently here rather than via a one-off manual CRUD call, so a fresh environment
-    // gets it automatically. `create()` throws `CONFLICT` once already seeded — expected on every
-    // boot after the first, not a real failure.
-    // Without `TEMPLATES_BACKEND=local` there is no templates model to write to: every template
-    // renders from code and there is nothing to seed.
-    if (!isTemplatesResourceEnabled('local')) return
-    try {
-      await ctx.resolve(TemplatesAdminRepository).create({
-        channel: 'email',
-        name: 'totp-enabled',
-        hbs: TOTP_ENABLED_TEMPLATE_HBS,
-        description: 'Sent when an account enables TOTP (authenticator-app) 2FA.',
-      }, 'system')
-    } catch (error) {
-      if (!(error instanceof HttpError) || error.status.code !== 'CONFLICT') throw error
-    }
   },
 })
 

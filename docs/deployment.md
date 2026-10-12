@@ -82,11 +82,11 @@ await Zanix.start({
 ```
 
 What a manifest carries: the `auth` app's OAuth2 and captcha resources (registered from the env
-vars), its runtime configs and behaviors, and the `totp-enabled` template seeding in `setup`; the
-`grant-access` app's `evaluateGrantAccess` behavior and `checkAccess` operation. Both declare
-`routes: false`: the REST controllers, interactors, repositories and hosted pages are not part of
-the manifests and are served only by the standalone service. Behavior overrides are described in
-[Customization](./customization.md#behaviors).
+vars), its runtime configs and behaviors, and the registration of the `totp-enabled` template with
+`@zanix/notifications`; the `grant-access` app's `evaluateGrantAccess` behavior and `checkAccess`
+operation. Both declare `routes: false`: the REST controllers, interactors, repositories and hosted
+pages are not part of the manifests and are served only by the standalone service. Behavior
+overrides are described in [Customization](./customization.md#behaviors).
 
 ### Infrastructure
 

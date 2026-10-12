@@ -53,6 +53,10 @@ export class OAuthLoginRTO extends BaseRTO {
 export class LoginOtpSearchRTO extends BaseRTO {
   @IsEnum([...NOTIFIERS], { expose: true, optional: true })
   accessor notifier: typeof NOTIFIERS[number] | undefined
+
+  /** The language of the code message (a BCP 47 tag such as `es`); omitted, `Accept-Language`. */
+  @IsString({ expose: true, optional: true })
+  accessor lang: string | undefined
 }
 
 /** `POST /login/otp/callback` body — the OTP code sent to `email`. */

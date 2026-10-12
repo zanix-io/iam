@@ -194,3 +194,17 @@ Deno.test('LoginClient.oauthAuthorize: an email hint is sent URI-encoded as ?ema
     },
   )
 })
+
+Deno.test('LoginClient.login and oauthCallback: lang rides as ?lang= on the POST', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { message: 'x' } }, { status: 200, body: { message: 'x' } }],
+    async (calls) => {
+      const { LoginClient } = await import('../../../sdk/client/login.client.ts')
+      const client = new LoginClient({ baseUrl: 'https://iam.example.com' })
+      await client.login('a@b.com', 'pw', 'es')
+      await client.oauthCallback('google' as never, 'code-1', 'en')
+      assertEquals(calls[0].url, 'https://iam.example.com/login/login?lang=es')
+      assertEquals(calls[1].url, 'https://iam.example.com/login/google/callback?lang=en')
+    },
+  )
+})

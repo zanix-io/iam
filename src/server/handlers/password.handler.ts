@@ -1,8 +1,23 @@
-import { Controller, Delete, Get, type HandlerContext, Post, ZanixController } from '@zanix/server'
+import {
+  Controller,
+  Delete,
+  Get,
+  Guard,
+  type HandlerContext,
+  Post,
+  ZanixController,
+} from '@zanix/server'
 import { AuthTokenValidation, CaptchaGuard, RateLimitGuard } from '@zanix/auth'
-import { AddPasswordRTO, PwdRecoveryCbRTO, PwdRecoveryRTO, PwdRTO } from './rtos/password.ts'
+import {
+  AddPasswordRTO,
+  MessageLangSearchRTO,
+  PwdRecoveryCbRTO,
+  PwdRecoveryRTO,
+  PwdRTO,
+} from './rtos/password.ts'
 import { PasswordService } from '../interactors/password.interactor.ts'
 import { criticalRateLimit, freeRateLimit } from 'utils/constants.ts'
+import { messageLangGuard } from 'utils/message-lang.ts'
 
 /**
  * Self-service password endpoints — change/add/remove and recovery. Anonymous rate limiting on the
@@ -16,6 +31,7 @@ export class PasswordController extends ZanixController<PasswordService> {
    * token; the target account is the authenticated session's own subject, never a body/param.
    */
   @Post({ Body: PwdRTO })
+  @Guard(messageLangGuard())
   @AuthTokenValidation()
   public change(ctx: HandlerContext<{ body: PwdRTO }>) {
     const { currentPassword, newPassword } = ctx.payload.body
@@ -27,6 +43,7 @@ export class PasswordController extends ZanixController<PasswordService> {
    * (see `PasswordService.addPassword`'s own doc). Requires a valid access token.
    */
   @Post('add', { Body: AddPasswordRTO })
+  @Guard(messageLangGuard())
   @AuthTokenValidation()
   public add(ctx: HandlerContext<{ body: AddPasswordRTO }>) {
     return this.interactor.addPassword(ctx.payload.body.newPassword)
@@ -43,7 +60,8 @@ export class PasswordController extends ZanixController<PasswordService> {
    * Requests a password-recovery code for `:email`, delivered out of band. Complete with
    * `recoveryCallback`.
    */
-  @Get('recovery/:email', { Params: PwdRecoveryRTO })
+  @Get('recovery/:email', { Params: PwdRecoveryRTO, Search: MessageLangSearchRTO })
+  @Guard(messageLangGuard())
   @RateLimitGuard({
     app: 'pwd:recovery',
     anonymousLimit: criticalRateLimit,

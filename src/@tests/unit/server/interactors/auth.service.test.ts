@@ -413,7 +413,7 @@ Deno.test('loginWithOTPCallback: no existing account self-provisions via a verif
   assertEquals('oauthProvider' in registered, false)
   assertEquals(notifier.email.calls[0]?.[0], {
     to: 'new@example.com',
-    subject: 'Welcome to zanix-iam',
+    lang: undefined,
     zanixTemplate: 'welcome',
     data: {},
   })
@@ -1208,7 +1208,7 @@ Deno.test('loginWithOauthCallback: no existing account self-provisions a new pro
   assertEquals(registered.userId, 'user-1')
   assertEquals(notifier.email.calls[0]?.[0], {
     to: 'new@example.com',
-    subject: 'Welcome to zanix-iam',
+    lang: undefined,
     zanixTemplate: 'welcome',
     data: {},
   })

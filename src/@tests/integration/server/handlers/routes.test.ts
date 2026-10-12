@@ -113,7 +113,10 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'POST /pwd/change': ['change', { Body: 'PwdRTO' }],
     'POST /pwd/add': ['add', { Body: 'AddPasswordRTO' }],
     'DELETE /pwd/remove': ['remove', {}],
-    'GET /pwd/recovery/:email': ['recovery', { Params: 'PwdRecoveryRTO' }],
+    'GET /pwd/recovery/:email': [
+      'recovery',
+      { Params: 'PwdRecoveryRTO', Search: 'MessageLangSearchRTO' },
+    ],
     'POST /pwd/recovery/callback': ['recoveryCallback', { Body: 'PwdRecoveryCbRTO' }],
     'POST /users/register': ['register', { Body: 'UserRegisterRTO' }],
     'GET /users': ['getOwnProfile', {}],
@@ -172,6 +175,21 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
       { Body: 'UpdateTemplateRTO', Params: 'TemplateParamsRTO' },
     ],
     'DELETE /templates/:channel/:name': ['remove', { Params: 'TemplateParamsRTO' }],
+    'GET /templates/messages': ['messages', { Search: 'MessagesSearchRTO' }],
+    'PUT /templates/messages/:lang/:key': [
+      'setMessage',
+      { Params: 'MessageParamsRTO', Body: 'SetMessageRTO' },
+    ],
+    'DELETE /templates/messages/:lang/:key': ['removeMessage', { Params: 'MessageParamsRTO' }],
+    'GET /templates/message-entries': ['messageEntries', { Search: 'MessageEntriesSearchRTO' }],
+    'POST /templates/messages/:lang/:key/reset': [
+      'resetMessage',
+      { Params: 'MessageParamsRTO' },
+    ],
+    'POST /templates/:channel/:name/preview': [
+      'preview',
+      { Params: 'TemplateParamsRTO', Body: 'PreviewTemplateRTO' },
+    ],
   })
 })
 
@@ -379,6 +397,12 @@ const ADMIN_ROUTE_PERMISSIONS: Record<string, string[]> = {
   'POST /templates': [P.templatesAccess],
   'PUT /templates/:channel/:name': [P.templatesAccess],
   'DELETE /templates/:channel/:name': [P.templatesAccess],
+  'GET /templates/messages': [P.templatesAccess],
+  'PUT /templates/messages/:lang/:key': [P.templatesAccess],
+  'DELETE /templates/messages/:lang/:key': [P.templatesAccess],
+  'GET /templates/message-entries': [P.templatesAccess],
+  'POST /templates/messages/:lang/:key/reset': [P.templatesAccess],
+  'POST /templates/:channel/:name/preview': [P.templatesAccess],
 }
 
 Deno.test('REST routes: every admin route rejects a valid token that lacks its own RBAC permission', async () => {

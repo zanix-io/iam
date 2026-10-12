@@ -30,6 +30,7 @@ import {
 import { criticalRateLimit, freeRateLimit, loginMethodsRateLimit } from 'utils/constants.ts'
 import { refreshRateLimitIdentityGuard } from 'utils/refresh-rate-limit-guard.ts'
 import { phoneConfirmRateLimitIdentityGuard } from 'utils/phone-confirm-rate-limit-guard.ts'
+import { messageLangGuard } from 'utils/message-lang.ts'
 
 /**
  * Login/session endpoints for the `auth` domain. Anonymous rate limiting on every route
@@ -54,6 +55,7 @@ export class LoginController extends ZanixController<AuthService> {
    * confirmation when the account has 2FA configured to trigger on login.
    */
   @Post({ Body: LoginRTO })
+  @Guard(messageLangGuard())
   @RateLimitGuard({ app: 'login:password', anonymousLimit: freeRateLimit, trustProxyHeader: true })
   @CaptchaGuard()
   public login(ctx: HandlerContext<{ body: LoginRTO }>) {
@@ -65,6 +67,7 @@ export class LoginController extends ZanixController<AuthService> {
    * `loginOtpCallback`. `?notifier=` (optional, see `LoginOtpSearchRTO`'s own doc) overrides the
    * account's own stored preference for this one dispatch only. */
   @Get('otp/:email', { Params: PwdRecoveryRTO, Search: LoginOtpSearchRTO })
+  @Guard(messageLangGuard())
   @RateLimitGuard({ app: 'login:otp', anonymousLimit: criticalRateLimit, trustProxyHeader: true })
   public loginOtp(
     ctx: HandlerContext<{ params: PwdRecoveryRTO; search: LoginOtpSearchRTO }>,
@@ -76,6 +79,7 @@ export class LoginController extends ZanixController<AuthService> {
 
   /** Verifies an OTP `code` sent to `email` and, on success, issues session tokens. */
   @Post('otp/callback', { Body: OtpLoginRTO })
+  @Guard(messageLangGuard())
   @RateLimitGuard({
     app: 'login:otp-callback',
     anonymousLimit: freeRateLimit,
@@ -135,6 +139,7 @@ export class LoginController extends ZanixController<AuthService> {
    * `auth.app.ts`), never a client-obtained bearer token.
    */
   @Post(':oauth/callback', { Params: OAuthQueryRTO, Body: OAuthLoginRTO })
+  @Guard(messageLangGuard())
   @RateLimitGuard({
     app: 'login:oauth-callback',
     anonymousLimit: freeRateLimit,
@@ -252,6 +257,7 @@ export class LoginController extends ZanixController<AuthService> {
    * token.
    */
   @Post('totp/confirm', { Body: TotpConfirmRTO })
+  @Guard(messageLangGuard())
   @AuthTokenValidation()
   public totpConfirm(ctx: HandlerContext<{ body: TotpConfirmRTO }>) {
     const { secret, code } = ctx.payload.body
@@ -273,6 +279,7 @@ export class LoginController extends ZanixController<AuthService> {
    * number is actually stored.
    */
   @Post('phone/enroll', { Body: PhoneEnrollRTO })
+  @Guard(messageLangGuard())
   @AuthTokenValidation()
   public phoneEnroll(ctx: HandlerContext<{ body: PhoneEnrollRTO }>) {
     return this.interactor.phoneEnroll(ctx.payload.body.phone)

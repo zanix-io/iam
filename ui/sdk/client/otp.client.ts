@@ -25,13 +25,17 @@ export class OtpClient extends IamApiClient {
    * @param notifier Overrides the account's own stored `otpNotifier` preference for THIS one
    * dispatch only — e.g. a resend retried through a different channel because the configured one
    * never arrived. Omitted, dispatch uses the account's stored preference.
+   * @param lang The language of the code message (a BCP 47 tag such as `es`). Omitted, `iam` uses the
+   * request's `Accept-Language`.
    * @throws {RestClientError} `realHttpStatus === 403` when no account exists for `email`.
    */
   public request(
     email: string,
     notifier?: typeof NOTIFIERS[number],
+    lang?: string,
   ): Promise<MessageResponse> {
-    const query = notifier ? `?notifier=${encodeURIComponent(notifier)}` : ''
+    const query = (notifier ? `?notifier=${encodeURIComponent(notifier)}` : '') +
+      this.langQuery(lang, notifier ? '&' : '?')
     return this.http.get<MessageResponse>(`login/otp/${encodeURIComponent(email)}${query}`)
   }
 
@@ -41,14 +45,15 @@ export class OtpClient extends IamApiClient {
    * configured, a second-factor challenge (see {@link OtpCallbackResult}'s own doc; narrow with
    * `'needsReactivationConfirm' in result` first, then `'accessToken' in result`).
    *
+   * @param lang The language of the welcome message a first sign-in sends (a BCP 47 tag such as `es`).
    * @throws {RestClientError} `realHttpStatus === 403` when no account exists for `email`, or
    * `code` is invalid/expired.
    */
-  public verify(email: string, code: string): Promise<OtpCallbackResult> {
+  public verify(email: string, code: string, lang?: string): Promise<OtpCallbackResult> {
     const body = new OtpLoginRTO()
     body.email = email
     body.code = code
-    return this.http.post<OtpCallbackResult>('login/otp/callback', {
+    return this.http.post<OtpCallbackResult>(`login/otp/callback${this.langQuery(lang)}`, {
       body: JSON.stringify(body),
     })
   }

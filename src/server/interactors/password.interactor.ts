@@ -2,6 +2,7 @@ import type { HydratedAuth } from '../repositories/auth/model.defs.ts'
 import type { AuthSessionOptions } from '@zanix/auth'
 
 import { Interactor, ZanixInteractor } from '@zanix/server'
+import { contextMessageLang } from 'utils/message-lang.ts'
 import { HttpError } from '@zanix/errors'
 import { ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -61,8 +62,8 @@ export class PasswordService extends ZanixInteractor {
 
     await this.providers.get(NotifierProvider).email({
       to: auth.email.unmask(),
-      subject: 'Your password was changed',
       zanixTemplate: 'password-changed',
+      lang: contextMessageLang(this.context),
       data: {},
     }, { useWorker: 'one-time' })
 
@@ -103,8 +104,8 @@ export class PasswordService extends ZanixInteractor {
 
     await this.providers.get(NotifierProvider).email({
       to: auth.email.unmask(),
-      subject: 'A password was added to your account',
       zanixTemplate: 'password-changed',
+      lang: contextMessageLang(this.context),
       data: {},
     }, { useWorker: 'one-time' })
 
@@ -228,10 +229,8 @@ export class PasswordService extends ZanixInteractor {
     const data = { code, ttl: ttl / 60 }
     await this.providers.get(NotifierProvider).sendMessage(notifier, {
       to,
-      subject: notifier === 'email'
-        ? (isLogin ? 'Your login code' : 'Password recovery')
-        : undefined,
       zanixTemplate: notifier === 'email' ? (isLogin ? 'login-otp' : 'password-recovery') : 'otp',
+      lang: contextMessageLang(this.context),
       data,
     } as never, { useWorker: 'one-time' })
 

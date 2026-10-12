@@ -98,3 +98,10 @@ export class OtpNotifierRTO extends BaseRTO {
   })
   accessor notifier: 'sms' | 'whatsapp' | '' | undefined
 }
+
+/** `GET /pwd/recovery/:email` query: the language of the recovery message. */
+export class MessageLangSearchRTO extends BaseRTO {
+  /** A BCP 47 tag such as `es`; omitted, the request's `Accept-Language`. */
+  @IsString({ expose: true, optional: true })
+  accessor lang: string | undefined
+}

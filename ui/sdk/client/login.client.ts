@@ -34,13 +34,17 @@ export class LoginClient extends IamApiClient {
    *
    * @returns Session tokens, or a second-factor challenge when the account has 2FA configured to
    * trigger on login — narrow the result with `'accessToken' in result`.
+   * @param lang The language of the second-factor code message, when one is sent (a BCP 47 tag such
+   * as `es`). Omitted, `iam` uses the request's `Accept-Language`.
    * @throws {RestClientError} `realHttpStatus === 403` for an invalid email/password pair.
    */
-  public login(email: string, password: string): Promise<LoginResult> {
+  public login(email: string, password: string, lang?: string): Promise<LoginResult> {
     const body = new LoginRTO()
     body.email = email
     body.password = password
-    return this.http.post<LoginResult>('login/login', { body: JSON.stringify(body) })
+    return this.http.post<LoginResult>(`login/login${this.langQuery(lang)}`, {
+      body: JSON.stringify(body),
+    })
   }
 
   /**
@@ -76,13 +80,21 @@ export class LoginClient extends IamApiClient {
    * @throws {RestClientError} `realHttpStatus === 403` when the provider returns no verified
    * email, or no account exists and self-registration is disabled; `409` when the resolved email
    * is already registered through a different sign-in method.
+   * @param lang The language of the welcome message a first sign-in sends (a BCP 47 tag such as `es`).
    */
-  public oauthCallback(provider: OauthProvider, code: string): Promise<OauthCallbackResult> {
+  public oauthCallback(
+    provider: OauthProvider,
+    code: string,
+    lang?: string,
+  ): Promise<OauthCallbackResult> {
     const body = new OAuthLoginRTO()
     body.code = code
-    return this.http.post<OauthCallbackResult>(`login/${provider}/callback`, {
-      body: JSON.stringify(body),
-    })
+    return this.http.post<OauthCallbackResult>(
+      `login/${provider}/callback${this.langQuery(lang)}`,
+      {
+        body: JSON.stringify(body),
+      },
+    )
   }
 
   /**
