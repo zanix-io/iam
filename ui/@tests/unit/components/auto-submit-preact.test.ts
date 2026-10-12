@@ -73,6 +73,9 @@ Deno.test('AutoSubmit (preact): a real SubmitGuard on the same form still sees a
   // — same real, documented reason `attach.ts` chose `requestSubmit()` over `.submit()`, now
   // confirmed for the Preact binding too, not just the React one.
   assertEquals(submitCount, 1)
+  // The guard changes the controls one tick after `submit` (`@zanix/space` >= 1.18.7), once the
+  // browser has read the form data, so the pressed button's `name`/`value` still reaches the server.
+  await new Promise((resolve) => setTimeout(resolve, 0))
   assertEquals(button.disabled, true)
 
   unmount()

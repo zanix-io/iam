@@ -70,6 +70,9 @@ Deno.test('AutoSubmit: a real SubmitGuard on the same form still sees and reacts
   // — confirms the real, documented reason `attach.ts` chose `requestSubmit()` over `.submit()`
   // here: a plain `.submit()` would never let `SubmitGuard` see this at all.
   assertEquals(submitCount, 1)
+  // The guard changes the controls one tick after `submit` (`@zanix/space` >= 1.18.7), once the
+  // browser has read the form data, so the pressed button's `name`/`value` still reaches the server.
+  await new Promise((resolve) => setTimeout(resolve, 0))
   assertEquals(button.disabled, true)
 
   unmount()
