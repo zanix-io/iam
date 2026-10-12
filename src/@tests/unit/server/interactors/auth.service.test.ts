@@ -899,6 +899,14 @@ Deno.test('totpConfirm: on success persists the secret and sends the totp-enable
   })
 })
 
+Deno.test('totpConfirm: with TEMPLATES_BACKEND=remote the notice is sent too, the central catalog carries it', async () => {
+  await withEnv('TEMPLATES_BACKEND', 'remote', async () => {
+    const { service, notifier } = buildService()
+    await service.totpConfirm('SECRET', '123456')
+    assertEquals(notifier.email.calls.length, 1)
+  })
+})
+
 Deno.test('totpConfirm: without TEMPLATES_BACKEND=local the secret is persisted and no database-only notice is sent', async () => {
   await withEnv('TEMPLATES_BACKEND', undefined, async () => {
     const { service, authRepo, notifier } = buildService()
@@ -932,6 +940,40 @@ Deno.test('disableTotp: clears totpSecret/twoFactorAuthConfig when TOTP is the c
     { id: 'auth-1' },
     { unset: ['totpSecret', 'twoFactorAuthConfig'] },
   ])
+})
+
+const totpAuth = () => baseAuth({ twoFactorAuthConfig: { method: 'totp', triggerOn: ['login'] } })
+
+Deno.test('disableTotp: tells the account owner by email, with totp-disabled', async () => {
+  await withEnv('TEMPLATES_BACKEND', 'local', async () => {
+    const { service, notifier } = buildService({ authRepo: { findById: fn(totpAuth) } })
+    await service.disableTotp()
+    assertEquals(notifier.email.calls.length, 1)
+    const sent = notifier.email.calls[0]?.[0] as { to: string; zanixTemplate: string }
+    assertEquals([sent.to, sent.zanixTemplate], ['jane@example.com', 'totp-disabled'])
+  })
+})
+
+Deno.test('disableTotp: the notice is sent with TEMPLATES_BACKEND=remote too, and not without a mode', async () => {
+  await withEnv('TEMPLATES_BACKEND', 'remote', async () => {
+    const { service, notifier } = buildService({ authRepo: { findById: fn(totpAuth) } })
+    await service.disableTotp()
+    assertEquals(notifier.email.calls.length, 1)
+  })
+  await withEnv('TEMPLATES_BACKEND', undefined, async () => {
+    const { service, authRepo, notifier } = buildService({ authRepo: { findById: fn(totpAuth) } })
+    await service.disableTotp()
+    assertEquals(authRepo.updateAuth.calls.length, 1)
+    assertEquals(notifier.email.calls.length, 0)
+  })
+})
+
+Deno.test('disableTotp: nothing is sent when TOTP was not the configured method (nothing changed)', async () => {
+  await withEnv('TEMPLATES_BACKEND', 'local', async () => {
+    const { service, notifier } = buildService()
+    await service.disableTotp()
+    assertEquals(notifier.email.calls.length, 0)
+  })
 })
 
 Deno.test('disableTotp: not the configured method is a no-op write', async () => {

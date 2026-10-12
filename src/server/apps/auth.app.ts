@@ -61,13 +61,13 @@ registerResourceType('captcha-provider', () => {
 })
 
 /**
- * The `totp-enabled` email — a genuinely project-specific event none of `@zanix/notifications`'
- * built-in templates cover — and its words, in English and Spanish. Registered with the library,
- * which syncs it into the templates collection like its own built-ins (`TEMPLATES_BACKEND=local`;
- * with any other mode there is no collection and this has no effect): added when missing, kept up
- * to date while nobody edits it, an operator's edit never overwritten, and a host that registers
- * the same `{channel, name}` or keys replaces it. The words are a catalog read with `{{t}}`, so
- * the message goes out in the language of the request (`?lang=`, `Accept-Language`).
+ * The `totp-enabled` and `totp-disabled` emails — genuinely project-specific events none of
+ * `@zanix/notifications`' built-in templates cover — and their words, in English and Spanish.
+ * Registered with the library, which syncs them into the templates collection like its own built-ins
+ * (`TEMPLATES_BACKEND=local`; with any other mode there is no collection and this has no effect): added
+ * when missing, kept up to date while nobody edits them, an operator's edit never overwritten, and a
+ * host that registers the same `{channel, name}` or keys replaces them. The words are a catalog read
+ * with `{{t}}`, so the message goes out in the language of the request (`?lang=`, `Accept-Language`).
  */
 registerTemplateSeeds({
   templates: [{
@@ -75,6 +75,11 @@ registerTemplateSeeds({
     name: 'totp-enabled',
     description: 'Sent when an account enables TOTP (authenticator-app) 2FA.',
     hbs: "<h1>{{t 'totp-enabled.title'}}</h1>\n<p>{{t 'totp-enabled.content'}}</p>",
+  }, {
+    channel: 'email',
+    name: 'totp-disabled',
+    description: 'Sent when an account turns TOTP (authenticator-app) 2FA off.',
+    hbs: "<h1>{{t 'totp-disabled.title'}}</h1>\n<p>{{t 'totp-disabled.content'}}</p>",
   }],
   messages: {
     en: {
@@ -82,12 +87,20 @@ registerTemplateSeeds({
       'totp-enabled.title': 'Two-factor authentication enabled',
       'totp-enabled.content':
         `Two-factor authentication (authenticator app) has been enabled on your ${SERVICE_ID} account. If you did not perform this action, please contact support immediately.`,
+      'totp-disabled.subject': 'Two-factor authentication turned off',
+      'totp-disabled.title': 'Two-factor authentication turned off',
+      'totp-disabled.content':
+        `Two-factor authentication (authenticator app) has been turned off on your ${SERVICE_ID} account. If you did not perform this action, change your password and contact support immediately.`,
     },
     es: {
       'totp-enabled.subject': 'Verificación en dos pasos activada',
       'totp-enabled.title': 'Verificación en dos pasos activada',
       'totp-enabled.content':
         `Se activó la verificación en dos pasos (app de autenticación) en tu cuenta de ${SERVICE_ID}. Si no fuiste tú, contacta a soporte de inmediato.`,
+      'totp-disabled.subject': 'Verificación en dos pasos desactivada',
+      'totp-disabled.title': 'Verificación en dos pasos desactivada',
+      'totp-disabled.content':
+        `Se desactivó la verificación en dos pasos (app de autenticación) en tu cuenta de ${SERVICE_ID}. Si no fuiste tú, cambia tu contraseña y contacta a soporte de inmediato.`,
     },
   },
 })

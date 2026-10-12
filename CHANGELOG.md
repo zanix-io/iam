@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-10-12
+
+### Added
+
+- **Turning TOTP off tells the account's owner.** `DELETE /login/totp` now sends a `totp-disabled`
+  email (subject, title and text in English and Spanish, in the language of the request), as turning
+  it on already sent `totp-enabled`: a session that is not the owner's can no longer weaken the
+  account without the owner finding out. It is sent only when TOTP was the configured method (when
+  nothing changed, nothing is sent), only to an account with an email, and under the same condition
+  as `totp-enabled` (`TEMPLATES_BACKEND` is `local` or `remote`). Registered like `totp-enabled`,
+  with `registerTemplateSeeds`.
+
+### Fixed
+
+- **The `totp-enabled` notice is sent with `TEMPLATES_BACKEND=remote` too.** It was sent only with
+  `local`, so a host rendering from a central catalog (the mode that lets several services share one
+  set of templates and texts) never sent it, even though the central catalog carries the template.
+  The central catalog must have `totp-enabled`; with neither mode the notice is still not sent.
+
 ## [2.2.0] - 2026-10-12
 
 ### Added

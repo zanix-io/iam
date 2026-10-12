@@ -6,7 +6,7 @@ import { Interactor, SESSION_HEADERS, ZanixInteractor } from '@zanix/server'
 import { contextMessageLang } from 'utils/message-lang.ts'
 import { HttpError } from '@zanix/errors'
 import { createJWT, decodeJWT, JWT_KEY_ENV, verifyJWT, ZanixAuthProvider } from '@zanix/auth'
-import { isTemplatesResourceEnabled, NotifierProvider } from '@zanix/notifications'
+import { NotifierProvider, templatesBackendMode } from '@zanix/notifications'
 import { resolveBehavior, resolveConfig, resolveResource } from '@zanix/app/runtime'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
@@ -436,19 +436,7 @@ export class AuthService extends ZanixInteractor {
       twoFactorAuthConfig: { method: 'totp', triggerOn: [...LOGIN_ACTIONS] },
     }, { applyProtection: true })
 
-    // The notice is a database-only template: without `TEMPLATES_BACKEND=local` it does not exist
-    // (the worker would fail to render it), so it is not sent.
-    if (auth?.email && isTemplatesResourceEnabled('local')) {
-      // `zanixTemplate` is typed against `@zanix/notifications`' own BUILT-IN registry only —
-      // `'totp-enabled'` is a real, database-only template this project seeds itself
-      // (`auth.app.ts`'s `setup`), genuinely unknown to that static type. Cast, not a mistake.
-      await this.providers.get(NotifierProvider).email({
-        to: auth.email.unmask(),
-        zanixTemplate: 'totp-enabled',
-        lang: contextMessageLang(this.context),
-        data: {},
-      } as never, { useWorker: 'one-time' })
-    }
+    await this.notifyTotpChange(auth?.email?.unmask(), 'totp-enabled')
 
     return { response: 'TOTP enabled' }
   }
@@ -480,8 +468,35 @@ export class AuthService extends ZanixInteractor {
         { id: authId },
         { unset: ['totpSecret', 'twoFactorAuthConfig'] },
       )
+      await this.notifyTotpChange(auth.email?.unmask(), 'totp-disabled')
     }
     return { response: 'TOTP disabled' }
+  }
+
+  /**
+   * Tells the account's owner by email that the second factor was turned on or off, so a session
+   * that is not theirs cannot weaken the account unnoticed. The notice is a database-only template:
+   * without a database-backed templates mode (`local`, or `remote` from a central catalog that carries
+   * it) it does not exist (the worker would fail to render it), and without an email there is nobody
+   * to tell, so nothing is sent.
+   *
+   * @param to The account's email, unmasked; `undefined` when it has none.
+   * @param template Which notice to send.
+   */
+  private async notifyTotpChange(
+    to: string | undefined,
+    template: 'totp-enabled' | 'totp-disabled',
+  ): Promise<void> {
+    if (!to || !templatesBackendMode()) return
+    // `zanixTemplate` is typed against `@zanix/notifications`' own BUILT-IN registry only — these are
+    // real, database-only templates this project registers itself (`auth.app.ts`), genuinely unknown to
+    // that static type. Cast, not a mistake.
+    await this.providers.get(NotifierProvider).email({
+      to,
+      zanixTemplate: template,
+      lang: contextMessageLang(this.context),
+      data: {},
+    } as never, { useWorker: 'one-time' })
   }
 
   /**
