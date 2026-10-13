@@ -26,9 +26,9 @@
     "jsr:@zanix/datamaster@^1.11.1": "1.12.3",
     "jsr:@zanix/datamaster@^1.7.0": "1.12.3",
     "jsr:@zanix/datamaster@^1.9.0": "1.12.3",
-    "jsr:@zanix/notifications@1": "1.4.0",
-    "jsr:@zanix/notifications@^1.3.0": "1.4.0",
-    "jsr:@zanix/notifications@^1.4.0": "1.4.0",
+    "jsr:@zanix/notifications@1": "1.7.1",
+    "jsr:@zanix/notifications@^1.3.0": "1.7.1",
+    "jsr:@zanix/notifications@^1.7.1": "1.7.1",
     "jsr:@zanix/server@4": "4.4.1",
     "jsr:@zanix/server@^4.1.0": "4.4.1",
     "jsr:@zanix/server@^4.2.3": "4.4.1",
@@ -37,13 +37,14 @@
     "jsr:@zanix/space-ui@^2.9.4": "2.9.5",
     "jsr:@zanix/space@1": "1.18.7",
     "jsr:@zanix/space@^1.16.0": "1.18.7",
-    "jsr:@zanix/utils@4": "4.10.0",
-    "jsr:@zanix/utils@^4.1.0": "4.10.0",
+    "jsr:@zanix/utils@4": "4.11.0",
+    "jsr:@zanix/utils@^4.1.0": "4.11.0",
     "jsr:@zanix/utils@^4.10.0": "4.10.0",
-    "jsr:@zanix/utils@^4.4.0": "4.10.0",
-    "jsr:@zanix/utils@^4.5.0": "4.10.0",
+    "jsr:@zanix/utils@^4.11.0": "4.11.0",
+    "jsr:@zanix/utils@^4.4.0": "4.11.0",
+    "jsr:@zanix/utils@^4.5.0": "4.11.0",
     "jsr:@zanix/utils@^4.7.0": "4.10.0",
-    "jsr:@zanix/utils@^4.8.0": "4.10.0",
+    "jsr:@zanix/utils@^4.8.0": "4.11.0",
     "npm:@formatjs/icu-messageformat-parser@^3.5.17": "3.5.18",
     "npm:@formatjs/intl@^4.1.19": "4.2.1",
     "npm:@types/react-dom@^19.2.0": "19.3.0_@types+react@19.3.0",
@@ -187,8 +188,8 @@
         "npm:redis"
       ]
     },
-    "@zanix/notifications@1.4.0": {
-      "integrity": "7568cf4b01f67a0091b43ce4506ed9186eb54b9c51e61f780e4c27f12aab53dd",
+    "@zanix/notifications@1.7.1": {
+      "integrity": "3a4e06cc498728e65daf962b1dafd794fb614184ca634c5ea1175f64837b7f90",
       "dependencies": [
         "jsr:@std/path@0.224",
         "jsr:@zanix/auth@1",
@@ -196,6 +197,7 @@
         "jsr:@zanix/server@4",
         "jsr:@zanix/utils@4",
         "jsr:@zanix/utils@^4.10.0",
+        "jsr:@zanix/utils@^4.11.0",
         "jsr:@zanix/utils@^4.7.0",
         "npm:handlebars"
       ]
@@ -237,6 +239,14 @@
     },
     "@zanix/utils@4.10.0": {
       "integrity": "4bc379b77bb050d7ee5e253c4e47a613a741dd2eacb45d3f9bceaa5c7a8b28d8",
+      "dependencies": [
+        "jsr:@std/crypto",
+        "jsr:@std/fmt@0.224",
+        "jsr:@std/path@0.224"
+      ]
+    },
+    "@zanix/utils@4.11.0": {
+      "integrity": "3c13cc1f24816d1e149d71bcf0997626532f812c489995f01465e6c8249055aa",
       "dependencies": [
         "jsr:@std/crypto",
         "jsr:@std/fmt@0.224",
@@ -562,7 +572,7 @@
       "jsr:@zanix/auth@^1.7.0",
       "jsr:@zanix/core@^3.1.3",
       "jsr:@zanix/datamaster@^1.11.1",
-      "jsr:@zanix/notifications@^1.4.0",
+      "jsr:@zanix/notifications@^1.7.1",
       "jsr:@zanix/server@^4.3.0",
       "jsr:@zanix/space-ui@^2.9.4",
       "jsr:@zanix/space@^1.16.0",

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] - 2026-10-12
+
+### Changed
+
+- **`@zanix/notifications` is now `^1.7.1`** (was `^1.4.0`). `iam` renders the message itself with
+  its own copy of the library, and a template body an app saved (a starter body taken from the
+  console, say) can call helpers the library has only since 1.7.0 (`defaultTo`, `currentYear`,
+  `withSuffix`). With an older copy the render failed, `iam` logged
+  `Database-backed template resolution failed ... Missing
+  helper` and sent the template of the
+  code instead of the saved one. The new floor makes Deno resolve a copy that has them, instead of
+  an older one from its cache.
+
 ## [2.2.2] - 2026-10-12
 
 ### Changed
