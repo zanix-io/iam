@@ -1,5 +1,5 @@
 import type { ZanixMongoConnector } from '@zanix/datamaster'
-import type { AuthenticationAttrs } from './model.defs.ts'
+import type { AuthenticationAttrs, HydratedAuth } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
 import { computeEmailKeyId, emailLookupCandidates } from './email-key.ts'
@@ -69,6 +69,22 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
       id: String(account.id),
       userId: String(account.userId),
       roleIds: (account.roleIds ?? []).map(String),
+    }))
+  }
+
+  /**
+   * The login address of each account in `authIds`, with one query, as `{ id, userId, email }`.
+   * The address is stored masked; it is unmasked here, so this is the one read that hands out real
+   * addresses in bulk and only {@linkcode AccountContactService} calls it. An id with no account is
+   * not in the answer.
+   */
+  public async findContactEmails(authIds: string[]) {
+    if (!authIds.length) return []
+    const accounts = await this.Model.find({ _id: { $in: authIds } }).select('userId email').exec()
+    return (accounts as unknown as HydratedAuth[]).map((account) => ({
+      id: String(account.id),
+      userId: account.userId ? String(account.userId) : undefined,
+      email: account.email.unmask(),
     }))
   }
 

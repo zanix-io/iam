@@ -48,3 +48,9 @@ Deno.test('resolveEffectivePermissions: registered as the real utils/rbac.ts imp
   // fallback — see those files' own `resolveSessionPermissions`).
   assertStrictEquals(resolveEffectivePermissions, rbacResolveEffectivePermissions)
 })
+
+Deno.test('resolveAccountEmails operation: limited to notifications, so no other app reads addresses', () => {
+  const operation = authApp.definition.operations.resolveAccountEmails
+  assertEquals(typeof operation.handler, 'function')
+  assertEquals(operation.allowedCallers, ['notifications'])
+})

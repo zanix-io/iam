@@ -219,6 +219,20 @@ anonymous-bucket window — see `CRITICAL_RATELIMIT_ENV`,
   body, where a guard genuinely can't see it in time otherwise) — every other endpoint either has no
   body-only identity to key off of, or already runs under a real, established session.
 
+### Delivering a message to an account — `resolveAccountEmails`
+
+A service that sends email on a person's behalf keeps the account id and asks `iam` for the address
+when it sends, so no other service stores addresses. Call the `auth` app's operation:
+
+```ts
+const { emails } = await ctx.remote('auth').call('resolveAccountEmails', { authIds: ['<authId>'] })
+// emails: { '<authId>': 'person@example.com' }
+```
+
+At most 100 ids per call. An unknown account and one that cannot sign in (`INACTIVE` or `DELETED`)
+are absent from `emails`; treat absence as "nothing to deliver". The operation declares
+`allowedCallers: ['notifications']`, so only that app may call it, and it has no HTTP route.
+
 ### Backend-only composition (auth/grant-access logic, no UI at all)
 
 Orthogonal to the three levels above: `@zanix/iam/auth-app` and `@zanix/iam/grant-access-app` export

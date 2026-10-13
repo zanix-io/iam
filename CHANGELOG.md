@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-10-13
+
+### Added
+
+- **The `auth` app exposes the `resolveAccountEmails` operation.** A product service that delivers
+  messages on a person's behalf no longer needs a copy of the address: it keeps the account id and
+  asks `iam` when it sends. `{ authIds: string[] }` (at most 100) answers
+  `{ emails: { [authId]: address } }`. An unknown account and one that cannot sign in (`INACTIVE` or
+  `DELETED`) are left out. The operation declares `allowedCallers: ['notifications']`, has no HTTP
+  route and takes no session, so a person's token can never reach it.
+
 ## [2.2.3] - 2026-10-12
 
 ### Changed

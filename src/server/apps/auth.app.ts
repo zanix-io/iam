@@ -2,7 +2,7 @@ import type { OAuth2ConnectorOptions } from '@zanix/auth'
 import type { ZanixConnector } from '@zanix/server'
 
 import { defineZanixApp } from '@zanix/app'
-import { registerResourceType } from '@zanix/app/runtime'
+import { registerResourceType, resolveTarget } from '@zanix/app/runtime'
 import { InternalError } from '@zanix/errors'
 import {
   GITHUB_OAUTH2_CLIENT_ID_ENV,
@@ -18,6 +18,7 @@ import {
 } from '@zanix/auth'
 import { registerTemplateSeeds } from '@zanix/notifications'
 import { defaultRoleId, isSelfRegistrationEnabled, SERVICE_ID } from 'utils/constants.ts'
+import { AccountContactService } from '../interactors/account-contact.interactor.ts'
 import { resolveEffectivePermissions } from 'utils/rbac.ts'
 
 /**
@@ -207,6 +208,22 @@ const authApp: ReturnType<typeof defineZanixApp> = defineZanixApp({
      * unset behavior and when a host needs to set it.
      */
     defaultRoleId: { type: 'string', default: defaultRoleId ?? '' },
+  },
+  operations: {
+    /**
+     * The login address of accounts, for the services that deliver messages on a person's behalf:
+     * `{ authIds: string[] }` answers `{ emails: { [authId]: address } }`, with closed and unknown
+     * accounts left out (see `AccountContactService`). Limited to `notifications`, the one app that
+     * sends, so the address is read at the moment of sending and never stored by a product service.
+     */
+    resolveAccountEmails: {
+      allowedCallers: ['notifications'],
+      handler: async (payload) => {
+        const service = resolveTarget('auth', AccountContactService)
+        const { authIds } = (payload ?? {}) as { authIds?: unknown }
+        return { emails: await service.resolveEmails(authIds) }
+      },
+    },
   },
   behaviors: {
     passwordPolicy: {
