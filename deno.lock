@@ -39,11 +39,11 @@
     "jsr:@zanix/space@^1.16.0": "1.18.7",
     "jsr:@zanix/utils@4": "4.11.0",
     "jsr:@zanix/utils@^4.1.0": "4.11.0",
-    "jsr:@zanix/utils@^4.10.0": "4.10.0",
+    "jsr:@zanix/utils@^4.10.0": "4.11.0",
     "jsr:@zanix/utils@^4.11.0": "4.11.0",
     "jsr:@zanix/utils@^4.4.0": "4.11.0",
     "jsr:@zanix/utils@^4.5.0": "4.11.0",
-    "jsr:@zanix/utils@^4.7.0": "4.10.0",
+    "jsr:@zanix/utils@^4.7.0": "4.11.0",
     "jsr:@zanix/utils@^4.8.0": "4.11.0",
     "npm:@formatjs/icu-messageformat-parser@^3.5.17": "3.5.18",
     "npm:@formatjs/intl@^4.1.19": "4.2.1",
@@ -235,14 +235,6 @@
         "npm:preact",
         "npm:react@^19.2.0",
         "npm:schema-dts"
-      ]
-    },
-    "@zanix/utils@4.10.0": {
-      "integrity": "4bc379b77bb050d7ee5e253c4e47a613a741dd2eacb45d3f9bceaa5c7a8b28d8",
-      "dependencies": [
-        "jsr:@std/crypto",
-        "jsr:@std/fmt@0.224",
-        "jsr:@std/path@0.224"
       ]
     },
     "@zanix/utils@4.11.0": {
@@ -576,8 +568,7 @@
       "jsr:@zanix/server@^4.3.0",
       "jsr:@zanix/space-ui@^2.9.4",
       "jsr:@zanix/space@^1.16.0",
-      "jsr:@zanix/utils@^4.10.0",
-      "jsr:@zanix/utils@^4.7.0",
+      "jsr:@zanix/utils@^4.11.0",
       "npm:@formatjs/icu-messageformat-parser@^3.5.17",
       "npm:babel-plugin-react-compiler@1",
       "npm:happy-dom@^20.11.2",
