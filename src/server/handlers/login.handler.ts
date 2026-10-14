@@ -31,6 +31,7 @@ import { criticalRateLimit, freeRateLimit, loginMethodsRateLimit } from 'utils/c
 import { refreshRateLimitIdentityGuard } from 'utils/refresh-rate-limit-guard.ts'
 import { phoneConfirmRateLimitIdentityGuard } from 'utils/phone-confirm-rate-limit-guard.ts'
 import { messageLangGuard } from 'utils/message-lang.ts'
+import { stepUpTokenGuard } from 'utils/step-up-token-guard.ts'
 
 /**
  * Login/session endpoints for the `auth` domain. Anonymous rate limiting on every route
@@ -252,22 +253,26 @@ export class LoginController extends ZanixController<AuthService> {
   }
 
   /**
-   * Confirms a TOTP enrollment by verifying `code` against the just-generated `secret`, then
+   * Confirms a TOTP enrollment by verifying `code` against the secret `totp/enroll` issued, then
    * persists it and enables TOTP as the account's 2FA method on login. Requires a valid access
-   * token.
+   * token and a `factor-change` step-up token for `totp-confirm` in the `X-Znx-Step-Up-Token`
+   * header. A body `secret` is not used; one that is not the issued secret is refused.
    */
   @Post('totp/confirm', { Body: TotpConfirmRTO })
   @Guard(messageLangGuard())
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public totpConfirm(ctx: HandlerContext<{ body: TotpConfirmRTO }>) {
     const { secret, code } = ctx.payload.body
-    return this.interactor.totpConfirm(secret, code)
+    return this.interactor.totpConfirm(code, secret)
   }
 
   /**
-   * Disables TOTP 2FA for the caller's own account. Requires a valid access token.
+   * Disables TOTP 2FA for the caller's own account. Requires a valid access token and a
+   * `factor-change` step-up token for `totp-disable` in the `X-Znx-Step-Up-Token` header.
    */
   @Delete('totp')
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public totpDisable(_ctx: HandlerContext) {
     return this.interactor.disableTotp()
@@ -287,7 +292,8 @@ export class LoginController extends ZanixController<AuthService> {
 
   /**
    * Confirms phone verification by checking `code` against the just-dispatched SMS code, then
-   * persists `phone` on the caller's own account. Requires a valid access token.
+   * persists `phone` on the caller's own account. Requires a valid access token and a
+   * `factor-change` step-up token for `phone-confirm` in the `X-Znx-Step-Up-Token` header.
    *
    * Same `freeRateLimit` (3 attempts) `login:otp-callback` uses for the equivalent "brute-force a
    * short numeric code" surface — a wrong guess here is exactly as cheap to retry as a wrong
@@ -300,6 +306,7 @@ export class LoginController extends ZanixController<AuthService> {
   @Post('phone/confirm', { Body: PhoneConfirmRTO })
   @RateLimitGuard({ app: 'phone:confirm', anonymousLimit: freeRateLimit, trustProxyHeader: true })
   @Guard(phoneConfirmRateLimitIdentityGuard())
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public phoneConfirm(ctx: HandlerContext<{ body: PhoneConfirmRTO }>) {
     const { phone, code } = ctx.payload.body
@@ -308,9 +315,11 @@ export class LoginController extends ZanixController<AuthService> {
 
   /**
    * Forgets the caller's own verified phone (and any `'sms'`/`'whatsapp'` login-OTP preference
-   * that depended on it). Requires a valid access token.
+   * that depended on it). Requires a valid access token and a `factor-change` step-up token for
+   * `phone-disable` in the `X-Znx-Step-Up-Token` header.
    */
   @Delete('phone')
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public phoneDisable(_ctx: HandlerContext) {
     return this.interactor.disablePhone()
@@ -318,9 +327,11 @@ export class LoginController extends ZanixController<AuthService> {
 
   /**
    * Sets (or, `notifier` omitted, clears back to `'email'`) which channel the caller's own
-   * passwordless login-OTP code is delivered through. Requires a valid access token.
+   * passwordless login-OTP code is delivered through. Requires a valid access token and a
+   * `factor-change` step-up token for `otp-notifier` in the `X-Znx-Step-Up-Token` header.
    */
   @Post('otp-notifier', { Body: OtpNotifierRTO })
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public setOtpNotifier(ctx: HandlerContext<{ body: OtpNotifierRTO }>) {
     return this.interactor.setOtpNotifier(ctx.payload.body.notifier)

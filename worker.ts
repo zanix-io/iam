@@ -1,4 +1,5 @@
 import Zanix from '@zanix/core'
+import { IAM_LOGGER_SETUP } from 'utils/log-redaction.ts'
 
 /**
  * iam's worker entrypoint — bootstraps this project as a standalone AsyncMQ background-jobs
@@ -7,4 +8,5 @@ import Zanix from '@zanix/core'
  * ("Worker mode") for `Zanix.startWorker()`'s full behavior, including its automatic
  * `SIGINT`/`SIGTERM` handling.
  */
+await Zanix.setup(IAM_LOGGER_SETUP)
 await Zanix.startWorker()

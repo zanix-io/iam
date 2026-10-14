@@ -10,6 +10,8 @@ import 'server/handlers/permissions.handler.ts'
 import 'server/handlers/grant-access.handler.ts'
 import 'server/handlers/oauth-provider.handler.ts'
 import 'server/handlers/templates.handler.ts'
+import 'server/handlers/step-up.handler.ts'
+import { STEP_UP_TOKEN_AUDIENCE } from 'utils/shared-enums.ts'
 import {
   adminLookupRateLimit,
   adminMutationRateLimit,
@@ -18,6 +20,8 @@ import {
   loginMethodsRateLimit,
   RBAC_PERMISSIONS,
 } from 'utils/constants.ts'
+import { mintStepUpToken } from 'utils/step-up-token.ts'
+import { withStepUpKeys } from '../../../unit/helpers/step-up.ts'
 import {
   allowedBeforeLimit,
   type AnyGuard,
@@ -110,6 +114,8 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'POST /login/phone/confirm': ['phoneConfirm', { Body: 'PhoneConfirmRTO' }],
     'DELETE /login/phone': ['phoneDisable', {}],
     'POST /login/otp-notifier': ['setOtpNotifier', { Body: 'OtpNotifierRTO' }],
+    'POST /step-up/request': ['request', { Body: 'StepUpRequestRTO' }],
+    'POST /step-up/verify': ['verify', { Body: 'StepUpVerifyRTO' }],
     'POST /pwd/change': ['change', { Body: 'PwdRTO' }],
     'POST /pwd/add': ['add', { Body: 'AddPasswordRTO' }],
     'DELETE /pwd/remove': ['remove', {}],
@@ -203,9 +209,41 @@ Deno.test('REST routes: refresh runs its identity guard BEFORE the rate limiter 
 Deno.test('REST routes: phone/confirm authenticates, then overrides the rate limit, then rate-limits', () => {
   assertEquals(routes['POST /login/phone/confirm'].guards.map(guardKind).slice(1), [
     'jwt',
+    'stepUpToken',
     'phoneIdentity',
     'rateLimit',
   ])
+})
+
+/** Every operation that changes a second factor or a credential, with the guard that records the
+ * step-up token for it. */
+const FACTOR_CHANGE_ROUTES = [
+  'POST /login/totp/confirm',
+  'DELETE /login/totp',
+  'POST /login/phone/confirm',
+  'DELETE /login/phone',
+  'POST /login/otp-notifier',
+  'POST /pwd/change',
+  'POST /pwd/add',
+  'DELETE /pwd/remove',
+]
+
+Deno.test('REST routes: every factor or credential change authenticates first, then reads the step-up token header', () => {
+  for (const key of FACTOR_CHANGE_ROUTES) {
+    const kinds = routes[key].guards.map(guardKind)
+    assertEquals(kinds.includes('stepUpToken'), true, `${key} must read the step-up token`)
+    assertEquals(
+      kinds.indexOf('jwt') < kinds.indexOf('stepUpToken'),
+      true,
+      `${key} must authenticate before the proof is read`,
+    )
+  }
+})
+
+Deno.test('REST routes: totp enrollment start and phone enrollment start change nothing and need no proof', () => {
+  for (const key of ['GET /login/totp/enroll', 'POST /login/phone/enroll']) {
+    assertEquals(routes[key].guards.map(guardKind).includes('stepUpToken'), false, key)
+  }
 })
 
 const ADMIN_MUTATION_ROUTES = [
@@ -343,6 +381,8 @@ const SELF_SCOPED_ROUTES = [
   'POST /login/phone/enroll',
   'DELETE /login/phone',
   'POST /login/otp-notifier',
+  'POST /step-up/request',
+  'POST /step-up/verify',
   'POST /pwd/change',
   'POST /pwd/add',
   'DELETE /pwd/remove',
@@ -572,5 +612,88 @@ Deno.test('REST routes: no administration route accepts a service credential (`a
   assert(
     /type:\s*\[/.test(await read('templates.handler.ts')),
     'the contrast: templates accepts both',
+  )
+})
+
+Deno.test('REST routes: the step-up routes authenticate first, then count against their own per-account limit', () => {
+  assertEquals(routes['POST /step-up/verify'].guards.map(guardKind).slice(1), ['jwt', 'rateLimit'])
+  // `request` also records the message language, which runs last (decorators apply bottom-up).
+  assertEquals(
+    routes['POST /step-up/request'].guards.map(guardKind).slice(1),
+    ['jwt', 'rateLimit', 'other'],
+  )
+})
+
+Deno.test('REST routes: step-up request and verify each allow their own limit per account, across tokens', async () => {
+  const limits = {
+    'POST /step-up/request': { limit: criticalRateLimit, app: 'step-up:request' },
+    'POST /step-up/verify': { limit: freeRateLimit, app: 'step-up:verify' },
+  }
+  for (const [key, { limit, app }] of Object.entries(limits)) {
+    const guards = routes[key].guards
+    const afterAuth = guards.slice(guards.findIndex((guard) => guardKind(guard) === 'jwt') + 1)
+    const cache = fakeRateLimitCache()
+    let tokens = 0
+    // A generic account-tier limit far above this route's own, on a NEW token every request.
+    const sessionOf = (subject: string) => ({
+      id: `jti-${tokens++}`,
+      subject,
+      type: 'user',
+      rateLimit: 1000,
+    })
+    assertEquals(
+      // deno-lint-ignore no-await-in-loop
+      await allowedBeforeLimit(
+        afterAuth,
+        () => guardContext(cache, { session: sessionOf('auth-7') }),
+        limit + 5,
+      ),
+      limit,
+      `${key} per-account limit`,
+    )
+    assertEquals(
+      // deno-lint-ignore no-await-in-loop
+      await allowedBeforeLimit(
+        afterAuth,
+        () => guardContext(cache, { session: sessionOf('auth-8') }),
+        limit + 5,
+      ),
+      limit,
+      `${key}: another account has a bucket of its own`,
+    )
+    assert(cache.keys.every((bucket) => bucket.includes(`${app}-`)), `${key} bucket name`)
+    assert(
+      cache.keys.some((bucket) => bucket.endsWith('-subject:auth-7')),
+      `${key} keyed by account`,
+    )
+    assert(!cache.keys.some((bucket) => bucket.includes('jti-')), 'the token id is never the key')
+  }
+  // The two routes count apart: spending the request bucket leaves verify untouched.
+  assert(limits['POST /step-up/request'].app !== limits['POST /step-up/verify'].app)
+})
+
+Deno.test('REST routes: a step-up token is rejected by the access-token check of every self-service route and step-up route', async () => {
+  await withStepUpKeys(() =>
+    withJwtKey(async () => {
+      const { stepUpToken } = await mintStepUpToken({
+        subject: 'auth-1',
+        purpose: 'wallet-transfer',
+        method: 'otp',
+      })
+      assertEquals(STEP_UP_TOKEN_AUDIENCE, 'iam:step-up')
+      for (const key of [...SELF_SCOPED_ROUTES, 'POST /login/phone/confirm']) {
+        const jwtGuard = routes[key].guards.find((guard) => guardKind(guard) === 'jwt')
+        assert(jwtGuard, key)
+        const ctx = guardContext(fakeRateLimitCache(), {
+          headers: { authorization: `Bearer ${stepUpToken}` },
+        })
+        // deno-lint-ignore no-await-in-loop
+        const result = await jwtGuard(ctx) as { response?: Response }
+        assertEquals(result.response?.status, 403, `${key} must refuse a step-up token`)
+        // deno-lint-ignore no-await-in-loop
+        const body = await result.response?.json()
+        assertEquals(body.cause.code, 'INVALID_TOKEN_SIGNATURE', `${key} must fail the signature`)
+      }
+    })
   )
 })

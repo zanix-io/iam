@@ -3,6 +3,7 @@ import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { TotpEnrollViewProps } from './types.ts'
 
 const CODE_FIELD_ID = 'totp-enroll-code'
+const STEP_UP_FIELD_ID = 'totp-enroll-step-up-code'
 
 /** This page's own `<form>` id — `SubmitGuard`'s own `formId` target. */
 const FORM_ID = 'totp-enroll-form'
@@ -83,14 +84,14 @@ export function createTotpEnrollView<E>(
       // Posts to the SIBLING `totp/confirm` page — both pages share the same `X-Znx-Csrf` cookie
       // (same origin, same cookie name), so the token this page's own `csrfGuard()` issues on
       // `GET` is exactly the one `../confirm/page.tsx`'s own `csrfGuard()` validates on `POST`.
-      // `secret` round-trips through this hidden field because `AuthService.totpEnroll` never
-      // persists it — see that method's own doc.
+      // No `secret` field: `AuthService.totpEnroll` keeps the issued secret as the account's pending
+      // secret, and `totp/confirm` confirms that one. `stepUpCode` is the code of the account's
+      // current second factor, which authorizes the change.
       h(SubmitGuard, { formId: FORM_ID }),
       h(
         'form',
         { method: 'post', id: FORM_ID, action: `/${lang}/totp/confirm` },
         h('input', { type: 'hidden', name: '_csrf', value: csrfToken ?? '' }),
-        h('input', { type: 'hidden', name: 'secret', value: secret }),
         h(
           Field,
           {
@@ -98,6 +99,22 @@ export function createTotpEnrollView<E>(
             label: formatMessage('totp/enroll/code-label'),
             children: (fieldProps: Record<string, unknown>) =>
               h(Input, { ...fieldProps, name: 'code', type: 'text', required: true }),
+          },
+        ),
+        h('p', null, formatMessage('common/factor-change-hint')),
+        h(
+          Field,
+          {
+            id: STEP_UP_FIELD_ID,
+            label: formatMessage('common/factor-change-code-label'),
+            children: (fieldProps: Record<string, unknown>) =>
+              h(Input, {
+                ...fieldProps,
+                name: 'stepUpCode',
+                type: 'text',
+                autoComplete: 'one-time-code',
+                required: true,
+              }),
           },
         ),
         h(Button, { type: 'submit' }, formatMessage('totp/enroll/submit')),

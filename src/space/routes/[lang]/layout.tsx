@@ -34,7 +34,7 @@ export const loader = async (ctx: PageContext<LangParams>): Promise<LangLayoutDa
   cspNonce: ctx.cspNonce,
   messages: {
     ...await loadMessages({ lang: ctx.params.lang }),
-    ...resolveMessageOverrides(),
+    ...resolveMessageOverrides(ctx.params.lang),
   },
 })
 

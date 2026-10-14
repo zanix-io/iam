@@ -17,6 +17,8 @@ import {
   TOKEN_EXPIRATION,
 } from 'utils/constants.ts'
 import { permissionsForAccount } from './session-permissions.ts'
+import { authenticateAccountOtp, otpLoginTarget, recordEmailProof } from './email-proof.ts'
+import { requireFactorChangeProof } from './step-up-proof.ts'
 
 /** The generic confirmation `PasswordService.recovery` answers with after a dispatch, and for a
  * password-recovery request it declines to send, so the two are indistinguishable. */
@@ -39,12 +41,22 @@ export class PasswordService extends ZanixInteractor {
    * `passwordPolicy` (`auth.app.ts`'s own overridable `behaviors` slot) to the new one, and
    * clears the `mustChangePassword` flag.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when `currentPassword`
-   *   doesn't match; `BAD_REQUEST` when `newPassword` fails the active password policy.
+   * Needs a fresh `factor-change` step-up proof for `password-change`, spent once the current
+   * password matched.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof or when `currentPassword` doesn't match; `BAD_REQUEST` when `newPassword` fails
+   *   the active password policy.
    */
   public async changePwd(currentPassword: string, newPassword: string) {
     const id = this.context.session?.subject
     if (!id) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      id,
+      'password-change',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(id) as HydratedAuth | undefined
     const canChange = await auth?.password?.verify(currentPassword)
@@ -54,6 +66,7 @@ export class PasswordService extends ZanixInteractor {
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     this.assertPasswordPolicy(newPassword)
+    await proof.spend()
 
     await this.providers.get(AuthRepository).updateAuth(
       { id, password: newPassword },
@@ -78,13 +91,18 @@ export class PasswordService extends ZanixInteractor {
    * yet. An account that already has a password must go through `changePwd` instead — this method
    * refuses outright rather than silently overwriting one.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
-   *   longer resolves to a real `auth` record; `CONFLICT` when a password is already set;
-   *   `BAD_REQUEST` when `newPassword` fails the active password policy.
+   * Needs a fresh `factor-change` step-up proof for `password-add`: a password is a new way to sign
+   * in to the account.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or when the session subject no longer resolves to a real `auth` record;
+   *   `CONFLICT` when a password is already set; `BAD_REQUEST` when `newPassword` fails the active
+   *   password policy.
    */
   public async addPassword(newPassword: string) {
     const id = this.context.session?.subject
     if (!id) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(this.providers, this.context, id, 'password-add')
 
     const auth = await this.providers.get(AuthRepository).findById(id) as HydratedAuth | undefined
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
@@ -96,6 +114,7 @@ export class PasswordService extends ZanixInteractor {
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     this.assertPasswordPolicy(newPassword)
+    await proof.spend()
 
     await this.providers.get(AuthRepository).updateAuth(
       { id, password: newPassword },
@@ -117,15 +136,24 @@ export class PasswordService extends ZanixInteractor {
    * email+OTP always works regardless of `password`/`oauthProvider`, so there's no real lockout
    * scenario this could cause.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
-   *   longer resolves to a real `auth` record.
+   * Needs a fresh `factor-change` step-up proof for `password-remove`.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or when the session subject no longer resolves to a real `auth` record.
    */
   public async removePassword() {
     const id = this.context.session?.subject
     if (!id) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      id,
+      'password-remove',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(id) as HydratedAuth | undefined
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    await proof.spend()
 
     if (auth.password) {
       await this.providers.get(AuthRepository).updateAuth(
@@ -212,7 +240,7 @@ export class PasswordService extends ZanixInteractor {
       // Unrecognized-but-eligible email: the OTP cache has no `auth.id` to key against yet, so
       // the plain email itself is the target — `AuthService.loginWithOTPCallback` verifies
       // against this exact same target when it doesn't find an `auth` record either.
-      target: auth ? auth.id : email,
+      target: auth ? otpLoginTarget(auth.id, notifier) : email,
       exp: ttl,
     })
 
@@ -266,12 +294,13 @@ export class PasswordService extends ZanixInteractor {
     const refreshExpiration = resolveConfiguredRefreshExpiration() as
       | AuthSessionOptions['refreshExpiration']
       | undefined
-    const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
+    const { tokens, channel } = await authenticateAccountOtp(this.providers, auth, code, {
       subject: auth.id,
       permissions,
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     })
+    if (channel === 'email') await recordEmailProof(this.providers, auth.id)
 
     await this.providers.get(AuthRepository).updateAuth({
       id: auth.id,

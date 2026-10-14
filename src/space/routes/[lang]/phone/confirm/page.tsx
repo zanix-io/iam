@@ -6,7 +6,7 @@ import { HttpError } from '@zanix/errors'
 import { pageSessionGuard, rateLimitGuard } from '@zanix/auth'
 import { PhoneConfirmView } from 'ui/pages/phone-confirm/index.ts'
 import { AuthService } from 'server/interactors/auth.interactor.ts'
-import { PhoneConfirmRTO } from 'server/handlers/rtos/password.ts'
+import { PhoneConfirmPageRTO } from 'server/handlers/rtos/password.ts'
 import { redirectResponse } from 'shared/redirect-response.ts'
 import { freeRateLimit, resolvePostLoginRedirect } from 'utils/constants.ts'
 import { phoneConfirmRateLimitIdentityGuard } from 'utils/phone-confirm-rate-limit-guard.ts'
@@ -22,9 +22,12 @@ const INVALID_CODE_ERROR = 'invalid_code'
  * dispatching the SMS code. Same `pageSessionGuard([])` requirement/reasoning as that page.
  *
  * `phone` arrives as a `?phone=` query param (never a path segment — this route carries no
- * `[phone]` param of its own) and round-trips through this page's own hidden form field, the same
- * "carry an enrollment-in-progress value the server never persisted yet" shape `totp/confirm`'s
- * own `secret` hidden field establishes for TOTP.
+ * `[phone]` param of its own) and round-trips through this page's own hidden form field, since the
+ * server has not persisted it yet.
+ *
+ * The form also takes `stepUpCode`, the code of the account's current second factor: the `action`
+ * turns it into the `factor-change` proof the confirmation needs
+ * (`AuthService.provideFactorChangeProof`), and `../enroll/page.tsx` delivered it.
  *
  * Code attempts are limited to `freeRateLimit` per signed-in visitor, the same ceiling as
  * `POST /login/phone/confirm`: the `action` calls `AuthService` in process, so the REST route's guards
@@ -32,7 +35,7 @@ const INVALID_CODE_ERROR = 'invalid_code'
  * `phoneConfirmRateLimitIdentityGuard` (see its doc for why the session's own token limit is
  * replaced), then `rateLimitGuard` under its own `phone:confirm-page` bucket.
  */
-@Page({ Interactor: AuthService, action: { Body: PhoneConfirmRTO } })
+@Page({ Interactor: AuthService, action: { Body: PhoneConfirmPageRTO } })
 @Guard(
   rateLimitGuard(
     { app: 'phone:confirm-page', anonymousLimit: freeRateLimit, trustProxyHeader: true },
@@ -55,10 +58,11 @@ export default class PhoneConfirmPage extends SpacePageController<ConfirmParams,
   })
 
   public override action = async (ctx: PageActionContext<ConfirmParams>): Promise<Response> => {
-    const body = ctx.body as PhoneConfirmRTO
+    const body = ctx.body as PhoneConfirmPageRTO
     const { lang } = ctx.params
 
     try {
+      await this.interactor.provideFactorChangeProof('phone-confirm', body.stepUpCode)
       await this.interactor.phoneConfirm(body.phone, body.code)
     } catch (e) {
       if (e instanceof HttpError && e.status.code === 'FORBIDDEN') {

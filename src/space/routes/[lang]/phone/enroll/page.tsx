@@ -52,6 +52,9 @@ export default class PhoneEnrollPage extends SpacePageController<EnrollParams, A
     const { lang } = ctx.params
 
     await this.interactor.phoneEnroll(body.phone)
+    // Delivers the code that confirms the change on `../confirm` (nothing is sent for an
+    // authenticator-app account, which answers from the app).
+    await this.interactor.requestFactorChangeProof()
 
     return redirectResponse(`/${lang}/phone/confirm?phone=${encodeURIComponent(body.phone)}`)
   }

@@ -21,15 +21,16 @@ type ConfirmParams = { lang: string }
 function confirmPage(phoneConfirm: (...args: unknown[]) => unknown) {
   const page = new PhoneConfirmPage(mockHandlerContext())
   const recorder = fn(phoneConfirm)
-  mockAccessor(page, 'interactor', { phoneConfirm: recorder })
-  return { page, phoneConfirm: recorder }
+  const provideFactorChangeProof = fn((..._args: unknown[]) => Promise.resolve())
+  mockAccessor(page, 'interactor', { phoneConfirm: recorder, provideFactorChangeProof })
+  return { page, phoneConfirm: recorder, provideFactorChangeProof }
 }
 
 const actionContext = (query = '') =>
   mockActionContext<ConfirmParams>({
     params: { lang: 'en' },
     request: new Request(`http://localhost/en/phone/confirm${query}`, { method: 'POST' }),
-    body: { phone: '+14155551234', code: '123456' },
+    body: { phone: '+14155551234', code: '123456', stepUpCode: '654321' },
   })
 
 Deno.test('PhoneConfirmPage: requires a signed-in session and a CSRF token', () => {
@@ -61,10 +62,13 @@ Deno.test('PhoneConfirmPage.loader: a missing phone param resolves to an empty s
 })
 
 Deno.test('PhoneConfirmPage.action: a verified code redirects to the safe redirect_to target', async () => {
-  const { page, phoneConfirm } = confirmPage(() => Promise.resolve({ response: 'ok' }))
+  const { page, phoneConfirm, provideFactorChangeProof } = confirmPage(() =>
+    Promise.resolve({ response: 'ok' })
+  )
   const response = await page.action?.(
     actionContext(`?${REDIRECT_TO_PARAM}=${encodeURIComponent('/account/security')}`),
   ) as Response
+  assertEquals(provideFactorChangeProof.calls, [['phone-confirm', '654321']])
   assertEquals(phoneConfirm.calls, [['+14155551234', '123456']])
   assertEquals(response.headers.get('location'), '/account/security')
 })

@@ -32,6 +32,38 @@ Deno.test('resolvePostLoginRedirect: rejects anything that is not a same-origin 
   }
 })
 
+Deno.test('resolvePostLoginRedirect: rejects backslash, control-character and encoded variants a browser follows as another host', () => {
+  const unsafe = [
+    '/\\evil.test',
+    '/\\/evil.test',
+    '/\t/evil.test',
+    '/\n/evil.test',
+    '/\r/evil.test',
+    '/\u0000/evil.test',
+    '/\u007f/evil.test',
+    '/ok\\..\\evil.test',
+    '\t//evil.test',
+    ' //evil.test',
+  ]
+  for (const value of unsafe) {
+    assertEquals(
+      resolvePostLoginRedirect(url(`?redirect_to=${encodeURIComponent(value)}`), '/home'),
+      '/home',
+      JSON.stringify(value),
+    )
+  }
+})
+
+Deno.test('resolvePostLoginRedirect: ordinary paths with a query, a fragment and encoded characters still pass', () => {
+  for (const ok of ['/', '/es/orders?x=1&y=2', '/a/b#frag', '/caf%C3%A9', '/a%5Cb']) {
+    assertEquals(
+      resolvePostLoginRedirect(url(`?redirect_to=${encodeURIComponent(ok)}`), '/home'),
+      ok,
+      ok,
+    )
+  }
+})
+
 Deno.test('withRedirectToParam: carries a safe destination through another hop, and only that', () => {
   assertEquals(
     withRedirectToParam('/es/login/totp/a', url('?redirect_to=/es/orders?x=1')),

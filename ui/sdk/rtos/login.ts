@@ -208,6 +208,13 @@ export interface AuthMethodsResult {
   oauthProvider: OauthProvider | null
   /** Whether TOTP (authenticator app) is the account's configured second factor. */
   totpEnabled: boolean
+  /** Whether the account has proven it controls its email mailbox: an email one-time code, or an
+   * OAuth2 sign-in whose provider reports the address as verified. An account an administrator
+   * created, and that has not signed in through one of those, stays `false`. */
+  emailVerified: boolean
+  /** When the mailbox was first proven, as an ISO 8601 timestamp; present only when
+   * `emailVerified` is `true`. */
+  emailVerifiedAt?: string
   /** The verified phone's last 4 digits (`••••1234`), or `null` when none is verified. */
   phone: string | null
   /** Which channel a passwordless login-OTP code is delivered through — `null` means `'email'`,

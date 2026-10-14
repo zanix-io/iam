@@ -42,6 +42,8 @@ export default class TotpEnrollPage extends SpacePageController<EnrollParams, Au
 
   public override loader = async (ctx: PageContext<EnrollParams>) => {
     const { secret, uri } = await this.interactor.totpEnroll()
+    // Delivers the code that confirms the change (nothing is sent for an authenticator-app account).
+    await this.interactor.requestFactorChangeProof()
     return {
       lang: ctx.params.lang,
       secret,

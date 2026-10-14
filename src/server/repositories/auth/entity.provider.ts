@@ -170,6 +170,21 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
   }
 
   /**
+   * Records that the account proved control of its mailbox, once: the write only matches an
+   * account whose `emailVerifiedAt` is still unset, so a repeated proof keeps the first timestamp
+   * and concurrent proofs write a single value.
+   *
+   * @returns `true` when this call set the timestamp, `false` when it was already set.
+   */
+  public async markEmailVerified(authId: string, at: Date = new Date()): Promise<boolean> {
+    const result = await this.Model.updateOne(
+      { _id: authId, emailVerifiedAt: { $exists: false } },
+      { $set: { emailVerifiedAt: at } },
+    ).exec()
+    return result.modifiedCount > 0
+  }
+
+  /**
    * Adds `roleIds` to the roles of an account, atomically (`$addToSet`): a role it already holds
    * stays where it is, the new ones go after. Concurrent additions never undo each other.
    * ⚠️ Validate that the account and the roles exist before calling.

@@ -12,7 +12,7 @@ function normalizePhone(value?: string): string {
   return (value ?? '').replace(/[\s()-]/g, '')
 }
 
-/** `POST /pwd` body — self-service password change, authenticated session required. */
+/** `POST /pwd/change` body — self-service password change, authenticated session required. */
 export class PwdRTO extends BaseRTO {
   @IsString({ expose: true })
   accessor currentPassword!: string
@@ -59,14 +59,25 @@ export class PwdRecoveryCbRTO extends BaseRTO {
 
 /**
  * `POST /login/totp/confirm` body — proves the caller's authenticator app actually holds the
- * secret from a preceding `totpEnroll()` call before it's persisted (see `AuthService.totpConfirm`).
+ * secret the preceding `totpEnroll()` call issued before it's persisted (see
+ * `AuthService.totpConfirm`).
  */
 export class TotpConfirmRTO extends BaseRTO {
-  @IsString({ expose: true })
-  accessor secret!: string
+  /** The secret the client enrolled. Optional and never used as the secret: the server confirms
+   * the pending secret it issued, and refuses a body whose `secret` is another one. */
+  @IsString({ expose: true, optional: true })
+  accessor secret: string | undefined
 
   @IsString({ expose: true })
   accessor code!: string
+}
+
+/** The form body of the hosted `totp/confirm` page: {@linkcode TotpConfirmRTO} plus the
+ * second-factor code that confirms the change (see `AuthService.provideFactorChangeProof`). */
+export class TotpConfirmPageRTO extends TotpConfirmRTO {
+  /** The current second-factor code of the account. */
+  @IsString({ expose: true })
+  accessor stepUpCode!: string
 }
 
 /** `POST /login/phone/enroll` body — starts phone verification (see `AuthService.phoneEnroll`). */
@@ -83,6 +94,14 @@ export class PhoneConfirmRTO extends BaseRTO {
 
   @IsString({ expose: true })
   accessor code!: string
+}
+
+/** The form body of the hosted `phone/confirm` page: {@linkcode PhoneConfirmRTO} plus the
+ * second-factor code that confirms the change (see `AuthService.provideFactorChangeProof`). */
+export class PhoneConfirmPageRTO extends PhoneConfirmRTO {
+  /** The current second-factor code of the account. */
+  @IsString({ expose: true })
+  accessor stepUpCode!: string
 }
 
 /** `POST /login/otp-notifier` body — the caller's own login-OTP delivery-channel preference (see

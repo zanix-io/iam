@@ -15,6 +15,13 @@ import {
   REFRESH_TOKEN_EXPIRATION_ENV,
 } from 'utils/constants.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
+import {
+  claimProviderEntry,
+  factorChangeToken,
+  fakeClaimRepo,
+  grantFactorChangeProofs,
+} from '../../helpers/factor-change.ts'
+import { withStepUpKeys } from '../../helpers/step-up.ts'
 
 async function withEnv(
   name: string,
@@ -62,6 +69,7 @@ const defaultAuthRepo = () => ({
   findById: fn((..._args: unknown[]): unknown => baseAuth()),
   registerAuth: fn((..._args: unknown[]) => ({})),
   updateAuth: fn((..._args: unknown[]) => ({})),
+  markEmailVerified: fn((..._args: unknown[]) => true),
 })
 
 const defaultAuthProvider = () => ({
@@ -120,7 +128,11 @@ function buildService(opts: {
   rolesRepo?: Partial<ReturnType<typeof defaultRolesRepo>>
   session?: Record<string, unknown>
   cookies?: Record<string, string>
+  /** `false` leaves the factor-change methods without a proof. Default: each call carries one. */
+  proofs?: boolean
+  claims?: ReturnType<typeof fakeClaimRepo>
 } = {}) {
+  const claims = opts.claims ?? fakeClaimRepo()
   const authRepo = { ...defaultAuthRepo(), ...opts.authRepo }
   const authProvider = { ...defaultAuthProvider(), ...opts.authProvider }
   const notifier = { ...defaultNotifier(), ...opts.notifier }
@@ -138,6 +150,7 @@ function buildService(opts: {
       [NotifierProvider, notifier],
       [UsersRepository, usersRepo],
       [RolesRepository, rolesRepo],
+      claimProviderEntry(claims),
     ]),
   )
   mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))
@@ -145,8 +158,18 @@ function buildService(opts: {
     session: opts.session ?? { subject: 'auth-1' },
     cookies: opts.cookies ?? {},
   })
+  if (opts.proofs !== false) grantFactorChangeProofs(service)
 
-  return { service, authRepo, authProvider, notifier, passwordService, usersRepo, rolesRepo }
+  return {
+    service,
+    authRepo,
+    authProvider,
+    notifier,
+    passwordService,
+    usersRepo,
+    rolesRepo,
+    claims,
+  }
 }
 
 Deno.test('loginWithPassword: throws FORBIDDEN when no account exists for the email', async () => {
@@ -422,6 +445,7 @@ Deno.test('loginWithOTPCallback: no existing account self-provisions via a verif
   assertEquals(authProvider.session.generateTokens.calls[0]?.[0], {
     subject: 'auth-new',
     permissions: [],
+    payload: { email_verified: true },
   })
   assertEquals(authRepo.findByEmail.calls.length, 2)
   assertEquals(result.accessToken, 'access')
@@ -749,6 +773,7 @@ Deno.test('refreshTokens: reflects a role change made after the original login',
   assertEquals(rolesRepo.findManyWithPermissions.calls[0], [['role-1']])
   assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
     permissions: ['zanix-iam:role-write'],
+    payload: { email_verified: false },
   })
 })
 
@@ -769,6 +794,7 @@ Deno.test('refreshTokens: after a role is added, the next refresh carries the un
   await service.refreshTokens(fakeRefreshToken('auth-1'))
   assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
     permissions: ['web:user', 'seller:manage'],
+    payload: { email_verified: false },
   })
 })
 
@@ -778,7 +804,10 @@ Deno.test('refreshTokens: with no account resolvable from the token, still asks 
   })
   await assertRejects(() => service.refreshTokens(fakeRefreshToken('missing-auth')), HttpError)
   assertEquals(rolesRepo.findManyWithPermissions.calls.length, 0)
-  assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], { permissions: [] })
+  assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
+    permissions: [],
+    payload: { email_verified: false },
+  })
 })
 
 Deno.test('refreshTokens: an undecodable token never throws before session.refreshTokens() runs its own verification', async () => {
@@ -793,7 +822,10 @@ Deno.test('refreshTokens: an undecodable token never throws before session.refre
     HttpError,
     'Refresh token verification failed',
   )
-  assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], { permissions: [] })
+  assertEquals(authProvider.session.refreshTokens.calls[0]?.[1], {
+    permissions: [],
+    payload: { email_verified: false },
+  })
 })
 
 Deno.test('refreshTokens: falls back to the SESSION_HEADERS.user.token cookie when no explicit token is given', async () => {
@@ -844,12 +876,19 @@ Deno.test('totpEnroll: throws UNAUTHORIZED with no session', async () => {
   await assertRejects(() => service.totpEnroll(), HttpError, 'Authentication required')
 })
 
-Deno.test('totpEnroll: returns a secret and provisioning URI, persisting nothing', async () => {
+Deno.test('totpEnroll: returns a secret and provisioning URI and keeps the secret as pending, never as the active one', async () => {
   const { service, authRepo } = buildService()
   const result = await service.totpEnroll()
   assertEquals(result.secret, 'SECRET')
   assertEquals(result.uri, 'otpauth://totp/...')
-  assertEquals(authRepo.updateAuth.calls.length, 0)
+  assertEquals(authRepo.updateAuth.calls.length, 1)
+  const [update, options] = authRepo.updateAuth.calls[0] as [Record<string, unknown>, unknown]
+  assertEquals(update.id, 'auth-1')
+  assertEquals(update.pendingTotpSecret, 'SECRET')
+  assertEquals('totpSecret' in update, false)
+  assertEquals(options, { applyProtection: true })
+  const ttl = (update.pendingTotpExpiresAt as Date).getTime() - Date.now()
+  assert(ttl > 0 && ttl <= 600_000)
 })
 
 /** The provisioning label is built from the account's email, looked up with
@@ -867,50 +906,133 @@ Deno.test("totpEnroll: resolves the account's real email (never the raw subject 
 })
 
 Deno.test(
-  'totpEnroll: falls back to the raw subject id when the account lookup finds nothing',
+  'totpEnroll: a session subject with no account is FORBIDDEN and nothing is issued or stored',
   async () => {
-    const { service, authProvider } = buildService({
+    const { service, authProvider, authRepo } = buildService({
       authRepo: { findById: fn(() => undefined) },
     })
-    await service.totpEnroll()
-    const label = authProvider.totp.getProvisioningUri.calls[0]?.[1]
-    assertEquals(label, 'auth-1')
+    await assertRejects(() => service.totpEnroll(), HttpError, 'Account not found')
+    assertEquals(authProvider.totp.getProvisioningUri.calls.length, 0)
+    assertEquals(authRepo.updateAuth.calls.length, 0)
   },
 )
 
+/** An account with an enrollment pending: the secret `totpEnroll` issued, still confirmable. */
+const pendingAuth = (overrides: Record<string, unknown> = {}) =>
+  baseAuth({
+    pendingTotpSecret: { decrypt: () => 'SECRET' },
+    pendingTotpExpiresAt: new Date(Date.now() + 60_000),
+    ...overrides,
+  })
+
 Deno.test('totpConfirm: throws FORBIDDEN when the code does not verify', async () => {
   const { service, authRepo } = buildService({
+    authRepo: { findById: fn(() => pendingAuth()) },
     authProvider: { totp: { ...defaultAuthProvider().totp, verify: fn(() => false) } },
   })
-  await assertRejects(() => service.totpConfirm('SECRET', '000000'), HttpError, 'Invalid TOTP code')
+  await assertRejects(() => service.totpConfirm('000000'), HttpError, 'Invalid TOTP code')
   assertEquals(authRepo.updateAuth.calls.length, 0)
 })
 
-Deno.test('totpConfirm: on success persists the secret and sends the totp-enabled notification', async () => {
+Deno.test('totpConfirm: a wrong code costs no proof, so the same proof still works afterwards', async () => {
+  const claims = fakeClaimRepo()
+  const verify = fn((..._args: unknown[]) => false)
+  const { service, authProvider } = buildService({
+    proofs: false,
+    claims,
+    authRepo: { findById: fn(() => pendingAuth()) },
+    authProvider: { totp: { ...defaultAuthProvider().totp, verify } },
+  })
+  const token = await factorChangeToken('auth-1', 'totp-confirm')
+  mockAccessor(service, 'context', {
+    session: { subject: 'auth-1' },
+    locals: { stepUpToken: token },
+  })
+  await withStepUpKeys(async () => {
+    await assertRejects(() => service.totpConfirm('000000'), HttpError, 'Invalid TOTP code')
+    assertEquals(claims.held.size, 0)
+    authProvider.totp.verify = fn(() => true)
+    assertEquals(await service.totpConfirm('123456'), { response: 'TOTP enabled' })
+  })
+  assertEquals(claims.held.size, 2) // the spent proof and the used code
+})
+
+Deno.test('totpConfirm: on success persists the PENDING secret, clears it and sends the totp-enabled notification', async () => {
   await withEnv('TEMPLATES_BACKEND', 'local', async () => {
-    const { service, authRepo, notifier } = buildService()
-    const result = await service.totpConfirm('SECRET', '123456')
+    const { service, authRepo, notifier } = buildService({
+      authRepo: { findById: fn(() => pendingAuth()) },
+    })
+    const result = await service.totpConfirm('123456')
     assertEquals(result, { response: 'TOTP enabled' })
-    const update = authRepo.updateAuth.calls[0]?.[0] as Record<string, unknown>
+    const [update, options] = authRepo.updateAuth.calls[0] as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ]
     assertEquals(update.totpSecret, 'SECRET')
     assertEquals((update.twoFactorAuthConfig as { method: string }).method, 'totp')
+    assertEquals(options, {
+      applyProtection: true,
+      unset: ['pendingTotpSecret', 'pendingTotpExpiresAt'],
+    })
     assertEquals(notifier.email.calls.length, 1)
     assertEquals((notifier.email.calls[0]?.[0] as { to: string }).to, 'jane@example.com')
   })
 })
 
+Deno.test('totpConfirm: the code is checked against the pending secret, never a secret from the body', async () => {
+  const { service, authProvider, authRepo } = buildService({
+    authRepo: { findById: fn(() => pendingAuth()) },
+  })
+  await assertRejects(
+    () => service.totpConfirm('123456', 'ATTACKER-SECRET'),
+    HttpError,
+    'Invalid TOTP code',
+  )
+  assertEquals(authProvider.totp.verify.calls.length, 0)
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+
+  assertEquals(await service.totpConfirm('123456', 'SECRET'), { response: 'TOTP enabled' })
+  assertEquals(authProvider.totp.verify.calls[0]?.[0], 'SECRET')
+})
+
+Deno.test('totpConfirm: without a pending enrollment, or after it expired, nothing can be confirmed', async () => {
+  for (
+    const auth of [
+      baseAuth(),
+      pendingAuth({ pendingTotpExpiresAt: new Date(Date.now() - 1000) }),
+    ]
+  ) {
+    const { service, authProvider, authRepo } = buildService({
+      authRepo: { findById: fn(() => auth) },
+    })
+    // deno-lint-ignore no-await-in-loop
+    await assertRejects(() => service.totpConfirm('123456', 'SECRET'), HttpError, 'pending')
+    assertEquals(authProvider.totp.verify.calls.length, 0)
+    assertEquals(authRepo.updateAuth.calls.length, 0)
+  }
+})
+
+Deno.test('totpConfirm: an authenticator code is accepted once per account', async () => {
+  const { service, authRepo } = buildService({ authRepo: { findById: fn(() => pendingAuth()) } })
+  await service.totpConfirm('123456')
+  await assertRejects(() => service.totpConfirm('123456'), HttpError, 'Invalid TOTP code')
+  assertEquals(authRepo.updateAuth.calls.length, 1)
+})
+
 Deno.test('totpConfirm: with TEMPLATES_BACKEND=remote the notice is sent too, the central catalog carries it', async () => {
   await withEnv('TEMPLATES_BACKEND', 'remote', async () => {
-    const { service, notifier } = buildService()
-    await service.totpConfirm('SECRET', '123456')
+    const { service, notifier } = buildService({ authRepo: { findById: fn(() => pendingAuth()) } })
+    await service.totpConfirm('123456')
     assertEquals(notifier.email.calls.length, 1)
   })
 })
 
 Deno.test('totpConfirm: without TEMPLATES_BACKEND=local the secret is persisted and no database-only notice is sent', async () => {
   await withEnv('TEMPLATES_BACKEND', undefined, async () => {
-    const { service, authRepo, notifier } = buildService()
-    assertEquals(await service.totpConfirm('SECRET', '123456'), { response: 'TOTP enabled' })
+    const { service, authRepo, notifier } = buildService({
+      authRepo: { findById: fn(() => pendingAuth()) },
+    })
+    assertEquals(await service.totpConfirm('123456'), { response: 'TOTP enabled' })
     assertEquals(authRepo.updateAuth.calls.length, 1)
     assertEquals(notifier.email.calls.length, 0)
   })
@@ -938,7 +1060,7 @@ Deno.test('disableTotp: clears totpSecret/twoFactorAuthConfig when TOTP is the c
   assertEquals(result, { response: 'TOTP disabled' })
   assertEquals(authRepo.updateAuth.calls[0], [
     { id: 'auth-1' },
-    { unset: ['totpSecret', 'twoFactorAuthConfig'] },
+    { unset: ['totpSecret', 'twoFactorAuthConfig', 'pendingTotpSecret', 'pendingTotpExpiresAt'] },
   ])
 })
 
@@ -1440,6 +1562,7 @@ Deno.test('issueSessionForSubject: mints tokens directly, with no 2FA branch of 
   assertEquals(authProvider.session.generateTokens.calls[0][0], {
     subject: 'auth-1',
     permissions: [],
+    payload: { email_verified: false },
   })
   assert(authRepo.updateAuth.calls.length === 1)
   const update = authRepo.updateAuth.calls[0]?.[0] as Record<string, unknown>
@@ -1500,6 +1623,7 @@ Deno.test('getOwnAuthMethods: returns a plain sanitized summary, never the raw p
     hasPassword: true,
     oauthProvider: 'google',
     totpEnabled: true,
+    emailVerified: false,
     phone: null,
     otpNotifier: null,
   })
@@ -1515,6 +1639,7 @@ Deno.test('getOwnAuthMethods: no password/oauth/totp reports the falsy shape', a
     hasPassword: false,
     oauthProvider: null,
     totpEnabled: false,
+    emailVerified: false,
     phone: null,
     otpNotifier: null,
   })

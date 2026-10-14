@@ -2,6 +2,7 @@ import { assertEquals, assertInstanceOf } from 'jsr:@std/assert@0.224'
 import { createIamClientRegistry } from '../../../sdk/client-registry.ts'
 import { LoginClient } from '../../../sdk/client/login.client.ts'
 import { OtpClient } from '../../../sdk/client/otp.client.ts'
+import { StepUpClient } from '../../../sdk/client/step-up.client.ts'
 
 Deno.test('createIamClientRegistry: builds real clients lazily, from the app-chosen base URL', () => {
   let resolved = 0
@@ -14,7 +15,8 @@ Deno.test('createIamClientRegistry: builds real clients lazily, from the app-cho
   assertEquals(resolved, 0) // nothing resolved until a client is built
   assertInstanceOf(registry.getLoginClient(), LoginClient)
   assertInstanceOf(registry.getOtpClient(), OtpClient)
-  assertEquals(resolved, 2)
+  assertInstanceOf(registry.getStepUpClient(), StepUpClient)
+  assertEquals(resolved, 3)
 })
 
 Deno.test("createIamClientRegistry: a missing configuration fails at first use with the app's own error", () => {

@@ -3,6 +3,7 @@ import type { CreateElement } from 'ui/typings/renderer.ts'
 import type { PhoneConfirmViewProps } from './types.ts'
 
 const CODE_FIELD_ID = 'phone-confirm-code'
+const STEP_UP_FIELD_ID = 'phone-confirm-step-up-code'
 
 /** This page's own `<form>` id — `SubmitGuard`'s own `formId` target. */
 const FORM_ID = 'phone-confirm-form'
@@ -82,6 +83,22 @@ export function createPhoneConfirmView<E>(
             error: fieldMessage('code', fieldErrors),
             children: (fieldProps: Record<string, unknown>) =>
               h(Input, { ...fieldProps, name: 'code', type: 'text', required: true }),
+          },
+        ),
+        h('p', null, formatMessage('common/factor-change-hint')),
+        h(
+          Field,
+          {
+            id: STEP_UP_FIELD_ID,
+            label: formatMessage('common/factor-change-code-label'),
+            children: (fieldProps: Record<string, unknown>) =>
+              h(Input, {
+                ...fieldProps,
+                name: 'stepUpCode',
+                type: 'text',
+                autoComplete: 'one-time-code',
+                required: true,
+              }),
           },
         ),
         h(Button, { type: 'submit' }, formatMessage('common/verify')),

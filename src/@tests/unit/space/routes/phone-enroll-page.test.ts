@@ -40,11 +40,14 @@ Deno.test('PhoneEnrollPage.loader: no error param means no invalid-code flag', (
 Deno.test('PhoneEnrollPage.action: sends the code, then redirects to the confirm step carrying the encoded phone', async () => {
   const page = new PhoneEnrollPage(mockHandlerContext())
   const phoneEnroll = fn((_phone: string) => Promise.resolve({ response: 'sent' }))
-  mockAccessor(page, 'interactor', { phoneEnroll })
+  const requestFactorChangeProof = fn(() => Promise.resolve({ method: 'otp' }))
+  mockAccessor(page, 'interactor', { phoneEnroll, requestFactorChangeProof })
   const response = await page.action?.(
     mockActionContext<EnrollParams>({ params: { lang: 'en' }, body: { phone: '+14155551234' } }),
   ) as Response
   assertEquals(phoneEnroll.calls, [['+14155551234']])
+  // The code that confirms the change is delivered with the SMS.
+  assertEquals(requestFactorChangeProof.calls.length, 1)
   assertEquals(response.status, 303)
   assertEquals(response.headers.get('location'), '/en/phone/confirm?phone=%2B14155551234')
 })

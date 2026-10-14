@@ -18,16 +18,19 @@ import { AddPasswordRTO, PwdRecoveryCbRTO, PwdRTO } from '../rtos/password.ts'
  * await password.requestRecovery('user@example.com')
  * const { accessToken } = await password.confirmRecovery('user@example.com', '123456', 'newPass1')
  *
- * // Self-service change (requires an authenticated session):
- * await password.change(accessToken, 'oldPass1', 'newPass1')
+ * // Self-service change (requires an authenticated session and a `factor-change` step-up token
+ * // bound to `password-change`, from `StepUpClient`):
+ * await password.change(accessToken, 'oldPass1', 'newPass1', stepUpToken)
  * ```
  */
 export class PasswordClient extends IamApiClient {
   /**
    * Changes the caller's own password after verifying `currentPassword`. Requires an
-   * authenticated session — the target account is always the session's own subject.
+   * authenticated session and a `factor-change` step-up token bound to `password-change` — the
+   * target account is always the session's own subject.
    *
-   * @throws {RestClientError} `realHttpStatus === 403` when `currentPassword` doesn't match;
+   * @throws {RestClientError} `realHttpStatus === 403` when `currentPassword` doesn't match or the
+   * step-up token is missing, invalid or already used;
    * `400` when `newPassword` fails `iam`'s active password policy (validate client-side first
    * with `./sdk/validation`'s `validatePassword` to surface this before submitting).
    */
@@ -35,38 +38,45 @@ export class PasswordClient extends IamApiClient {
     accessToken: string,
     currentPassword: string,
     newPassword: string,
+    stepUpToken?: string,
   ): Promise<MessageResponse> {
     const body = new PwdRTO()
     body.currentPassword = currentPassword
     body.newPassword = newPassword
     return this.http.post<MessageResponse>('pwd/change', {
       body: JSON.stringify(body),
-      headers: this.authHeaders(accessToken),
+      headers: this.factorChangeHeaders(accessToken, stepUpToken),
     })
   }
 
   /**
    * Sets a first password for the caller's own account — only when it doesn't already have one.
    * Never asks for a current password, unlike {@link change}: there genuinely isn't one to prove
-   * knowledge of yet. Requires an authenticated access token.
+   * knowledge of yet. Requires an authenticated access token and a `factor-change` step-up token
+   * bound to `password-add`.
    *
-   * @throws {RestClientError} `realHttpStatus === 409` when a password is already set — use
+   * @throws {RestClientError} `realHttpStatus === 403` for a missing, invalid or used step-up
+   * token; `409` when a password is already set — use
    * {@link change} instead; `400` when `newPassword` fails `iam`'s active password policy.
    */
-  public addPassword(accessToken: string, newPassword: string): Promise<MessageResponse> {
+  public addPassword(
+    accessToken: string,
+    newPassword: string,
+    stepUpToken?: string,
+  ): Promise<MessageResponse> {
     const body = new AddPasswordRTO()
     body.newPassword = newPassword
     return this.http.post<MessageResponse>('pwd/add', {
       body: JSON.stringify(body),
-      headers: this.authHeaders(accessToken),
+      headers: this.factorChangeHeaders(accessToken, stepUpToken),
     })
   }
 
   /** Removes the caller's own password entirely. A no-op (not an error) if none was set. Requires
-   * an authenticated access token. */
-  public removePassword(accessToken: string): Promise<MessageResponse> {
+   * an authenticated access token and a `factor-change` step-up token bound to `password-remove`. */
+  public removePassword(accessToken: string, stepUpToken?: string): Promise<MessageResponse> {
     return this.http.delete<MessageResponse>('pwd/remove', {
-      headers: this.authHeaders(accessToken),
+      headers: this.factorChangeHeaders(accessToken, stepUpToken),
     })
   }
 

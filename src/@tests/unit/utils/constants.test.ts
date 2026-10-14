@@ -196,6 +196,23 @@ Deno.test('resolveMessageOverrides: parses a configured JSON object of catalog o
   })
 })
 
+Deno.test('resolveMessageOverrides: a language block applies to that language only, flat keys to all', () => {
+  withEnv(MESSAGES_ENV, '{"a":"flat","es":{"a":"es-a","b":"es-b"},"en":{"a":"en-a"}}', () => {
+    assertEquals(resolveMessageOverrides(), { a: 'flat' })
+    assertEquals(resolveMessageOverrides('es'), { a: 'es-a', b: 'es-b' })
+    assertEquals(resolveMessageOverrides('en'), { a: 'en-a' })
+    assertEquals(resolveMessageOverrides('fr'), { a: 'flat' })
+    assertEquals(resolveMessageOverrides('es-MX'), { a: 'es-a', b: 'es-b' })
+  })
+})
+
+Deno.test('resolveMessageOverrides: a block that is not an object, or holds non-strings, is ignored', () => {
+  withEnv(MESSAGES_ENV, '{"a":"flat","es":["x"],"en":{"a":1,"b":"ok"}}', () => {
+    assertEquals(resolveMessageOverrides('es'), { a: 'flat' })
+    assertEquals(resolveMessageOverrides('en'), { a: 'flat', b: 'ok' })
+  })
+})
+
 Deno.test('resolveMessageOverrides: throws IAM_INVALID_MESSAGES on malformed JSON, never applies a value halfway', () => {
   withEnv(MESSAGES_ENV, '{not valid json', () => {
     assertThrows(() => resolveMessageOverrides(), Error, 'IAM_MESSAGES must be valid JSON')
@@ -236,6 +253,17 @@ Deno.test('resolvePostLoginRedirect: rejects an absolute-URL redirect_to (open-r
       }`,
     )
     assertEquals(resolvePostLoginRedirect(url), '/dashboard')
+  })
+})
+
+Deno.test('resolvePostLoginRedirect: rejects backslash and control-character variants of a protocol-relative redirect_to', () => {
+  withEnv(POST_LOGIN_REDIRECT_URL_ENV, '/dashboard', () => {
+    for (const bad of ['/\\evil.test', '/\t/evil.test', '/\n/evil.test', '/\r/evil.test']) {
+      const url = new URL(
+        `http://localhost/en/login?${REDIRECT_TO_PARAM}=${encodeURIComponent(bad)}`,
+      )
+      assertEquals(resolvePostLoginRedirect(url), '/dashboard', JSON.stringify(bad))
+    }
   })
 })
 

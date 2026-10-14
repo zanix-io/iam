@@ -16,6 +16,7 @@ import type { GuardContext } from '@zanix/server'
 import { jwtValidationGuard, rateLimitGuard } from '@zanix/auth'
 import { refreshRateLimitIdentityGuard } from 'utils/refresh-rate-limit-guard.ts'
 import { phoneConfirmRateLimitIdentityGuard } from 'utils/phone-confirm-rate-limit-guard.ts'
+import { stepUpTokenGuard } from 'utils/step-up-token-guard.ts'
 
 // deno-lint-ignore no-explicit-any
 export type AnyGuard = (ctx: any) => unknown
@@ -56,6 +57,7 @@ const SOURCE = {
   jwt: jwtValidationGuard({}).toString(),
   refreshIdentity: refreshRateLimitIdentityGuard().toString(),
   phoneIdentity: phoneConfirmRateLimitIdentityGuard().toString(),
+  stepUpToken: stepUpTokenGuard().toString(),
 }
 
 export type GuardKind = keyof typeof SOURCE | 'other'

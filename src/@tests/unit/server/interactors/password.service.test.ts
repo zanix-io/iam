@@ -9,6 +9,7 @@ import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
 import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
 import { ACCESS_TOKEN_EXPIRATION_ENV, REFRESH_TOKEN_EXPIRATION_ENV } from 'utils/constants.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
+import { claimProviderEntry, grantFactorChangeProofs } from '../../helpers/factor-change.ts'
 
 async function withEnv(
   name: string,
@@ -87,9 +88,11 @@ function buildService(opts: {
       [NotifierProvider, notifier],
       [UsersRepository, usersRepo],
       [RolesRepository, rolesRepo],
+      claimProviderEntry(),
     ]),
   )
   mockAccessor(service, 'context', { session: opts.session ?? { subject: 'auth-1' } })
+  grantFactorChangeProofs(service)
 
   return { service, authRepo, authProvider, notifier, usersRepo, rolesRepo }
 }

@@ -1,4 +1,4 @@
-import { assertStringIncludes } from 'jsr:@std/assert@0.224'
+import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@0.224'
 import { createElement } from 'react'
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -64,10 +64,13 @@ Deno.test('TotpEnrollView: renders the invalid-code banner only when invalidCode
   assertStringIncludes(html, 'data-space="banner" data-variant="error"')
 })
 
-Deno.test('TotpEnrollView: posts to the sibling totp/confirm route with the secret carried through', () => {
+Deno.test('TotpEnrollView: posts to the sibling totp/confirm route with the code and the confirmation code, and no secret', () => {
   const html = render(BASE_PROPS)
   assertStringIncludes(html, 'action="/en/totp/confirm"')
-  assertStringIncludes(html, 'name="secret" value="JBSWY3DPEHPK3PXP"')
+  assertStringIncludes(html, 'name="code"')
+  assertStringIncludes(html, 'name="stepUpCode"')
+  // The server confirms the secret it issued; the form does not send one back.
+  assertEquals(html.includes('name="secret"'), false)
 })
 
 // Real wiring against the actual `@zanix/space/comet/react` `SubmitGuard` binding is deliberately

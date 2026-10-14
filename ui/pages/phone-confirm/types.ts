@@ -3,8 +3,7 @@
 export type PhoneConfirmViewProps = {
   lang: string
   /** The phone number `../enroll/page.tsx`'s own `action` just dispatched an SMS code to — carried
-   * through as a hidden field, same "round-trip an enrollment-in-progress value the server never
-   * persisted yet" shape `totp-enroll/render.ts`'s own `secret` hidden field already establishes. */
+   * through as a hidden field, since the server never persisted it. */
   phone: string
   csrfToken?: string
   fieldErrors?: Record<string, { constraints?: string[] }[]>

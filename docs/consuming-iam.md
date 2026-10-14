@@ -79,12 +79,13 @@ if ('accessToken' in result) {
 }
 ```
 
-Available subpaths: `@zanix/iam/ui/sdk/login`, `/otp`, `/totp`, `/phone`, `/password-recovery`,
-`/users` (the caller's own account deactivation and deletion), `/validation`, and `/messages` (the
-catalogs, plain data in `en` and `es`) — each documents which `iam` endpoint it calls and the exact
-request/response shape. The admin endpoints of `grant-access`/`permissions`/`roles`/`users` are out
-of scope for this SDK, which covers the sign-in, second-factor, recovery and self-service account
-surface.
+Available subpaths: `@zanix/iam/ui/sdk/login`, `/otp`, `/totp`, `/step-up` (a signed-in user's
+second factor ahead of a sensitive action; see [Step-up](./authentication-flows.md#step-up) for the
+token a service checks), `/phone`, `/password-recovery`, `/users` (the caller's own account
+deactivation and deletion), `/validation`, and `/messages` (the catalogs, plain data in `en` and
+`es`) — each documents which `iam` endpoint it calls and the exact request/response shape. The admin
+endpoints of `grant-access`/`permissions`/`roles`/`users` are out of scope for this SDK, which
+covers the sign-in, second-factor, recovery and self-service account surface.
 
 ### `@zanix/space` session guards and error handling
 

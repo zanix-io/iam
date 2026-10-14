@@ -20,6 +20,7 @@ For typed clients over these endpoints, see the
 - [Authenticator app (`/api/login/totp`)](#authenticator-app-apilogintotp)
 - [OAuth2 sign-in (`/api/login/:oauth`)](#oauth2-sign-in-apiloginoauth)
 - [Phone and login-code channel (`/api/login/phone`)](#phone-and-login-code-channel-apiloginphone)
+- [Step-up (`/api/step-up`)](#step-up-apistep-up)
 - [Passwords (`/api/pwd`)](#passwords-apipwd)
 - [Users (`/api/users`)](#users-apiusers)
 - [Roles (`/api/roles`)](#roles-apiroles)
@@ -99,8 +100,12 @@ seconds). A primary-credential sign-in adds `mustChangePassword`.
   account (valid 5 minutes) for a finished sign-in, reactivating the profile. Answers what
   `POST /api/login/login` answers. `403` for an invalid or expired token or a deleted account.
 - **`GET /api/login/methods`** answers the caller's own methods:
-  `{ email, hasPassword, oauthProvider, totpEnabled, phone, otpNotifier }`, with `phone` masked to
-  its last four digits. `401` without a session subject, `403` if the account no longer exists.
+  `{ email, hasPassword, oauthProvider, totpEnabled, emailVerified, emailVerifiedAt?, phone,
+  otpNotifier }`,
+  with `phone` masked to its last four digits. `emailVerified` is `true` once the account has proven
+  control of its mailbox (`emailVerifiedAt` is then that moment as an ISO 8601 string, absent
+  otherwise); see [Email verification](./authentication-flows.md#email-verification). `401` without
+  a session subject, `403` if the account no longer exists.
 - **`GET /api/login/methods/:email`** answers
   `{ hasPassword, oauthProviders, otpNotifier, hasVerifiedPhone }`. The answer for an unknown email
   is identical to that of an account with no password, no OAuth2 provider and no phone, so it does
@@ -126,23 +131,31 @@ seconds). A primary-credential sign-in adds `mustChangePassword`.
 
 ### Authenticator app (`/api/login/totp`)
 
-| Method and path                 | Auth    | Rate limit (`app`, tier)               | Request                 |
-| ------------------------------- | ------- | -------------------------------------- | ----------------------- |
-| `POST /api/login/totp/callback` | None    | `login:totp-callback`, `freeRateLimit` | Body `{ email, code }`  |
-| `GET /api/login/totp/enroll`    | Session | —                                      | —                       |
-| `POST /api/login/totp/confirm`  | Session | —                                      | Body `{ secret, code }` |
-| `DELETE /api/login/totp`        | Session | —                                      | —                       |
+| Method and path                 | Auth            | Rate limit (`app`, tier)               | Request                  |
+| ------------------------------- | --------------- | -------------------------------------- | ------------------------ |
+| `POST /api/login/totp/callback` | None            | `login:totp-callback`, `freeRateLimit` | Body `{ email, code }`   |
+| `GET /api/login/totp/enroll`    | Session         | —                                      | —                        |
+| `POST /api/login/totp/confirm`  | Session + proof | —                                      | Body `{ code, secret? }` |
+| `DELETE /api/login/totp`        | Session + proof | —                                      | —                        |
 
 - **`POST /api/login/totp/callback`** answers session tokens. `403` when the account has no TOTP
   secret, the code is wrong, or the profile is inactive. Codes are accepted within
   `totpToleranceSteps` 30-second steps of the current one (default 1).
 - **`GET /api/login/totp/enroll`** answers `{ secret, uri }` (an `otpauth://` provisioning URI whose
-  issuer is `SERVICE_ID`). Nothing is stored yet.
-- **`POST /api/login/totp/confirm`** verifies `code` against `secret`, stores the secret, makes TOTP
-  the account's second factor on login and refresh, emails a `totp-enabled` notice, and answers
-  `{ response: 'TOTP enabled' }`. `403` for a wrong code.
+  issuer is `SERVICE_ID`). The secret is kept as the account's pending secret for 10 minutes; the
+  active second factor is untouched.
+- **`POST /api/login/totp/confirm`** verifies `code` against the pending secret, stores it, makes
+  TOTP the account's second factor on login and refresh, emails a `totp-enabled` notice, and answers
+  `{ response: 'TOTP enabled' }`. `secret` is optional and never used; one that is not the pending
+  secret is a `403`. `403` for a wrong or already used code; `400` when no enrollment is pending or
+  it expired. Needs a `factor-change` proof bound to `totp-confirm`.
 - **`DELETE /api/login/totp`** removes the secret and the second-factor setting when TOTP is the
-  configured method: `{ response: 'TOTP disabled' }`.
+  configured method: `{ response: 'TOTP disabled' }`. Needs a proof bound to `totp-disable`.
+
+Routes marked **proof** need the header `X-Znx-Step-Up-Token` with a step-up token for purpose
+`factor-change` and the `bind` shown for the route in
+[Changing a second factor or a credential](./authentication-flows.md#changing-a-second-factor-or-a-credential);
+without it they answer `403` `FACTOR_CHANGE_PROOF_REQUIRED`.
 
 ### OAuth2 sign-in (`/api/login/:oauth`)
 
@@ -169,37 +182,70 @@ seconds). A primary-credential sign-in adds `mustChangePassword`.
 
 ### Phone and login-code channel (`/api/login/phone`)
 
-| Method and path                 | Auth    | Rate limit (`app`, tier)                     | Request                |
-| ------------------------------- | ------- | -------------------------------------------- | ---------------------- |
-| `POST /api/login/phone/enroll`  | Session | —                                            | Body `{ phone }`       |
-| `POST /api/login/phone/confirm` | Session | `phone:confirm`, `freeRateLimit` per account | Body `{ phone, code }` |
-| `DELETE /api/login/phone`       | Session | —                                            | —                      |
-| `POST /api/login/otp-notifier`  | Session | —                                            | Body `{ notifier? }`   |
+| Method and path                 | Auth            | Rate limit (`app`, tier)                     | Request                |
+| ------------------------------- | --------------- | -------------------------------------------- | ---------------------- |
+| `POST /api/login/phone/enroll`  | Session         | —                                            | Body `{ phone }`       |
+| `POST /api/login/phone/confirm` | Session + proof | `phone:confirm`, `freeRateLimit` per account | Body `{ phone, code }` |
+| `DELETE /api/login/phone`       | Session + proof | —                                            | —                      |
+| `POST /api/login/otp-notifier`  | Session + proof | —                                            | Body `{ notifier? }`   |
 
 - `phone` is E.164-shaped (`+` optional, spaces, parentheses and hyphens are stripped before the
   check).
 - **`POST /api/login/phone/enroll`** sends an SMS code valid 5 minutes; the number is not stored
   yet.
-- **`POST /api/login/phone/confirm`** stores the number when the code matches (`403` otherwise). The
+- **`POST /api/login/phone/confirm`** stores the number when the code matches (`403` otherwise); the
+  code is consumed atomically and the route needs a proof bound to `phone-confirm`. The
   `phoneConfirmRateLimitIdentityGuard` applies the `freeRateLimit` ceiling to the authenticated
   caller, which the token's own account-wide limit would otherwise replace.
-- **`DELETE /api/login/phone`** forgets the phone and any `sms`/`whatsapp` channel preference.
+- **`DELETE /api/login/phone`** forgets the phone and any `sms`/`whatsapp` channel preference (proof
+  bound to `phone-disable`).
 - **`POST /api/login/otp-notifier`** sets the channel for passwordless login codes: `sms` or
   `whatsapp`; omitted or `''` resets to email. `400` when choosing `sms`/`whatsapp` without a
-  verified phone.
+  verified phone. Proof bound to `otp-notifier`.
+
+### Step-up (`/api/step-up`)
+
+`StepUpController` ([`step-up.handler.ts`](../src/server/handlers/step-up.handler.ts)), backed by
+`StepUpService`. Re-verifies the second factor of a signed-in user ahead of a sensitive action. The
+account is always the session's own; no body field names one. See
+[Step-up](./authentication-flows.md#step-up) for the sequence and the token.
+
+| Method and path             | Auth    | Rate limit (`app`, tier)                           | Request                         |
+| --------------------------- | ------- | -------------------------------------------------- | ------------------------------- |
+| `POST /api/step-up/request` | Session | `step-up:request`, `criticalRateLimit` per account | Body `{ purpose }`              |
+| `POST /api/step-up/verify`  | Session | `step-up:verify`, `freeRateLimit` per account      | Body `{ purpose, code, bind? }` |
+
+- `purpose` is 1 to 64 lowercase letters, digits and hyphens; `bind` is 1 to 256 printable ASCII
+  characters. Anything else answers `400`.
+- **`POST /api/step-up/request`** answers `{ method, channel?, expiresInSeconds }`. `method` is
+  `'totp'` when the account has an authenticator app enrolled (nothing is sent), otherwise `'otp'`:
+  a six-digit code valid 5 minutes goes out through the account's `otpNotifier` (email by default)
+  and `channel` names it. `400` when that channel has no destination on file; `403` when the account
+  no longer exists or cannot sign in.
+- **`POST /api/step-up/verify`** checks `code` against the factor the account's settings require at
+  that moment and answers `{ stepUpToken, expiresAt }` (`expiresAt` is the token's `exp`, in seconds
+  since the Unix epoch). A one-time code is consumed by the check and counts failed attempts (five
+  burn it). Every failure is a `403` with the same message: a wrong or expired code, a code never
+  issued, a code issued for another purpose, a login code, an account that is gone or cannot sign
+  in.
+- `purpose: 'factor-change'` with a `bind` from the operations table is how a user proves a change
+  of their own second factor or credential; see
+  [Changing a second factor or a credential](./authentication-flows.md#changing-a-second-factor-or-a-credential).
+- Both routes answer `401` without a valid access token, and `429` once the account has used its
+  limit for the window. The limits count per account (`key: 'subject'`), across tokens.
 
 ### Passwords (`/api/pwd`)
 
 `PasswordController` ([`password.handler.ts`](../src/server/handlers/password.handler.ts)), backed
 by `PasswordService`.
 
-| Method and path                   | Auth    | Rate limit (`app`, tier)                 | Request                                 |
-| --------------------------------- | ------- | ---------------------------------------- | --------------------------------------- |
-| `POST /api/pwd/change`            | Session | —                                        | Body `{ currentPassword, newPassword }` |
-| `POST /api/pwd/add`               | Session | —                                        | Body `{ newPassword }`                  |
-| `DELETE /api/pwd/remove`          | Session | —                                        | —                                       |
-| `GET /api/pwd/recovery/:email`    | None    | `pwd:recovery`, `criticalRateLimit`      | Param `email`; captcha                  |
-| `POST /api/pwd/recovery/callback` | None    | `pwd:recovery-callback`, `freeRateLimit` | Body `{ email, code, password }`        |
+| Method and path                   | Auth            | Rate limit (`app`, tier)                 | Request                                 |
+| --------------------------------- | --------------- | ---------------------------------------- | --------------------------------------- |
+| `POST /api/pwd/change`            | Session + proof | —                                        | Body `{ currentPassword, newPassword }` |
+| `POST /api/pwd/add`               | Session + proof | —                                        | Body `{ newPassword }`                  |
+| `DELETE /api/pwd/remove`          | Session + proof | —                                        | —                                       |
+| `GET /api/pwd/recovery/:email`    | None            | `pwd:recovery`, `criticalRateLimit`      | Param `email`; captcha                  |
+| `POST /api/pwd/recovery/callback` | None            | `pwd:recovery-callback`, `freeRateLimit` | Body `{ email, code, password }`        |
 
 - **`change`** verifies `currentPassword` (`403`), applies the `passwordPolicy` behavior (`400`),
   clears `mustChangePassword` and emails a `password-changed` notice.

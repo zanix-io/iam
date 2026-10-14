@@ -14,6 +14,9 @@
  */
 export const IAM_UI_MESSAGES_EN: Readonly<Record<string, string>> = {
   'common/back-to-sign-in': 'Back to sign in',
+  'common/factor-change-code-label': 'Confirmation code',
+  'common/factor-change-hint':
+    'To confirm this change, enter the code from your authenticator app, or the code we just sent you.',
   'common/invalid-or-expired-code': 'Invalid or expired code.',
   'common/try-again': 'Try again',
   'common/verify': 'Verify',

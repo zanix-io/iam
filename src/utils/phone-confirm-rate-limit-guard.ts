@@ -15,8 +15,8 @@ import { freeRateLimit } from './constants.ts'
  *
  * Sibling of `refresh-rate-limit-guard.ts` (a route needing a `rateLimit` value `@RateLimitGuard`
  * alone can't express) — but here the problem is the wrong LIMIT applying, not the wrong IDENTITY.
- * Overwrites `ctx.locals.session` with a fresh object carrying `rateLimit: freeRateLimit`
- * — a plain reassignment, never a mutation of the existing (already `Object.freeze`d, by
+ * Overwrites `ctx.locals.session` with a fresh object carrying `rateLimit: freeRateLimit` and the
+ * same `subject` — a plain reassignment, never a mutation of the existing (already `Object.freeze`d, by
  * `jwtValidationGuard`) session object, which would throw.
  *
  * Place this guard BEFORE `@RateLimitGuard` on the same route (closer to the method — decorators
@@ -27,7 +27,8 @@ export function phoneConfirmRateLimitIdentityGuard(): (ctx: GuardContext) => Gua
   return (ctx) => {
     const subject = ctx.locals.session?.subject as string | undefined
     if (subject) {
-      ctx.locals.session = { id: subject, type: 'user', rateLimit: freeRateLimit }
+      // `subject` stays: the interactor reads the account from `session.subject`.
+      ctx.locals.session = { id: subject, subject, type: 'user', rateLimit: freeRateLimit }
     }
     return {}
   }

@@ -15,15 +15,16 @@ import { TotpConfirmRTO } from '../rtos/password.ts'
  * ```ts
  * const totp = new TotpClient({ baseUrl: 'https://iam.example.com/api' })
  *
- * // Enrollment (requires an authenticated session):
+ * // Enrollment (requires an authenticated session). Changing the second factor needs a
+ * // `factor-change` step-up token (`StepUpClient`), bound to `totp-confirm`:
  * const { secret, uri } = await totp.enroll(accessToken) // render `uri` as a QR code
- * await totp.confirmEnrollment(accessToken, secret, '123456')
+ * await totp.confirmEnrollment(accessToken, secret, '123456', stepUpToken)
  *
  * // Login verification (no session yet — TOTP itself is the second factor):
  * const { accessToken: newAccessToken } = await totp.verifyLogin('user@example.com', '123456')
  *
- * // Disabling (requires an authenticated session):
- * await totp.disable(accessToken)
+ * // Disabling (requires an authenticated session and a step-up token bound to `totp-disable`):
+ * await totp.disable(accessToken, stepUpToken)
  * ```
  */
 export class TotpClient extends IamApiClient {
@@ -55,31 +56,39 @@ export class TotpClient extends IamApiClient {
   }
 
   /**
-   * Confirms a TOTP enrollment by verifying `code` against the just-generated `secret`, then
+   * Confirms a TOTP enrollment by verifying `code` against the secret {@link enroll} issued, then
    * persists it and enables TOTP as the account's 2FA method on login. Requires an authenticated
-   * session.
+   * session and a `factor-change` step-up token bound to `totp-confirm`.
    *
-   * @throws {RestClientError} `realHttpStatus === 403` when `code` doesn't match `secret`.
+   * @param secret The secret {@link enroll} returned. `iam` confirms the secret it issued and
+   * refuses a different one, so this only has to match.
+   * @param stepUpToken The step-up token (purpose `factor-change`, bind `totp-confirm`).
+   * @throws {RestClientError} `realHttpStatus === 403` when `code` doesn't match, the secret is not
+   * the issued one, or the step-up token is missing, invalid or already used (`code`
+   * `FACTOR_CHANGE_PROOF_REQUIRED` / `FACTOR_CHANGE_PROOF_INVALID`); `400` when no enrollment is
+   * pending.
    */
   public confirmEnrollment(
     accessToken: string,
     secret: string,
     code: string,
+    stepUpToken?: string,
   ): Promise<MessageResponse> {
     const body = new TotpConfirmRTO()
     body.secret = secret
     body.code = code
     return this.http.post<MessageResponse>('login/totp/confirm', {
       body: JSON.stringify(body),
-      headers: this.authHeaders(accessToken),
+      headers: this.factorChangeHeaders(accessToken, stepUpToken),
     })
   }
 
   /** Disables TOTP 2FA for the caller's own account. A no-op (not an error) if it wasn't enabled
-   * in the first place. Requires an authenticated access token. */
-  public disable(accessToken: string): Promise<MessageResponse> {
+   * in the first place. Requires an authenticated access token and a `factor-change` step-up token
+   * bound to `totp-disable`. */
+  public disable(accessToken: string, stepUpToken?: string): Promise<MessageResponse> {
     return this.http.delete<MessageResponse>('login/totp', {
-      headers: this.authHeaders(accessToken),
+      headers: this.factorChangeHeaders(accessToken, stepUpToken),
     })
   }
 }

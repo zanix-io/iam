@@ -9,6 +9,8 @@
 
 import type { IamUnauthorizedReason } from './redirect-unauthorized.ts'
 
+import { isSameOriginPath } from 'utils/safe-redirect-path.ts'
+
 /** Query param a caller-chosen post-login destination arrives on: `/{lang}/login?redirect_to=/path`.
  * The same name `iam`'s own hosted pages use for the identical concept. */
 export const REDIRECT_TO_PARAM = 'redirect_to'
@@ -46,11 +48,10 @@ export function decodeEmailParam(raw: string): string {
   }
 }
 
-/** A same-origin absolute path only. A protocol-relative value (`//host`) is followed by every
- * browser as an absolute URL, so it is rejected together with anything that is not a path. */
-function isSafeRedirectPath(value: string | null): value is string {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
-}
+/** A same-origin absolute path only: see {@linkcode isSameOriginPath}. A protocol-relative value
+ * (`//host`), a backslash or control-character variant of one, and anything that is not a path are
+ * rejected. */
+const isSafeRedirectPath = isSameOriginPath
 
 /**
  * Where a successful login, second-factor check or password recovery lands for this request: the

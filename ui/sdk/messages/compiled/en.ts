@@ -9,6 +9,19 @@ export const IAM_UI_MESSAGES_EN_COMPILED: Readonly<
       'value': 'Back to sign in',
     },
   ],
+  'common/factor-change-code-label': [
+    {
+      'type': 0,
+      'value': 'Confirmation code',
+    },
+  ],
+  'common/factor-change-hint': [
+    {
+      'type': 0,
+      'value':
+        'To confirm this change, enter the code from your authenticator app, or the code we just sent you.',
+    },
+  ],
   'common/invalid-or-expired-code': [
     {
       'type': 0,

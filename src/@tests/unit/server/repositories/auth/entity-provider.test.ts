@@ -250,3 +250,27 @@ Deno.test('AuthRepository.findByEmailForLookup: stops at the typed spelling when
   assertEquals(await buildRepository({ findOne: miss }).findByEmailForLookup('a@b.co'), null)
   assertEquals(miss.calls.length, 1)
 })
+
+Deno.test('AuthRepository.markEmailVerified: only matches an account whose proof is still unset', async () => {
+  const updateOne = fn((..._args: UpdateOneArgs) => ({
+    exec: () => Promise.resolve({ modifiedCount: 1 }),
+  }))
+  const repo = buildRepository({ updateOne })
+  const at = new Date('2026-01-02T03:04:05Z')
+
+  const written = await repo.markEmailVerified('auth-1', at)
+
+  const [filter, update] = updateOne.calls[0]
+  assertEquals(filter, { _id: 'auth-1', emailVerifiedAt: { $exists: false } })
+  assertEquals(update, { $set: { emailVerifiedAt: at } })
+  assertEquals(written, true)
+})
+
+Deno.test('AuthRepository.markEmailVerified: answers false when the proof was already recorded', async () => {
+  const updateOne = fn((..._args: UpdateOneArgs) => ({
+    exec: () => Promise.resolve({ modifiedCount: 0 }),
+  }))
+  const repo = buildRepository({ updateOne })
+
+  assertEquals(await repo.markEmailVerified('auth-1'), false)
+})

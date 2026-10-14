@@ -45,6 +45,36 @@ folder.
 over the catalog on every request, e.g. `IAM_MESSAGES='{"login/heading":"Sign in to Acme"}'`.
 Malformed JSON fails the request (`IAM_INVALID_MESSAGES`).
 
+**Step-up code message.** The one-time code of a [step-up](./authentication-flows.md#step-up) is
+worded on the server from its own catalog (`STEP_UP_MESSAGES`, English and Spanish, no product
+named), not from the screens' catalogs. The same `IAM_MESSAGES` object is merged over it, key by
+key, on every send. The keys, with the placeholders each fills:
+
+| Key                             | Used in          | Default (`en`)                                                                                                                                   | Placeholders                       |
+| ------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `step-up.subject`               | email subject    | `Confirm an action`                                                                                                                              |                                    |
+| `step-up.title`                 | email heading    | `Confirm an action`                                                                                                                              |                                    |
+| `step-up.intro`                 | email            | `Use this code to confirm that you want to {purpose}.`                                                                                           | `{purpose}`                        |
+| `step-up.validity`              | email            | `The code is valid for {minutes} minutes.`                                                                                                       | `{minutes}`                        |
+| `step-up.footer`                | email            | `If you did not request this code, you can ignore this message.`                                                                                 |                                    |
+| `step-up.text`                  | SMS and WhatsApp | `{code} is your code to confirm that you want to {purpose}. It is valid for {minutes} minutes.`                                                  | `{code}`, `{purpose}`, `{minutes}` |
+| `step-up.purpose.default`       | `{purpose}`      | `carry out an action on your account`                                                                                                            |                                    |
+| `step-up.purpose.factor-change` | `{purpose}`      | `change your verification method` (`cambiar tu método de verificación`): the purpose `iam` itself uses to change a second factor or a credential |                                    |
+| `step-up.purpose.<purpose>`     | `{purpose}`      | none: a purpose without its key takes `step-up.purpose.default`                                                                                  |                                    |
+
+`<purpose>` is the `purpose` of `POST /api/step-up/request` (lowercase letters, digits and hyphens).
+The purpose only selects the key; it is never placed in the message, so a client cannot write text
+into it. The phrase completes the sentence ("confirm that you want to ..."), and each message is a
+whole sentence, so a language reorders the words in its own copy of the key. A key with a string
+value applies to every language; a key whose value is an object holds the keys of one language, so
+an app that serves several languages words each in its own. A regional tag (`es-MX`) reads its base
+language block (`es`), and an exact block wins over it. In the email the values are HTML-escaped;
+SMS and WhatsApp are plain text.
+
+```sh
+IAM_MESSAGES='{"en":{"step-up.purpose.confirm-transfer":"send a transfer from your balance"},"es":{"step-up.purpose.confirm-transfer":"enviar una transferencia de tu saldo"}}'
+```
+
 **Precompiled.** `iamMessages` answers the catalogs already compiled to ICU AST, like the ones
 `zanix space build` compiles from an app's own `messages/` folder, so nothing is parsed at run time.
 The app's strings and `iam`'s AST mix freely, key by key. After editing a catalog in `iam`, run

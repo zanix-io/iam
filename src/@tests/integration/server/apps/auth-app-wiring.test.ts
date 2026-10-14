@@ -10,6 +10,7 @@ import { PasswordService } from 'server/interactors/password.interactor.ts'
 import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
 import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
 import { fn, mapGetter, mockAccessor } from '../../../unit/helpers/mock.ts'
+import { claimProviderEntry, grantFactorChangeProofs } from '../../../unit/helpers/factor-change.ts'
 
 /**
  * `auth.app.ts`'s behaviors and config defaults, registered through `@zanix/app`'s real
@@ -34,9 +35,11 @@ function passwordService(auth: Record<string, unknown>) {
       [UsersRepository, { assertActive: () => {} }],
       [NotifierProvider, { email: () => {} }],
       [ZanixAuthProvider, { session: { revokeAllTokens: () => {} } }],
+      claimProviderEntry(),
     ]),
   )
   mockAccessor(service, 'context', { session: { subject: 'auth-1' }, cookies: {} })
+  grantFactorChangeProofs(service)
   return { service, updateAuth }
 }
 
@@ -77,7 +80,10 @@ Deno.test('auth app wiring: totpEnroll labels the provisioning URI through the r
     service,
     'providers',
     mapGetter([
-      [AuthRepository, { findById: () => ({ email: { unmask: () => 'jane@example.com' } }) }],
+      [AuthRepository, {
+        findById: () => ({ email: { unmask: () => 'jane@example.com' } }),
+        updateAuth: () => ({}),
+      }],
       [ZanixAuthProvider, { totp: { generateSecret: () => 'SECRET', getProvisioningUri } }],
     ]),
   )

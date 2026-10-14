@@ -248,6 +248,11 @@ Because `POST /api/login/refresh` re-resolves the list, a role change or a deact
 takes effect at the account's next refresh, without signing in again. The current access token keeps
 its claims until it expires (at most one hour).
 
+Besides `aud`, every access token carries the OpenID Connect claim `email_verified` (boolean):
+`true` when the account has proven control of its email mailbox, read from the account when the
+token is issued or refreshed. See
+[Email verification](./authentication-flows.md#email-verification).
+
 Replace the evaluation strategy (a hierarchy, wildcard expansion, an external policy engine) by
 overriding `resolveEffectivePermissions`; see [Configuration](./configuration.md#behaviors). The
 function receives ONE role with `permissions` populated (or `undefined`) and returns its list of

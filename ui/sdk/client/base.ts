@@ -1,4 +1,5 @@
 import { RestClient, SESSION_HEADERS } from '@zanix/server'
+import { STEP_UP_TOKEN_HEADER } from 'utils/shared-enums.ts'
 
 /** Construction options every {@link IamApiClient} subclass accepts. */
 export interface IamApiClientOptions {
@@ -9,7 +10,7 @@ export interface IamApiClientOptions {
 
 /**
  * Base class every flow-specific `iam` client (`LoginClient`, `OtpClient`, `TotpClient`,
- * `PhoneClient`, `PasswordClient`, `UsersClient`) extends — a thin `@zanix/server` `RestClient` bound to `iam`'s own base URL,
+ * `PhoneClient`, `PasswordClient`, `UsersClient`, `StepUpClient`) extends — a thin `@zanix/server` `RestClient` bound to `iam`'s own base URL,
  * with nothing else configured. `RestClient` works standalone outside any Zanix app/server runtime
  * (it falls back to an in-process cache when no `'cache:local'` core connector is registered, and
  * its own constructor needs no decoration) — safe to construct directly in a browser or any other
@@ -25,6 +26,18 @@ export abstract class IamApiClient extends RestClient {
    * requires an authenticated session (see `AuthTokenValidation()` on the real handler). */
   protected authHeaders(accessToken: string): Record<string, string> {
     return { Authorization: `Bearer ${accessToken}` }
+  }
+
+  /**
+   * The headers of a call that changes a second factor or a credential: the bearer header plus the
+   * `factor-change` step-up token (see `StepUpClient`) in the `X-Znx-Step-Up-Token` header. Without
+   * `stepUpToken` the call carries the bearer header alone and `iam` refuses it.
+   */
+  protected factorChangeHeaders(accessToken: string, stepUpToken?: string): Record<string, string> {
+    return {
+      ...this.authHeaders(accessToken),
+      ...(stepUpToken ? { [STEP_UP_TOKEN_HEADER]: stepUpToken } : {}),
+    }
   }
 
   /**

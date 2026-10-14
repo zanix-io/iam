@@ -81,6 +81,16 @@ Deno.test('published exports: the ui/sdk client entrypoints re-export the real c
   assertStrictEquals(otp.OtpClient, (await import('../../sdk/client/otp.client.ts')).OtpClient)
   assertStrictEquals(otp.OtpLoginRTO, loginRtos.OtpLoginRTO)
   assertStrictEquals(totp.TotpClient, (await import('../../sdk/client/totp.client.ts')).TotpClient)
+  const stepUp = await import('../../sdk/step-up.ts')
+  assertStrictEquals(
+    stepUp.StepUpClient,
+    (await import('../../sdk/client/step-up.client.ts')).StepUpClient,
+  )
+  assertStrictEquals(stepUp.IamApiClient, base.IamApiClient)
+  assertStrictEquals(
+    stepUp.StepUpVerifyRTO,
+    (await import('../../sdk/rtos/step-up.ts')).StepUpVerifyRTO,
+  )
   assertStrictEquals(
     phone.PhoneClient,
     (await import('../../sdk/client/phone.client.ts')).PhoneClient,

@@ -15,6 +15,7 @@ import {
   REFRESH_TOKEN_EXPIRATION_ENV,
 } from 'utils/constants.ts'
 import { fn, mapGetter, mockAccessor } from '../../helpers/mock.ts'
+import { claimProviderEntry, grantFactorChangeProofs } from '../../helpers/factor-change.ts'
 
 /**
  * `AuthService` branches not exercised by `auth.service.test.ts`: the plain (non-2FA) OTP
@@ -101,6 +102,7 @@ function buildService(opts: {
       [ZanixAuthProvider, authProvider],
       [NotifierProvider, notifier],
       [RolesRepository, { findManyWithPermissions: () => [] }],
+      claimProviderEntry(),
     ]),
   )
   mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))
@@ -108,6 +110,7 @@ function buildService(opts: {
     session: opts.session ?? { subject: 'auth-1' },
     cookies: opts.cookies ?? {},
   })
+  grantFactorChangeProofs(service)
   return { service, authRepo, usersRepo, authProvider, passwordService }
 }
 
@@ -190,14 +193,20 @@ Deno.test('loginWithTOTPCallback/totpConfirm: a configured totpToleranceSteps is
     const { service, authProvider } = buildService({
       authRepo: {
         findByEmail: fn(() => auth({ totpSecret: { decrypt: () => 'SECRET' } })),
-        findById: fn(() => auth()),
+        findById: fn(() =>
+          auth({
+            pendingTotpSecret: { decrypt: () => 'SECRET' },
+            pendingTotpExpiresAt: new Date(Date.now() + 60_000),
+          })
+        ),
       },
     })
     await service.loginWithTOTPCallback('jane@example.com', '123456')
     assertEquals(authProvider.totp.authenticate.calls[0][3], { window: 3 })
 
-    await service.totpConfirm('SECRET', '123456')
-    assertEquals(authProvider.totp.verify.calls[0], ['SECRET', '123456', { window: 3 }])
+    // The login claimed this code for the account, so the confirmation takes the next one.
+    await service.totpConfirm('654321')
+    assertEquals(authProvider.totp.verify.calls[0], ['SECRET', '654321', { window: 3 }])
   } finally {
     setConfigOverride('auth', 'totpToleranceSteps', undefined)
   }
@@ -260,7 +269,10 @@ Deno.test('refreshTokens: with neither a body token nor a refresh cookie, no acc
   const { service, authRepo, authProvider } = buildService({ cookies: {} })
   await assertRejects(() => service.refreshTokens(), HttpError, 'Refresh token verification failed')
   assertEquals(authRepo.findById.calls, [])
-  assertEquals(authProvider.session.refreshTokens.calls[0], [undefined, { permissions: [] }])
+  assertEquals(authProvider.session.refreshTokens.calls[0], [undefined, {
+    permissions: [],
+    payload: { email_verified: false },
+  }])
 })
 
 Deno.test('loginWithOTP: a 2FA dispatch with no explicit channel reports email as the challenge method', async () => {
@@ -276,7 +288,7 @@ Deno.test('loginWithOTP: a 2FA dispatch with no explicit channel reports email a
 Deno.test('totpConfirm: throws UNAUTHORIZED with no session, verifying nothing', async () => {
   const { service, authProvider } = buildService({ session: {} })
   await assertRejects(
-    () => service.totpConfirm('SECRET', '123456'),
+    () => service.totpConfirm('123456'),
     HttpError,
     'Authentication required.',
   )

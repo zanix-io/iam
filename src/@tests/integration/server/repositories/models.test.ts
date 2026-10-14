@@ -7,6 +7,7 @@ import 'server/repositories/roles/model.defs.ts'
 import 'server/repositories/permissions/model.defs.ts'
 import 'server/repositories/grant-access/model.defs.ts'
 import 'server/repositories/audit/model.defs.ts'
+import 'server/repositories/step-up-claim/model.defs.ts'
 import authSeeders from 'server/repositories/auth/seeders/main.ts'
 import usersSeeders from 'server/repositories/users/seeders/main.ts'
 import rolesSeeders from 'server/repositories/roles/seeders/main.ts'
@@ -60,7 +61,15 @@ function indexesOf(model: Model) {
 
 Deno.test('models: registers every collection the repositories read', () => {
   for (
-    const name of ['auth', 'users', 'roles', 'permissions', 'grant_accesses', 'role_audit_events']
+    const name of [
+      'auth',
+      'users',
+      'roles',
+      'permissions',
+      'grant_accesses',
+      'role_audit_events',
+      'step_up_claim',
+    ]
   ) {
     assert(models[name], `model "${name}" must be registered`)
   }
@@ -76,6 +85,22 @@ Deno.test('models/auth: emailKeyId is the unique lookup key; secrets carry prote
   assertEquals(definition.otpNotifier.enum, NOTIFIERS.filter((notifier) => notifier !== 'email'))
   assertEquals(definition.oauthProvider.enum, OAUTH_PROVIDERS)
   assertEquals(models.auth.options, { timestamps: true })
+})
+
+Deno.test('models/auth: the pending TOTP secret is encrypted like the active one and carries an expiry', () => {
+  const { pendingTotpSecret, pendingTotpExpiresAt } = models.auth.definition
+  assertEquals(typeof pendingTotpSecret.get, 'function')
+  assertEquals(pendingTotpExpiresAt, Date)
+})
+
+Deno.test('models/step_up_claim: a key is claimed once (unique index) and the record expires on its own', () => {
+  const { definition } = models.step_up_claim
+  assertEquals([definition.key.required, definition.expireAt.required], [true, true])
+  assertEquals(models.step_up_claim.options, { timestamps: true })
+  assertEquals(indexesOf(models.step_up_claim), [
+    [{ key: 1 }, { unique: true }],
+    [{ expireAt: 1 }, { expireAfterSeconds: 0 }],
+  ])
 })
 
 Deno.test('models/auth: roleIds is the list of role refs and is indexed; there is no roleId', () => {

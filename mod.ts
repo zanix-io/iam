@@ -6,8 +6,12 @@ import authApp from './src/server/apps/auth.app.ts'
 import grantAccessApp from './src/server/apps/grant-access.app.ts'
 import { getBootstrapSpaceAppConfig } from '@zanix/space'
 import { IAM_PUBLIC_URL_ENV } from 'utils/constants.ts'
+import { IAM_LOGGER_SETUP } from 'utils/log-redaction.ts'
 
 const publicUrl = Deno.env.get(IAM_PUBLIC_URL_ENV)
+
+// The step-up proof and the second-factor codes and secrets are redacted from logs and error bodies.
+await Zanix.setup(IAM_LOGGER_SETUP)
 
 // The side-effect import wires the Redis-backed Control Plane provider this instance announces
 // itself through; it is needed only when announcing.

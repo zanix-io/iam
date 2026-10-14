@@ -13,7 +13,8 @@ export type { TotpEnrollViewProps }
 
 /**
  * `iam`'s TOTP enrollment view — a scannable QR code, the manual secret/link fallback, and a
- * confirmation-code form posting to the sibling `totp/confirm` page.
+ * confirmation-code form (with the code that confirms the change) posting to the sibling
+ * `totp/confirm` page.
  *
  * React binding — import from `@zanix/iam/ui/pages/totp-enroll/preact` for the Preact one.
  */

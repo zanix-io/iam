@@ -18,6 +18,7 @@ import {
 import { PasswordService } from '../interactors/password.interactor.ts'
 import { criticalRateLimit, freeRateLimit } from 'utils/constants.ts'
 import { messageLangGuard } from 'utils/message-lang.ts'
+import { stepUpTokenGuard } from 'utils/step-up-token-guard.ts'
 
 /**
  * Self-service password endpoints — change/add/remove and recovery. Anonymous rate limiting on the
@@ -28,10 +29,12 @@ import { messageLangGuard } from 'utils/message-lang.ts'
 export class PasswordController extends ZanixController<PasswordService> {
   /**
    * Changes the caller's own password after verifying `currentPassword`. Requires a valid access
-   * token; the target account is the authenticated session's own subject, never a body/param.
+   * token and a `factor-change` step-up token for `password-change` in the `X-Znx-Step-Up-Token`
+   * header; the target account is the authenticated session's own subject, never a body/param.
    */
   @Post({ Body: PwdRTO })
   @Guard(messageLangGuard())
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public change(ctx: HandlerContext<{ body: PwdRTO }>) {
     const { currentPassword, newPassword } = ctx.payload.body
@@ -40,17 +43,23 @@ export class PasswordController extends ZanixController<PasswordService> {
 
   /**
    * Sets a first password for the caller's own account — only when it doesn't already have one
-   * (see `PasswordService.addPassword`'s own doc). Requires a valid access token.
+   * (see `PasswordService.addPassword`'s own doc). Requires a valid access token and a
+   * `factor-change` step-up token for `password-add` in the `X-Znx-Step-Up-Token` header.
    */
   @Post('add', { Body: AddPasswordRTO })
   @Guard(messageLangGuard())
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public add(ctx: HandlerContext<{ body: AddPasswordRTO }>) {
     return this.interactor.addPassword(ctx.payload.body.newPassword)
   }
 
-  /** Removes the caller's own password entirely. Requires a valid access token. */
+  /**
+   * Removes the caller's own password entirely. Requires a valid access token and a
+   * `factor-change` step-up token for `password-remove` in the `X-Znx-Step-Up-Token` header.
+   */
   @Delete('remove')
+  @Guard(stepUpTokenGuard())
   @AuthTokenValidation()
   public remove(_ctx: HandlerContext) {
     return this.interactor.removePassword()

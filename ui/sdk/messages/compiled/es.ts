@@ -9,6 +9,19 @@ export const IAM_UI_MESSAGES_ES_COMPILED: Readonly<
       'value': 'Volver a ingresar',
     },
   ],
+  'common/factor-change-code-label': [
+    {
+      'type': 0,
+      'value': 'Código de confirmación',
+    },
+  ],
+  'common/factor-change-hint': [
+    {
+      'type': 0,
+      'value':
+        'Para confirmar este cambio, ingresa el código de tu app de autenticación o el código que te acabamos de enviar.',
+    },
+  ],
   'common/invalid-or-expired-code': [
     {
       'type': 0,

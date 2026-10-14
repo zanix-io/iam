@@ -5,6 +5,122 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-10-14
+
+### Security
+
+- **An access token alone can no longer replace the second factor.** Enrolling, confirming or
+  removing an authenticator app (`POST /api/login/totp/confirm`, `DELETE /api/login/totp`),
+  confirming or forgetting a phone (`POST /api/login/phone/confirm`, `DELETE /api/login/phone`),
+  changing the login-code channel (`POST /api/login/otp-notifier`) and changing, adding or removing
+  the password (`POST /api/pwd/change`, `POST /api/pwd/add`, `DELETE /api/pwd/remove`) now need a
+  fresh step-up proof with the account's current factor, sent in the `X-Znx-Step-Up-Token` header.
+  Before, a stolen access token (or a script injected into a page) could enroll its own
+  authenticator and then pass step-up with it.
+- **`POST /api/login/totp/confirm` no longer trusts a secret from the client.**
+  `GET
+  /api/login/totp/enroll` keeps the issued secret as the account's pending secret (encrypted,
+  10 minutes) and the confirmation uses that one; a body `secret` that is not it is refused.
+- **A one-time code and an authenticator code are used once, atomically.** The library checks a code
+  and then burns it, so two concurrent step-up verifications of one code both passed; the match is
+  now also claimed in a unique-index store and exactly one succeeds. An authenticator code is
+  accepted once per account within its tolerance window at sign-in, step-up and enrollment, so it
+  cannot be replayed.
+- **`redirect_to` rejects backslash and control-character variants of `//host`.** `/\evil.test` and
+  `/<tab>/evil.test` passed the check and browsers follow them to another host. A path must now
+  start with a single `/`, hold no backslash or control character and resolve to the same origin.
+- **The step-up proof, the confirmation code and the authenticator secrets are redacted from logs
+  and error bodies** (`stepUpToken`, `x-znx-step-up-token`, `stepUpCode`, `pendingTotpSecret`,
+  `totpSecret`), on top of the default key list.
+
+### Added
+
+- **The `factor-change` step-up purpose.** The same `request`/`verify` calls issue a token for it,
+  bound (`bind`) to one operation (`totp-confirm`, `totp-disable`, `phone-confirm`, `phone-disable`,
+  `otp-notifier`, `password-change`, `password-add`, `password-remove`). `iam` verifies it with its
+  own public key (`JWK_PUB`, or the rotated `JWK_PUB_V<n>`), checks `typ`, `aud`, purpose, `sub` and
+  `bind`, and spends its `jti` once in the new `step_up_claim` collection (unique index, TTL index).
+  A mistyped confirmation code costs no proof. A missing proof answers `403`
+  `FACTOR_CHANGE_PROOF_REQUIRED` with `meta.stepUp` `{ purpose, bind }`; any other bad proof,
+  `FACTOR_CHANGE_PROOF_INVALID`. A first enrollment is proven with the email code through the same
+  step-up (the account's current factor), so a new account is not locked out. The wording
+  `step-up.purpose.factor-change` ships in English and Spanish. Exported: `FACTOR_CHANGE_PURPOSE`,
+  `FACTOR_CHANGE_OPERATIONS`, `FactorChangeOperation`, `STEP_UP_TOKEN_HEADER` (`./shared-enums` and
+  `./ui/sdk/step-up`).
+- **`TotpClient.confirmEnrollment`/`disable`, `PhoneClient.confirm`/`disable`/`setOtpNotifier` and
+  `PasswordClient.change`/`addPassword`/`removePassword` take a trailing `stepUpToken`** and send it
+  in `X-Znx-Step-Up-Token`.
+- **The hosted `totp/enroll` and `phone/confirm` forms take the confirmation code** (`stepUpCode`),
+  which the page turns into the proof; `totp/enroll` and `phone/enroll` deliver it.
+- **`TotpConfirmRTO.secret` is optional.**
+
+- **The step-up one-time code message says what it confirms, in the language of the request.** It is
+  sent through the built-in `generic` template of each channel (email, SMS, WhatsApp), so no stored
+  template is needed in any template backend. The wording is the `step-up.*` catalog (English and
+  Spanish, naming no product). `purpose` only selects the key `step-up.purpose.<purpose>`, with
+  `step-up.purpose.default` as the fallback; the text of the purpose from the request is never part
+  of the message. `IAM_MESSAGES` is merged over this catalog, so an app words its own purposes
+  without forking `iam` (keys and placeholders in `docs/customization.md`). A key with an object
+  value (`{"es":{...}}`) holds the keys of one language, for an app that serves several languages;
+  `IAM_MESSAGES` also takes such blocks for the hosted pages.
+
+- **An account records when it proved it controls its email address.** The `auth` record gains
+  `emailVerifiedAt`, set once, the first time the mailbox is proven, and left alone by every later
+  proof: a verified one-time code delivered by **email** (passwordless sign-in, password-recovery
+  code, step-up code), and an OAuth2 sign-in or link whose provider reports the address as verified
+  (Google's `verified_email`; GitHub reports no flag and proves nothing). A code delivered by SMS or
+  WhatsApp proves a phone and does not set it. A new account created by self-registration is created
+  verified. An account an administrator registered, with none of these yet, stays unverified;
+  nothing is backfilled or inferred. A failed write is logged at `warn` and never fails the sign-in.
+- **`GET /api/login/methods` answers `emailVerified` and `emailVerifiedAt`.** `emailVerified` is a
+  boolean; `emailVerifiedAt` is an ISO 8601 string, present once proven. `AuthMethodsResult` in
+  `@zanix/iam/ui/sdk/login` carries both.
+- **Every access token carries the OpenID Connect claim `email_verified` (boolean)**, set from the
+  account when the session is issued: password, one-time code, authenticator, OAuth2,
+  hosted-provider session exchange and refresh. A refresh reflects a proof recorded since the
+  previous token.
+- **Sign-in codes are stored per delivery channel.** The email code keeps the account id as its
+  target; the SMS and WhatsApp codes use `<authId>:sms` and `<authId>:whatsapp`, and the step-up
+  code of those channels appends `:sms` or `:whatsapp` likewise, so the channel of a verified code
+  is known. A code issued before the upgrade by SMS or WhatsApp stops verifying (codes live 5
+  minutes).
+
+- **Step-up: a signed-in user re-verifies their second factor ahead of a sensitive action.**
+  `POST /api/step-up/request` (`{ purpose }`) answers which factor the account's own settings
+  require, and `POST /api/step-up/verify` (`{ purpose, code, bind? }`) checks it and answers
+  `{ stepUpToken, expiresAt }`. An account with TOTP enabled enters its authenticator code; any
+  other account gets a six-digit code through its `otpNotifier` (email by default), generated and
+  stored by the existing OTP machinery under a target scoped to the purpose and the account, so a
+  sign-in code never verifies as a step-up code (or the reverse) and a code for one purpose is
+  refused for another. The factor is read from the account on every call, never from the request; a
+  one-time code works once and five wrong guesses burn it. Every failure of `verify` answers the
+  same `403`. Both routes need an access token, take the account from the session and are limited
+  per account (`step-up:request` at `criticalRateLimit`, `step-up:verify` at `freeRateLimit`).
+- **The step-up token.** An RS256 JWT signed with `JWK_PRI` (verified with `JWK_PUB`) carrying
+  `sub`, `purpose`, `bind` (when sent), `method` (`'totp'` or `'otp'`), `jti`, `iss`, `iat`, `exp`
+  (five minutes), `typ: 'step-up'` and `aud: 'iam:step-up'`. It is not an access token: `user`
+  access tokens are checked with `JWT_KEY` and HS256, so the signature fails there, and the audience
+  matches no permission. The claims, a verification example and the checks a service must add are in
+  the authentication flows guide. `JWK_PRI` must be set for `verify` to succeed.
+- **`StepUpClient`** (`request`, `verify`) at the new `@zanix/iam/ui/sdk/step-up` subpath, with
+  `StepUpRequestRTO`, `StepUpVerifyRTO`, `StepUpRequestResult`, `StepUpVerifyResult` and
+  `StepUpTokenClaims`; `createIamClientRegistry` also hands out the client (`getStepUpClient`,
+  `setStepUpClientFactory`, `resetStepUpClientFactory`).
+- **`@zanix/iam/shared-enums`** exports `STEP_UP_TOKEN_TYPE`, `STEP_UP_TOKEN_AUDIENCE`,
+  `STEP_UP_METHODS`, `STEP_UP_PURPOSE_REGEX` and `STEP_UP_BIND_REGEX`.
+
+### Fixed
+
+- **`POST /api/login/phone/confirm` answered `401` for a valid session.** The rate-limit identity
+  guard replaced the session with one that had no `subject`, which the confirmation reads. The
+  rewritten session keeps it.
+
+### Changed
+
+- **The step-up code message is worded differently.** The email no longer reuses the `login-otp`
+  message and the SMS and WhatsApp messages no longer use `otp`: the code is now presented as a code
+  to confirm an action, not a sign-in code. The email subject comes from `step-up.subject`.
+
 ## [2.3.1] - 2026-10-13
 
 ### Fixed

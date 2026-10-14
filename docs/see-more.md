@@ -38,6 +38,27 @@ Described in [Authorization](./authorization.md).
 | Why profiles and sign-in records are separate collections      | [`repositories/users/model.defs.ts`](../src/server/repositories/users/model.defs.ts)                            |
 | Status checks on every sign-in and refresh                     | [`repositories/users/entity.provider.ts`](../src/server/repositories/users/entity.provider.ts) (`assertActive`) |
 
+### Email verification
+
+| Concern                                                 | Source                                                                 |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Where each sign-in records the proof and sets the claim | [`AuthService`](../src/server/interactors/auth.interactor.ts)          |
+| Channel-scoped codes, claim payload, best-effort write  | [`email-proof.ts`](../src/server/interactors/email-proof.ts)           |
+| Idempotent `emailVerifiedAt` write                      | [`AuthRepository`](../src/server/repositories/auth/entity.provider.ts) |
+| Summary returned to the SDK                             | [`ui/sdk/rtos/login.ts`](../ui/sdk/rtos/login.ts)                      |
+
+### Step-up
+
+| Concern                                       | Source                                                                                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/api/step-up` controller and its rate limits | [`server/handlers/step-up.handler.ts`](../src/server/handlers/step-up.handler.ts)                                                                                  |
+| Factor choice, code scoping and verification  | [`StepUpService`](../src/server/interactors/step-up.interactor.ts)                                                                                                 |
+| Token signing, claims and verification        | [`utils/step-up-token.ts`](../src/utils/step-up-token.ts)                                                                                                          |
+| Factor-change proof check and single use      | [`interactors/step-up-proof.ts`](../src/server/interactors/step-up-proof.ts)                                                                                       |
+| Header guard and spent-claim store            | [`utils/step-up-token-guard.ts`](../src/utils/step-up-token-guard.ts), [`repositories/step-up-claim`](../src/server/repositories/step-up-claim/entity.provider.ts) |
+| Claim values and request patterns             | [`utils/shared-enums.ts`](../src/utils/shared-enums.ts)                                                                                                            |
+| Typed client                                  | [`ui/sdk/client/step-up.client.ts`](../ui/sdk/client/step-up.client.ts)                                                                                            |
+
 ### Hosted frontend (`@zanix/space`)
 
 | Concern                                    | Source                                                                                                                    |

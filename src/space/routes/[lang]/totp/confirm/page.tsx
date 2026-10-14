@@ -6,7 +6,7 @@ import { HttpError } from '@zanix/errors'
 import { pageSessionGuard } from '@zanix/auth'
 import { TotpConfirmView } from 'ui/pages/totp-confirm/index.ts'
 import { AuthService } from 'server/interactors/auth.interactor.ts'
-import { TotpConfirmRTO } from 'server/handlers/rtos/password.ts'
+import { TotpConfirmPageRTO } from 'server/handlers/rtos/password.ts'
 import { redirectResponse } from 'shared/redirect-response.ts'
 import { postLoginRedirectUrl, resolvePostLoginRedirect } from 'utils/constants.ts'
 
@@ -37,7 +37,7 @@ const INVALID_CODE_ERROR = 'invalid_code'
  * No `loader` either, for the identical reason: `redirect` already fires before `loader` would
  * ever run (see `SpacePageController.handleGet`'s own doc), so one here would be genuine dead code.
  */
-@Page({ Interactor: AuthService, action: { Body: TotpConfirmRTO } })
+@Page({ Interactor: AuthService, action: { Body: TotpConfirmPageRTO } })
 @Guard(pageSessionGuard([]))
 @Guard(csrfGuard())
 export default class TotpConfirmPage extends SpacePageController<ConfirmParams, AuthService> {
@@ -62,11 +62,12 @@ export default class TotpConfirmPage extends SpacePageController<ConfirmParams, 
   public override component = TotpConfirmView
 
   public override action = async (ctx: PageActionContext<ConfirmParams>): Promise<Response> => {
-    const body = ctx.body as TotpConfirmRTO
+    const body = ctx.body as TotpConfirmPageRTO
     const { lang } = ctx.params
 
     try {
-      await this.interactor.totpConfirm(body.secret, body.code)
+      await this.interactor.provideFactorChangeProof('totp-confirm', body.stepUpCode)
+      await this.interactor.totpConfirm(body.code, body.secret)
     } catch (e) {
       if (e instanceof HttpError && e.status.code === 'FORBIDDEN') {
         return redirectResponse(`/${lang}/totp/enroll?error=${INVALID_CODE_ERROR}`)

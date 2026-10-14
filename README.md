@@ -57,8 +57,20 @@ levels.
 - **Several roles per account**: an account holds a list of roles and its permissions are their
   union; roles are added, removed or set through `/api/roles` without losing the default role.
 - **Sessions**: refresh-token rotation that re-resolves permissions on every refresh.
+- **Email verification**: an account records `emailVerifiedAt` the first time it proves it controls
+  its mailbox (an email one-time code, or an OAuth2 sign-in whose provider reports the address as
+  verified). It is exposed as `emailVerified` in `GET /api/login/methods` and as the OpenID Connect
+  claim `email_verified` on every access token. See
+  [Authentication flows](./docs/authentication-flows.md#email-verification).
 - **Account self-service**: sign-in methods (OAuth2 link/unlink, password add/remove, TOTP, phone
   and code channel), password recovery, deactivation with confirmed reactivation, and deletion.
+- **Step-up**: a signed-in user re-verifies their own second factor (authenticator app, or a code
+  through their configured channel) and receives a short-lived signed token that a service checks
+  before a sensitive action. See [Authentication flows](./docs/authentication-flows.md#step-up).
+- **Factor-change proof**: `iam` itself requires a fresh step-up proof (purpose `factor-change`,
+  header `X-Znx-Step-Up-Token`, single use) to enroll, replace or remove a second factor, change the
+  login-code channel or change the password, so a stolen access token cannot swap the factor. See
+  [Authentication flows](./docs/authentication-flows.md#changing-a-second-factor-or-a-credential).
 - **Invitations**: an account registered without a password receives a recovery code to set its own.
 - **Hosted OAuth2 provider** so another host can sign its visitors in on `iam`'s pages.
 - **Authorization**: an RBAC catalog resolved into each session token, plus per-resource Grant
@@ -79,13 +91,14 @@ levels.
   captcha provider), configuration, and overridable behaviors (`resolveEffectivePermissions`,
   `evaluateGrantAccess`, `passwordPolicy`, ...).
 - `src/server/handlers/` — REST controllers: `LoginController` (`/login`), `PasswordController`
-  (`/pwd`), `RolesController` (`/roles`), `PermissionsController` (`/permissions`),
-  `UsersController` (`/users`), `GrantAccessController` (`/grant-access`), `OAuthProviderController`
-  (`/oauth`, the hosted OAuth2 provider), plus `templates.handler.ts` (`/templates`,
-  `@zanix/notifications`'s own controller with this project's auth guard attached). `rtos/` holds
-  the request/response shapes each route validates against.
-- `src/server/interactors/` — business logic: `AuthService`, `PasswordService`, `RolesService`,
-  `PermissionsService`, `UsersService`, `GrantAccessService`, `OAuthProviderService`.
+  (`/pwd`), `StepUpController` (`/step-up`), `RolesController` (`/roles`), `PermissionsController`
+  (`/permissions`), `UsersController` (`/users`), `GrantAccessController` (`/grant-access`),
+  `OAuthProviderController` (`/oauth`, the hosted OAuth2 provider), plus `templates.handler.ts`
+  (`/templates`, `@zanix/notifications`'s own controller with this project's auth guard attached).
+  `rtos/` holds the request/response shapes each route validates against.
+- `src/server/interactors/` — business logic: `AuthService`, `PasswordService`, `StepUpService`,
+  `RolesService`, `PermissionsService`, `UsersService`, `GrantAccessService`,
+  `OAuthProviderService`; `email-proof.ts` holds the email-verification helpers they share.
 - `src/server/repositories/` — one folder per Mongoose-backed collection (`auth`, `users`, `roles`,
   `permissions`, `grant-access`), each with its own `model.defs.ts` (schema/attrs) and `seeders/`
   (production catalog and first administrator, plus development fixtures; see
@@ -105,9 +118,13 @@ levels.
 - `src/utils/` — shared, framework-agnostic logic: `rbac.ts` (default permission-resolution
   strategy), `grant-access.ts` (default grant-evaluation strategy), `constants.ts` (env var names,
   the RBAC permission catalog, access-level ordering), `shared-enums.ts` (OAuth2 providers, OTP
-  channels, second-factor methods), `oauth-provider.ts` (the hosted OAuth2 provider's client
-  registry), `refresh-rate-limit-guard.ts`/`phone-confirm-rate-limit-guard.ts` (rate-limit guards
-  the declarative `@RateLimitGuard` cannot express), `qr-code.ts`/`cookie-consent.ts` (TOTP QR
+  channels, second-factor methods, step-up token claims), `step-up-message.ts` (the wording of the
+  step-up code message), `step-up-token.ts` (signs and verifies the step-up token),
+  `step-up-token-guard.ts` (reads the `X-Znx-Step-Up-Token` header), `safe-redirect-path.ts` (the
+  same-origin path check), `log-redaction.ts` (the key names added to log redaction),
+  `oauth-provider.ts` (the hosted OAuth2 provider's client registry),
+  `refresh-rate-limit-guard.ts`/`phone-confirm-rate-limit-guard.ts` (rate-limit guards the
+  declarative `@RateLimitGuard` cannot express), `qr-code.ts`/`cookie-consent.ts` (TOTP QR
   generation, consent-cookie helpers).
 - `src/shared/` — small primitives used across both the REST and Space surfaces (e.g.
   `redirect-response.ts`'s stateless PRG response helper), and `middlewares/` with starter

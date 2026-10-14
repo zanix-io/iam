@@ -39,6 +39,12 @@ Deno.test('PhoneConfirmView: renders the heading, the phone the code went to, an
   assertStringIncludes(html, 'method="post"')
 })
 
+Deno.test('PhoneConfirmView: asks for the confirmation code of the change next to the SMS code', () => {
+  const html = render(BASE_PROPS)
+  assertStringIncludes(html, 'name="code"')
+  assertStringIncludes(html, 'name="stepUpCode"')
+})
+
 Deno.test('PhoneConfirmView: carries the phone and the CSRF token as hidden fields', () => {
   const html = render({ ...BASE_PROPS, csrfToken: 'the-token' })
   assertStringIncludes(html, 'name="phone" value="+14155551234"')

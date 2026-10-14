@@ -87,7 +87,7 @@ Deno.test('LoginController: every route forwards its payload to the matching Aut
       method: 'totpConfirm',
       payload: { body: { secret: 'SECRET', code: '111111' } },
       calls: 'totpConfirm',
-      args: ['SECRET', '111111'],
+      args: ['111111', 'SECRET'],
     },
     { method: 'totpDisable', calls: 'disableTotp', args: [] },
     {

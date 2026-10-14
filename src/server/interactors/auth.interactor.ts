@@ -20,8 +20,15 @@ import {
   resolveConfiguredRefreshExpiration,
   SERVICE_ID,
   TOKEN_EXPIRATION,
+  TOTP_ENROLLMENT_TTL_SECONDS,
 } from 'utils/constants.ts'
+import { FACTOR_CHANGE_PURPOSE, type FactorChangeOperation } from 'utils/shared-enums.ts'
+import { STEP_UP_TOKEN_LOCALS_KEY } from 'utils/step-up-token-guard.ts'
+import { timingSafeStringEqual } from 'utils/oauth-provider.ts'
 import { permissionsForAccount } from './session-permissions.ts'
+import { authenticateAccountOtp, emailVerifiedPayload, recordEmailProof } from './email-proof.ts'
+import { claimOnce, requireFactorChangeProof } from './step-up-proof.ts'
+import { StepUpService } from './step-up.interactor.ts'
 
 /** Resolves this service's own signing key for a fresh, self-issued token (never derived from an
  * existing token's `kid`, unlike `@zanix/auth`'s internal `getSecretByToken` — there is no existing
@@ -194,7 +201,14 @@ export class AuthService extends ZanixInteractor {
       // `loginWithOauthCallback`, so both self-registration paths assign the same role.
       const defaultRole = resolveConfig<string>('auth', 'defaultRoleId') || undefined
       const roleIds = defaultRole ? [defaultRole] : undefined
-      await this.providers.get(AuthRepository).registerAuth({ email, userId: profile.id, roleIds })
+      // The code was delivered to `email` and has just verified, so the new account has already
+      // proven its mailbox.
+      await this.providers.get(AuthRepository).registerAuth({
+        email,
+        userId: profile.id,
+        roleIds,
+        emailVerifiedAt: new Date(),
+      })
       // Re-fetched rather than trusting the just-created document — same reasoning as
       // `loginWithOauthCallback`'s own identical re-fetch.
       auth = await this.providers.get(AuthRepository).findByEmail(
@@ -212,6 +226,7 @@ export class AuthService extends ZanixInteractor {
       const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
         subject: auth.id,
         permissions,
+        ...emailVerifiedPayload(true),
         ...(accessExpiration !== undefined ? { accessExpiration } : {}),
         ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
       })
@@ -241,12 +256,15 @@ export class AuthService extends ZanixInteractor {
     const wasInactive = profile?.status === 'INACTIVE'
 
     const permissions = await permissionsForAccount(this.providers, auth)
-    const tokens = await this.providers.get(ZanixAuthProvider).otp.authenticate(auth.id, code, {
+    const { tokens, channel } = await authenticateAccountOtp(this.providers, auth, code, {
       subject: auth.id,
       permissions,
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     })
+    // A verified email code proves the mailbox, whatever the account's status or second factor
+    // decides next.
+    if (channel === 'email') await recordEmailProof(this.providers, auth.id)
 
     // Only reached once `code` verifies successfully — see the block above for why this can't run
     // any earlier. Guarded on `userId` again (always set whenever `wasInactive` is true — `findById`
@@ -377,17 +395,19 @@ export class AuthService extends ZanixInteractor {
 
   /**
    * Begins TOTP enrollment for the current authenticated session: generates a new secret and its
-   * provisioning URI, WITHOUT persisting anything yet — `totpConfirm` must verify the user's
-   * authenticator app actually holds this secret before it's stored on the account.
+   * provisioning URI and keeps the secret as the account's PENDING secret for
+   * {@linkcode TOTP_ENROLLMENT_TTL_SECONDS}. `totpConfirm` confirms that secret and no other, so a
+   * client cannot choose the secret that becomes the account's second factor. Enrolling again
+   * replaces the pending secret; the active `totpSecret` is untouched until a confirmation.
    *
    * **Resolves the account's real email before building the label**: `subject`
    * (`this.context.session.subject`) is the token's `sub` claim, which is `auth.id` (see every
    * `session.generateTokens({ subject: auth.id, ... })` call site in this file), never the login
    * email, while `totpProvisioningLabel`'s default (`auth.app.ts`) is the identity function
-   * `(email) => email`. Falls back to `subject` only if the lookup finds nothing for an
-   * authenticated session — never a crash over what's purely a QR-code display string.
+   * `(email) => email`.
    *
-   * @throws {HttpError} `UNAUTHORIZED` when called with no authenticated session.
+   * @throws {HttpError} `UNAUTHORIZED` when called with no authenticated session; `FORBIDDEN` when
+   *   the session subject no longer resolves to a real `auth` record.
    */
   public async totpEnroll() {
     const subject = this.context.session?.subject
@@ -396,7 +416,8 @@ export class AuthService extends ZanixInteractor {
     const auth = await this.providers.get(AuthRepository).findById(subject) as
       | HydratedAuth
       | undefined
-    const email = auth?.email?.unmask() ?? subject
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    const email = auth.email?.unmask() ?? subject
 
     const totp = this.providers.get(ZanixAuthProvider).totp
     const secret = totp.generateSecret()
@@ -405,40 +426,111 @@ export class AuthService extends ZanixInteractor {
         email
     const uri = totp.getProvisioningUri(secret, label, { issuer: SERVICE_ID })
 
+    await this.providers.get(AuthRepository).updateAuth({
+      id: subject,
+      pendingTotpSecret: secret,
+      pendingTotpExpiresAt: new Date(Date.now() + TOTP_ENROLLMENT_TTL_SECONDS * 1000),
+    }, { applyProtection: true })
+
     return { secret, uri }
   }
 
   /**
-   * Confirms a TOTP enrollment: verifies `code` against `secret` (from a preceding `totpEnroll()`
-   * call the client never round-tripped through storage) and, only on success, persists `secret`
-   * on the current session's account and enables TOTP as its 2FA method on login.
+   * Confirms a TOTP enrollment: verifies `code` against the pending secret `totpEnroll` issued and,
+   * only on success, makes it the account's `totpSecret` and enables TOTP as its 2FA method on
+   * login. Changing the second factor needs a fresh `factor-change` step-up proof for
+   * `totp-confirm` ({@linkcode requireFactorChangeProof}); it is spent only after the code
+   * matched, so a mistyped code costs no proof. A code is accepted once per account within its
+   * window.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no authenticated session; `FORBIDDEN` if `code`
-   *   doesn't match `secret`.
+   * @param secret The secret a client says it enrolled. Never used as the secret: when present it
+   *   must equal the pending one, so a body that carries another secret is refused.
+   * @throws {HttpError} `UNAUTHORIZED` with no authenticated session; `FORBIDDEN` for a missing,
+   *   invalid or spent proof, a secret that is not the pending one, or a code that does not match;
+   *   `BAD_REQUEST` when no enrollment is pending or it has expired.
    */
-  public async totpConfirm(secret: string, code: string) {
+  public async totpConfirm(code: string, secret?: string) {
     const subject = this.context.session?.subject
     if (!subject) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
 
-    const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
-    const verified = await this.providers.get(ZanixAuthProvider).totp.verify(secret, code, {
-      window,
-    })
-    if (!verified) throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      subject,
+      'totp-confirm',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(subject) as
       | HydratedAuth
       | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+
+    const pending = await auth.pendingTotpSecret?.decrypt()
+    const expiresAt = auth.pendingTotpExpiresAt?.getTime() ?? 0
+    if (!pending || expiresAt <= Date.now()) {
+      throw new HttpError('BAD_REQUEST', {
+        message: 'No authenticator-app enrollment is pending. Start the enrollment again.',
+      })
+    }
+    if (secret !== undefined && !timingSafeStringEqual(secret, pending)) {
+      throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
+    }
+
+    const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
+    const verified = await this.providers.get(ZanixAuthProvider).totp.verify(pending, code, {
+      window,
+    })
+    if (!verified || !await this.claimTotpCode(subject, code, window)) {
+      throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
+    }
+
+    await proof.spend()
 
     await this.providers.get(AuthRepository).updateAuth({
       id: subject,
-      totpSecret: secret,
+      totpSecret: pending,
       twoFactorAuthConfig: { method: 'totp', triggerOn: [...LOGIN_ACTIONS] },
-    }, { applyProtection: true })
+    }, { applyProtection: true, unset: ['pendingTotpSecret', 'pendingTotpExpiresAt'] })
 
-    await this.notifyTotpChange(auth?.email?.unmask(), 'totp-enabled')
+    await this.notifyTotpChange(auth.email?.unmask(), 'totp-enabled')
 
     return { response: 'TOTP enabled' }
+  }
+
+  /**
+   * Claims `code` for `authId`, so an authenticator code is accepted once within the span of
+   * steps a verification tolerates (`window` steps either side of the current one, 30 s each).
+   *
+   * @returns `false` when the code was already used.
+   */
+  private claimTotpCode(authId: string, code: string, window: number): Promise<boolean> {
+    return claimOnce(this.providers, 'totp', `${authId}:${code}`, (2 * window + 1) * 30)
+  }
+
+  /**
+   * Verifies the second-factor `code` of the signed-in account for the `factor-change` purpose and
+   * `operation`, and records the resulting step-up token for the rest of this request, where the
+   * operation's own proof check finds it. For the hosted pages, which take the code in the same
+   * form as the change; an API client sends the token in the step-up header instead.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the code does not verify.
+   */
+  public async provideFactorChangeProof(operation: FactorChangeOperation, code: string) {
+    const { stepUpToken } = await this.interactors.get(StepUpService).verify(
+      FACTOR_CHANGE_PURPOSE,
+      code,
+      operation,
+    )
+    if (this.context.locals) this.context.locals[STEP_UP_TOKEN_LOCALS_KEY] = stepUpToken
+  }
+
+  /**
+   * Starts the `factor-change` step-up for the signed-in account (see {@linkcode StepUpService.request}):
+   * the page that takes the confirmation code calls it to deliver one. Answers which factor the
+   * account needs.
+   */
+  public async requestFactorChangeProof() {
+    return await this.interactors.get(StepUpService).request(FACTOR_CHANGE_PURPOSE)
   }
 
   /**
@@ -451,22 +543,34 @@ export class AuthService extends ZanixInteractor {
    *
    * No "last remaining method" guard — see `unlinkOauth`'s own doc.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
-   *   longer resolves to a real `auth` record.
+   * Needs a fresh `factor-change` step-up proof for `totp-disable`, so a session alone cannot turn
+   * the second factor off.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or when the session subject no longer resolves to a real `auth` record.
    */
   public async disableTotp() {
     const authId = this.context.session?.subject
     if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      authId,
+      'totp-disable',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(authId) as
       | HydratedAuth
       | undefined
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    await proof.spend()
 
     if (auth.twoFactorAuthConfig?.method === 'totp') {
       await this.providers.get(AuthRepository).updateAuth(
         { id: authId },
-        { unset: ['totpSecret', 'twoFactorAuthConfig'] },
+        {
+          unset: ['totpSecret', 'twoFactorAuthConfig', 'pendingTotpSecret', 'pendingTotpExpiresAt'],
+        },
       )
       await this.notifyTotpChange(auth.email?.unmask(), 'totp-disabled')
     }
@@ -541,17 +645,31 @@ export class AuthService extends ZanixInteractor {
    * delivery channel are two separate actions (`setOtpNotifier`, below), so confirming a phone
    * never silently changes how an existing login-OTP preference is delivered.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` if `code` doesn't verify.
+   * Needs a fresh `factor-change` step-up proof for `phone-confirm`, spent only after the code
+   * verified. The code is consumed atomically: of two concurrent confirmations with the same code,
+   * one succeeds.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or if `code` doesn't verify.
    */
   public async phoneConfirm(phone: string, code: string) {
     const subject = this.context.session?.subject
     if (!subject) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
-
-    const verified = await this.providers.get(ZanixAuthProvider).otp.verify(
-      `phone-enroll:${subject}`,
-      code,
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      subject,
+      'phone-confirm',
     )
-    if (!verified) throw new HttpError('FORBIDDEN', { message: 'Invalid or expired code.' })
+
+    const target = `phone-enroll:${subject}`
+    const verified = await this.providers.get(ZanixAuthProvider).otp.verify(target, code)
+    // The library's check-then-burn lets two concurrent verifications of one code both pass; the
+    // claim lets exactly one through.
+    if (!verified || !await claimOnce(this.providers, 'otp', `${target}:${code}`, 300)) {
+      throw new HttpError('FORBIDDEN', { message: 'Invalid or expired code.' })
+    }
+    await proof.spend()
 
     await this.providers.get(AuthRepository).updateAuth({ id: subject, phone }, {
       applyProtection: true,
@@ -568,17 +686,26 @@ export class AuthService extends ZanixInteractor {
    * defending against it downstream. To use SMS/WhatsApp again later, the number must be
    * re-verified from scratch via `phoneEnroll`/`phoneConfirm`.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
-   *   longer resolves to a real `auth` record.
+   * Needs a fresh `factor-change` step-up proof for `phone-disable`.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or when the session subject no longer resolves to a real `auth` record.
    */
   public async disablePhone() {
     const authId = this.context.session?.subject
     if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      authId,
+      'phone-disable',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(authId) as
       | HydratedAuth
       | undefined
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    await proof.spend()
 
     await this.providers.get(AuthRepository).updateAuth(
       { id: authId },
@@ -600,13 +727,23 @@ export class AuthService extends ZanixInteractor {
    * (`handlers/rtos/password.ts`) for why a real caller (a plain HTML `<select>`'s "Email" option)
    * submits an empty string rather than omitting the field entirely.
    *
-   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` when the session subject no
-   *   longer resolves to a real `auth` record; `BAD_REQUEST` when `notifier` is `'sms'`/`'whatsapp'`
-   *   and the account has no verified `phone` on file yet.
+   * Needs a fresh `factor-change` step-up proof for `otp-notifier`: the channel decides where the
+   * factor's codes go, so changing it changes the factor.
+   *
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof, or when the session subject no longer resolves to a real `auth` record;
+   *   `BAD_REQUEST` when `notifier` is `'sms'`/`'whatsapp'` and the account has no verified
+   *   `phone` on file yet.
    */
   public async setOtpNotifier(notifier?: Exclude<typeof NOTIFIERS[number], 'email'> | '') {
     const authId = this.context.session?.subject
     if (!authId) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      authId,
+      'otp-notifier',
+    )
 
     const auth = await this.providers.get(AuthRepository).findById(authId) as
       | HydratedAuth
@@ -618,6 +755,7 @@ export class AuthService extends ZanixInteractor {
         message: 'Verify a phone number before choosing SMS/WhatsApp for your login code.',
       })
     }
+    await proof.spend()
 
     if (notifier) {
       await this.providers.get(AuthRepository).updateAuth({ id: authId, otpNotifier: notifier })
@@ -649,6 +787,11 @@ export class AuthService extends ZanixInteractor {
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
     const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
+    // A code signs in once within its window: the claim comes first, so a replay (also a
+    // concurrent one) is refused before it can mint a session.
+    if (!await this.claimTotpCode(auth.id, code, window)) {
+      throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
+    }
     const permissions = await permissionsForAccount(this.providers, auth)
     // Same cast as `finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
@@ -660,6 +803,7 @@ export class AuthService extends ZanixInteractor {
     const tokens = await this.providers.get(ZanixAuthProvider).totp.authenticate(secret, code, {
       subject: auth.id,
       permissions,
+      ...emailVerifiedPayload(Boolean(auth.emailVerifiedAt)),
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     }, { window })
@@ -748,6 +892,9 @@ export class AuthService extends ZanixInteractor {
       })
     }
     const email = user.email
+    // Only a provider that reports the address as verified proves the mailbox: Google's user info
+    // carries `verified_email`, GitHub's carries no flag at all and never counts.
+    const emailVerified = user.verified_email === true
 
     let auth = await this.providers.get(AuthRepository).findByEmail(
       email,
@@ -780,6 +927,7 @@ export class AuthService extends ZanixInteractor {
         oauthProvider: provider,
         userId: profile.id,
         roleIds: defaultRole ? [defaultRole] : undefined,
+        ...(emailVerified ? { emailVerifiedAt: new Date() } : {}),
       })
       // Re-fetched (rather than trusting the just-created document directly) so `auth` goes
       // through the exact same hydration/data-policy path `findByEmail` already gives every
@@ -820,7 +968,14 @@ export class AuthService extends ZanixInteractor {
       }
     }
 
-    return this.finishLogin(auth, 'login', { oauthProvider: provider })
+    // A new account was created with the proof already recorded.
+    if (emailVerified && !auth.emailVerifiedAt) await recordEmailProof(this.providers, auth.id)
+    return this.finishLogin(
+      auth,
+      'login',
+      { oauthProvider: provider },
+      emailVerified || Boolean(auth.emailVerifiedAt),
+    )
   }
 
   /**
@@ -850,6 +1005,8 @@ export class AuthService extends ZanixInteractor {
       hasPassword: Boolean(auth.password),
       oauthProvider: auth.oauthProvider ?? null,
       totpEnabled: auth.twoFactorAuthConfig?.method === 'totp',
+      emailVerified: Boolean(auth.emailVerifiedAt),
+      ...(auth.emailVerifiedAt ? { emailVerifiedAt: auth.emailVerifiedAt.toISOString() } : {}),
       // Last 4 digits only — same "never echo a secret/PII-shaped value in full" discipline this
       // method's own doc already establishes for `password`/`totpSecret`; a settings screen only
       // ever needs to confirm WHICH number is on file, never the full number back.
@@ -976,6 +1133,10 @@ export class AuthService extends ZanixInteractor {
     }
 
     await this.providers.get(AuthRepository).updateAuth({ id: authId, oauthProvider: provider })
+    // The provider reports this exact address as verified, so linking also proves the mailbox.
+    if (user.verified_email === true && !auth.emailVerifiedAt) {
+      await recordEmailProof(this.providers, authId)
+    }
     return { response: `${provider} connected` }
   }
 
@@ -1039,6 +1200,7 @@ export class AuthService extends ZanixInteractor {
     const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
       subject: auth.id,
       permissions,
+      ...emailVerifiedPayload(Boolean(auth.emailVerifiedAt)),
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     })
@@ -1126,7 +1288,10 @@ export class AuthService extends ZanixInteractor {
       ZanixAuthProvider,
     )
       .session
-      .refreshTokens(token, { permissions })
+      .refreshTokens(token, {
+        permissions,
+        ...emailVerifiedPayload(Boolean(auth?.emailVerifiedAt)),
+      })
 
     if (!auth) {
       throw new HttpError('FORBIDDEN', {
@@ -1175,6 +1340,7 @@ export class AuthService extends ZanixInteractor {
     auth: HydratedAuth,
     action: typeof LOGIN_ACTIONS[number],
     extra: Partial<AuthenticationAttrs> = {},
+    emailVerified: boolean = Boolean(auth.emailVerifiedAt),
   ) {
     const sFA = auth.twoFactorAuthConfig
     if (sFA?.triggerOn.includes(action)) {
@@ -1205,6 +1371,7 @@ export class AuthService extends ZanixInteractor {
     const tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens({
       subject: auth.id,
       permissions,
+      ...emailVerifiedPayload(emailVerified),
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
     })

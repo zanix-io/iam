@@ -2,11 +2,13 @@ import { assertEquals } from 'jsr:@std/assert@0.224'
 import {
   AddPasswordRTO,
   OtpNotifierRTO,
+  PhoneConfirmPageRTO,
   PhoneConfirmRTO,
   PhoneEnrollRTO,
   PwdRecoveryCbRTO,
   PwdRecoveryRTO,
   PwdRTO,
+  TotpConfirmPageRTO,
   TotpConfirmRTO,
 } from 'server/handlers/rtos/password.ts'
 import { assertInvalid, validate } from '../../../helpers/rto.ts'
@@ -49,10 +51,26 @@ Deno.test('PwdRecoveryCbRTO: requires email, password and code', async () => {
   await assertInvalid(PwdRecoveryCbRTO, { email: 'jane' }, ['email', 'password', 'code'])
 })
 
-Deno.test('TotpConfirmRTO: requires the secret and the code', async () => {
+Deno.test('TotpConfirmRTO: requires the code; the secret is optional and only ever compared', async () => {
   const rto = await validate(TotpConfirmRTO, { secret: 'SECRET', code: '123456' })
   assertEquals([rto.secret, rto.code], ['SECRET', '123456'])
-  await assertInvalid(TotpConfirmRTO, {}, ['secret', 'code'])
+  assertEquals((await validate(TotpConfirmRTO, { code: '123456' })).secret, undefined)
+  await assertInvalid(TotpConfirmRTO, {}, ['code'])
+})
+
+Deno.test('TotpConfirmPageRTO and PhoneConfirmPageRTO: the hosted forms also require the confirmation code', async () => {
+  const totp = await validate(TotpConfirmPageRTO, { code: '123456', stepUpCode: '654321' })
+  assertEquals(totp.stepUpCode, '654321')
+  await assertInvalid(TotpConfirmPageRTO, { code: '123456' }, ['stepUpCode'])
+  const phone = await validate(PhoneConfirmPageRTO, {
+    phone: '+442079460958',
+    code: '123456',
+    stepUpCode: '654321',
+  })
+  assertEquals(phone.stepUpCode, '654321')
+  await assertInvalid(PhoneConfirmPageRTO, { phone: '+442079460958', code: '123456' }, [
+    'stepUpCode',
+  ])
 })
 
 Deno.test('PhoneEnrollRTO: strips spaces, hyphens and parentheses before the E.164 check', async () => {

@@ -29,7 +29,12 @@ Deno.test(
 
     phoneConfirmRateLimitIdentityGuard()(ctx)
 
-    assertEquals(ctx.locals.session, { id: 'user-42', type: 'user', rateLimit: freeRateLimit })
+    assertEquals(ctx.locals.session, {
+      id: 'user-42',
+      subject: 'user-42',
+      type: 'user',
+      rateLimit: freeRateLimit,
+    })
     assertEquals(freeRateLimit, 3)
   },
 )

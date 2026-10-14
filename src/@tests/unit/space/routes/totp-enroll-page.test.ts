@@ -15,6 +15,8 @@ const TEST_MESSAGES = {
     'Scan this in your authenticator app, or enter the key manually:',
   'totp/enroll/code-label': 'Authenticator code',
   'totp/enroll/submit': 'Confirm',
+  'common/factor-change-code-label': 'Confirmation code',
+  'common/factor-change-hint': 'To confirm this change, enter a code.',
 }
 
 function renderEnrollView(props: Parameters<InstanceType<typeof TotpEnrollPage>['component']>[0]) {
@@ -36,6 +38,7 @@ Deno.test(
       totpEnroll: fn(() =>
         Promise.resolve({ secret: 'SECRET123', uri: 'otpauth://totp/zanix-iam:jane' })
       ),
+      requestFactorChangeProof: fn(() => Promise.resolve({ method: 'totp' })),
     })
     const ctx = mockPageContext<EnrollParams>({
       params: { lang: 'en' },
@@ -60,6 +63,7 @@ Deno.test(
     const uri = 'otpauth://totp/zanix-iam:jane?secret=SECRET123&issuer=zanix-iam'
     mockAccessor(page, 'interactor', {
       totpEnroll: fn(() => Promise.resolve({ secret: 'SECRET123', uri })),
+      requestFactorChangeProof: fn(() => Promise.resolve({ method: 'totp' })),
     })
     const ctx = mockPageContext<EnrollParams>({
       params: { lang: 'en' },
@@ -94,4 +98,33 @@ Deno.test('TotpEnrollPage.component: renders no invalid-code alert when the code
     invalidCode: false,
   })
   assertEquals(html.includes('role="alert"'), false)
+})
+
+Deno.test('TotpEnrollPage.loader: delivers the confirmation code after issuing the secret', async () => {
+  const page = new TotpEnrollPage(mockHandlerContext())
+  const requestFactorChangeProof = fn(() => Promise.resolve({ method: 'otp' }))
+  mockAccessor(page, 'interactor', {
+    totpEnroll: fn(() => Promise.resolve({ secret: 'S', uri: 'otpauth://totp/x' })),
+    requestFactorChangeProof,
+  })
+  await page.loader?.(
+    mockPageContext<EnrollParams>({
+      params: { lang: 'en' },
+      request: new Request('http://localhost/en/totp/enroll'),
+    }),
+  )
+  assertEquals(requestFactorChangeProof.calls.length, 1)
+})
+
+Deno.test('TotpEnrollPage.component: the form asks for the confirmation code and carries no secret field', () => {
+  const html = renderEnrollView({
+    lang: 'en',
+    secret: 'SECRET123',
+    uri: 'otpauth://totp/zanix-iam:jane',
+    qrCodeSvg: '<svg>qr</svg>',
+    invalidCode: false,
+  })
+  assertStringIncludes(html, 'name="stepUpCode"')
+  assertStringIncludes(html, 'name="code"')
+  assertEquals(html.includes('name="secret"'), false)
 })

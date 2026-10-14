@@ -76,11 +76,20 @@ export type AuthenticationAttrs = {
   }
   /** TOTP shared secret, persisted only after `AuthService.totpConfirm` verifies enrollment. */
   totpSecret?: string
+  /** The TOTP secret `AuthService.totpEnroll` issued and `AuthService.totpConfirm` has not yet
+   * confirmed. The secret that is confirmed is always this one, never one a client sends. */
+  pendingTotpSecret?: string
+  /** When {@linkcode pendingTotpSecret} stops being confirmable. */
+  pendingTotpExpiresAt?: Date
   oauthProvider?: typeof OAUTH_PROVIDERS[number]
   oauthRefreshToken?: string
   /** The assigned `roles` documents, in assignment order — see `RolesService`. A session carries
    * the union of their permissions. Empty or unset means no permissions. */
   roleIds?: string[]
+  /** When this account first proved control of its `email` mailbox: an email one-time code, or an
+   * OAuth2 sign-in whose provider reports the address as verified. Set once, never cleared (the
+   * address of an account does not change), and unset for an account that has not proven it. */
+  emailVerifiedAt?: Date
   lastLoginAt?: Date
   createdAt: Date
   updatedAt: Date
@@ -90,12 +99,13 @@ export type AuthenticationAttrs = {
 export type HydratedAuth =
   & Omit<
     AuthenticationAttrs,
-    'password' | 'oauthRefreshToken' | 'totpSecret' | 'phone' | 'email'
+    'password' | 'oauthRefreshToken' | 'totpSecret' | 'pendingTotpSecret' | 'phone' | 'email'
   >
   & {
     password?: RequiredVerifiableScalar
     oauthRefreshToken?: RequiredDecryptableScalar
     totpSecret?: RequiredDecryptableScalar
+    pendingTotpSecret?: RequiredDecryptableScalar
     phone?: RequiredUnmaskableScalar
     email: RequiredUnmaskableScalar
   }
@@ -152,6 +162,11 @@ registerModel<AuthenticationAttrs>({
       type: String,
       get: dataPoliciesGetter({ access: 'internal', protection: 'encrypt' }),
     },
+    pendingTotpSecret: {
+      type: String,
+      get: dataPoliciesGetter({ access: 'internal', protection: 'encrypt' }),
+    },
+    pendingTotpExpiresAt: Date,
     oauthProvider: {
       type: String,
       enum: OAUTH_PROVIDERS,
@@ -160,6 +175,7 @@ registerModel<AuthenticationAttrs>({
       type: String,
       get: dataPoliciesGetter({ access: 'internal', protection: 'encrypt' }),
     },
+    emailVerifiedAt: Date,
     lastLoginAt: Date,
   },
   extensions: {

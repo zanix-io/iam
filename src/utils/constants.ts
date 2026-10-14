@@ -5,6 +5,7 @@
 
 import { InternalError } from '@zanix/errors'
 import { parseTTL } from '@zanix/helpers'
+import { isSameOriginPath } from './safe-redirect-path.ts'
 
 /** `OAUTH_PROVIDERS`/`NOTIFIERS`/`TWO_FACTOR_METHODS` live in `./shared-enums.ts`, a leaf module
  * with zero imports of its own, and are re-exported here for server-side callers — see that
@@ -249,6 +250,22 @@ export const REACTIVATION_TOKEN_PURPOSE = 'reactivate-account'
  * own doc. */
 export const REACTIVATION_TOKEN_EXPIRATION = '5m'
 
+/** Seconds a step-up one-time code stays valid, and the window a caller has to complete
+ * `POST /step-up/verify` after `POST /step-up/request`. */
+export const STEP_UP_CODE_TTL_SECONDS = 300
+
+/** How long a step-up token stays valid, in seconds. Short on purpose: it authorizes one
+ * sensitive action right after the second factor, never a session. */
+export const STEP_UP_TOKEN_TTL_SECONDS = 300
+
+/** Seconds a TOTP secret issued by `GET /login/totp/enroll` stays pending: the window to confirm it
+ * with `POST /login/totp/confirm`. */
+export const TOTP_ENROLLMENT_TTL_SECONDS = 600
+
+/** Seconds a spent-claim record outlives the code or token it guards, to absorb clock skew between
+ * the instance and the database. */
+export const CLAIM_MARGIN_SECONDS = 60
+
 /**
  * The shape a permission `code` must follow (`module:action`, letters, digits and hyphens on each
  * side of the colon — a module such as `billing-portal` or `oauth2` is a real name). Enforced by `IsPermission` (`handlers/rtos/validations/is-permission.ts`) —
@@ -338,6 +355,11 @@ export function resolveThemeOverrides(): Record<string, string> | undefined {
  * catalog key (e.g. `{"login/heading":"Sign in to Acme"}`) without cloning this project. Unset
  * means no override — every page renders the base catalog (`iamMessages`, `ui/sdk/messages.ts`)
  * unchanged.
+ *
+ * The same object is merged over the server-side wording of the step-up one-time code message
+ * (`STEP_UP_MESSAGES`, `step-up.*` keys) on every send. A key with a string value applies to every
+ * language; a key whose value is an object (`{"es":{"login/heading":"Entrar"}}`) holds the keys of
+ * that one language, so an app that serves several languages words each in its own.
  */
 export const MESSAGES_ENV = 'IAM_MESSAGES'
 
@@ -348,15 +370,33 @@ export const MESSAGES_ENV = 'IAM_MESSAGES'
  * the first request rather than silently rendering the base catalog with no indication why the
  * configured override never took effect.
  */
-export function resolveMessageOverrides(): Record<string, string> | undefined {
+export function resolveMessageOverrides(lang?: string): Record<string, string> | undefined {
   const raw = Deno.env.get(MESSAGES_ENV)
   if (!raw) return undefined
+  let parsed: Record<string, unknown>
   try {
-    return JSON.parse(raw) as Record<string, string>
+    parsed = JSON.parse(raw) as Record<string, unknown>
   } catch {
     throw new InternalError(`${MESSAGES_ENV} must be valid JSON — got: "${raw}"`, {
       code: 'IAM_INVALID_MESSAGES',
     })
+  }
+  const strings = (value: unknown): Record<string, string> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Object.fromEntries(
+        Object.entries(value).filter((entry): entry is [string, string] =>
+          typeof entry[1] === 'string'
+        ),
+      )
+      : {}
+  // A string value is a key for every language; an object value is the keys of one language,
+  // named by its tag (`es`), and only applies to a request in that language (`es` also serves
+  // `es-MX`, and an exact tag wins over its base language).
+  const base = lang?.split('-')[0]
+  return {
+    ...strings(parsed),
+    ...(base && base !== lang ? strings(parsed[base]) : {}),
+    ...(lang ? strings(parsed[lang]) : {}),
   }
 }
 
@@ -434,7 +474,7 @@ function resolveTrustedRedirectOrigins(): string[] {
  */
 function isSafeRedirectTarget(value: string | null): value is string {
   if (!value) return false
-  if (value.startsWith('/') && !value.startsWith('//')) return true
+  if (value.startsWith('/')) return isSameOriginPath(value)
   // Cheap shape check before the `new URL()` try/catch below — rules out a protocol-relative
   // value (already handled above) and anything that isn't `http(s)` at all (e.g. `javascript:`,
   // `mailto:`) without needing to construct a URL just to reject it.
@@ -635,6 +675,11 @@ export const IAM_ERROR_CODES = {
   roleConcurrentChange: 'ROLE_CONCURRENT_CHANGE',
   /** The lookup found no visible person: the account does not exist, has no profile or was deleted. */
   userNotFound: 'USER_NOT_FOUND',
+  /** Changing a second factor or a credential needs a `factor-change` step-up token and the
+   * request carried none; `meta.stepUp` names the `purpose` and `bind` to confirm. */
+  factorChangeProofRequired: 'FACTOR_CHANGE_PROOF_REQUIRED',
+  /** The step-up token sent with a factor or credential change does not prove that change. */
+  factorChangeProofInvalid: 'FACTOR_CHANGE_PROOF_INVALID',
 } as const
 
 /**

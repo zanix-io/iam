@@ -18,9 +18,12 @@ valid 5 minutes; a hosted-provider authorization code is valid 60 seconds and si
 - [OAuth2 sign-in](#oauth2-sign-in)
 - [Self-registration](#self-registration)
 - [Sessions and refresh rotation](#sessions-and-refresh-rotation)
+- [Email verification](#email-verification)
 - [Password recovery and invitations](#password-recovery-and-invitations)
 - [Authenticator enrollment](#authenticator-enrollment)
 - [Phone verification and code channel](#phone-verification-and-code-channel)
+- [Step-up](#step-up)
+- [Changing a second factor or a credential](#changing-a-second-factor-or-a-credential)
 - [Deactivation, reactivation and deletion](#deactivation-reactivation-and-deletion)
 - [Hosted OAuth2 provider](#hosted-oauth2-provider)
 - [Security properties](#security-properties)
@@ -47,7 +50,10 @@ Enrolling an authenticator sets `triggerOn` to `login` and `refresh`.
 1. `GET /api/login/otp/:email` (optional `?notifier=`) sends a code through the requested channel,
    else the account's stored `otpNotifier`, else email. SMS and WhatsApp need a verified phone
    (`400` otherwise).
-2. `POST /api/login/otp/callback` with `{ email, code }` answers session tokens.
+2. `POST /api/login/otp/callback` with `{ email, code }` answers session tokens. The code of each
+   channel is stored under its own target (the account id for email, `<authId>:sms` and
+   `<authId>:whatsapp` for the others), so the channel that delivered a verified code is known; see
+   [Email verification](#email-verification).
 3. If the account's second-factor method differs from the channel that delivered the code, the
    callback answers a second-factor challenge instead (an authenticator prompt, or a code on the
    other channel).
@@ -124,6 +130,33 @@ user's token so the limit is keyed per user; see
 [Consuming iam](./consuming-iam.md#rate-limiting--read-this-if-you-proxy-refresh-through-your-own-backend).
 A `@zanix/space` app delegating to `iam` uses `iamSessionGuard`, which caches refresh results.
 
+### Email verification
+
+An account records `emailVerifiedAt` the first time it proves it controls its mailbox, and never
+clears it (`iam` does not change the address of an account). Proofs:
+
+- a verified one-time code delivered by **email**: a passwordless sign-in, a password-recovery code
+  and an email step-up code. A code delivered by SMS or WhatsApp proves a phone, not the mailbox;
+- an OAuth2 sign-in or link whose provider reports the address as verified. Google's user info
+  carries `verified_email`; GitHub's carries no flag, so a GitHub sign-in proves nothing;
+- a new account created by self-registration through either of the two paths above, which is created
+  already verified.
+
+An account an administrator registered with a password and that has signed in through none of these
+stays unverified; nothing is inferred from existing data. The write is idempotent (a later proof
+keeps the first timestamp) and never fails the sign-in: a failed write is logged at `warn` and the
+next proof records it.
+
+The state reaches consumers in two places:
+
+- `GET /api/login/methods` answers `emailVerified: boolean` and, once proven, `emailVerifiedAt` (an
+  ISO 8601 timestamp).
+- Every access token carries the OpenID Connect claim `email_verified` (boolean), set when the
+  session is issued: password, one-time code, authenticator, OAuth2, session exchange of the hosted
+  provider and refresh. A refresh reads the account again, so it reflects a proof recorded since the
+  previous token. A token already issued keeps its value until it expires (at most one hour). A
+  service that needs the current state calls `GET /api/login/methods` or refreshes.
+
 ### Password recovery and invitations
 
 1. `GET /api/pwd/recovery/:email` (captcha when configured) sends a recovery code through the
@@ -163,6 +196,127 @@ Requires a session (hosted `phone/enroll` and `phone/confirm` pages).
 3. `POST /api/login/otp-notifier` with `{ notifier: 'sms' | 'whatsapp' }` makes that channel the
    default for passwordless codes; omitting it returns to email.
 4. `DELETE /api/login/phone` forgets the number and the channel preference.
+
+### Step-up
+
+A signed-in user proves a second factor again before a sensitive action (moving a large amount, for
+example). Requires a session; `iam` performs no action itself, it signs a token that the service
+performing the action checks.
+
+1. `POST /api/step-up/request` with `{ purpose }`. The factor follows the account's own settings and
+   the caller cannot choose a weaker one: with TOTP enabled (`totpEnabled` in
+   `GET /api/login/methods`) the answer is `{ method: 'totp' }` and nothing is sent; otherwise a
+   six-digit code valid 5 minutes goes out through the account's `otpNotifier` (email, `sms` or
+   `whatsapp`) and the answer is `{ method: 'otp', channel }`. The code is generated and stored by
+   the same OTP machinery as a sign-in code, under a target scoped to the purpose and the account
+   (`step-up:<purpose>:<authId>`, with `:sms` or `:whatsapp` appended for those channels), so a
+   sign-in code is never a step-up code, a step-up code is never a sign-in code, and a code for one
+   purpose is not valid for another. The message says what the code confirms, in the language of the
+   request, through the built-in `generic` template of the channel (no stored template is needed).
+   `purpose` only selects a wording key, `step-up.purpose.<purpose>`, and its text never reaches the
+   message; a purpose with no key takes the neutral `step-up.purpose.default`. A consumer words its
+   own purposes with `IAM_MESSAGES` ([Customization](./customization.md#messages)).
+2. `POST /api/step-up/verify` with `{ purpose, code, bind? }` checks the code with the factor the
+   account's settings require when the request arrives (the authenticator code for a TOTP account,
+   the one-time code otherwise) and answers `{ stepUpToken, expiresAt }`. A one-time code works
+   once; five wrong guesses burn it. A TOTP code is accepted once per account within its window (a
+   replay is a `403`), and two concurrent verifications of one code let exactly one through. A TOTP
+   account is limited to `freeRateLimit` attempts per window. Every failure answers the same `403`.
+3. The service performing the action receives `stepUpToken` and checks it before acting.
+
+The token is a JWT signed RS256 with `iam`'s `JWK_PRI`, the key `api` tokens use; a service verifies
+it with the matching public key (`JWK_PUB`). That is also why it cannot pass as an access token: a
+`user` access token is checked with `JWT_KEY` and HS256, which an RSA signature cannot satisfy, and
+its `typ` and `aud` match no role or permission.
+
+| Claim     | Value                                                                              |
+| --------- | ---------------------------------------------------------------------------------- |
+| `sub`     | The account id of the session that passed the second factor (never from the body). |
+| `typ`     | `'step-up'` (`STEP_UP_TOKEN_TYPE`).                                                |
+| `aud`     | `'iam:step-up'` (`STEP_UP_TOKEN_AUDIENCE`).                                        |
+| `purpose` | The `purpose` of the request.                                                      |
+| `bind`    | The `bind` of the verify request; absent when none was sent.                       |
+| `method`  | `'totp'` or `'otp'`: the factor that was verified.                                 |
+| `jti`     | A unique id; a service that must accept a token once records it.                   |
+| `iss`     | `zanix-auth`.                                                                      |
+| `iat`     | Issue time, seconds since the Unix epoch.                                          |
+| `exp`     | `iat` plus 5 minutes.                                                              |
+
+A service checks the token with `verifyJWT` from `@zanix/auth` and then the claims `iam` does not
+check for it:
+
+```ts
+import { verifyJWT } from '@zanix/auth'
+import { STEP_UP_TOKEN_AUDIENCE, STEP_UP_TOKEN_TYPE } from '@zanix/iam/shared-enums'
+
+// `publicKey` is iam's JWK_PUB, base64 (the value `@zanix/auth` reads from `JWK_PUB`).
+const payload = await verifyJWT(stepUpToken, atob(publicKey), {
+  algorithm: 'RS256',
+  aud: STEP_UP_TOKEN_AUDIENCE, // signature, expiry, issuer and audience
+})
+if (
+  payload.typ !== STEP_UP_TOKEN_TYPE || // never accept another token signed with the same key
+  payload.purpose !== 'wallet-transfer' || // the action being performed
+  payload.sub !== session.subject || // the user performing it
+  payload.bind !== pendingActionId // the exact action, when a bind was requested
+) throw new Error('step-up token does not authorize this action')
+// Then record `payload.jti` if the token must be accepted only once.
+```
+
+The service must not accept a step-up token through an `api`-type access guard that lists no
+permissions: such a guard accepts any token signed with the key, and the claims above are what tell
+a step-up token apart.
+
+### Changing a second factor or a credential
+
+An access token alone never changes how the account proves itself. Changing or removing a second
+factor, the login-code channel or the password needs a fresh step-up proof with the account's
+**current** factor, so a stolen access token (or a script injected into a page) cannot swap the
+factor and then pass step-up with its own.
+
+The proof is a step-up token with purpose `factor-change` and a `bind` naming the operation:
+
+| Operation                       | `bind`            |
+| ------------------------------- | ----------------- |
+| `POST /api/login/totp/confirm`  | `totp-confirm`    |
+| `DELETE /api/login/totp`        | `totp-disable`    |
+| `POST /api/login/phone/confirm` | `phone-confirm`   |
+| `DELETE /api/login/phone`       | `phone-disable`   |
+| `POST /api/login/otp-notifier`  | `otp-notifier`    |
+| `POST /api/pwd/change`          | `password-change` |
+| `POST /api/pwd/add`             | `password-add`    |
+| `DELETE /api/pwd/remove`        | `password-remove` |
+
+1. `POST /api/step-up/request` with `{ purpose: 'factor-change' }`, then `POST /api/step-up/verify`
+   with `{ purpose: 'factor-change', code, bind: '<operation>' }`, exactly as above. The factor is
+   the account's current one: its authenticator app when TOTP is enabled, otherwise a code through
+   its `otpNotifier` (email by default).
+2. Send the answer's `stepUpToken` in the **`X-Znx-Step-Up-Token`** header of the operation.
+3. `iam` verifies it with its own public key (`JWK_PUB`, or the rotated `JWK_PUB_V<n>` the `kid`
+   names): signature, expiry, `typ`, `aud`, purpose `factor-change`, `sub` equal to the session
+   account and `bind` equal to the operation. Then it records the `jti` in the `step_up_claim`
+   collection (unique index, removed by a TTL index after the token expires), so the token works
+   once, also under concurrent requests. A mistyped confirmation code costs no proof: the token is
+   spent after the rest of the input checked out, before anything is written.
+
+A request with no token answers `403` `FACTOR_CHANGE_PROOF_REQUIRED`, with `meta.stepUp`
+`{ purpose, bind }` naming what to confirm; any token that does not prove the operation (another
+purpose, account or operation, expired, forged, already used) answers `403`
+`FACTOR_CHANGE_PROOF_INVALID`.
+
+**First enrollment.** An account with no verified factor needs no special case: its current factor
+is the email code, so the same two calls prove control of the mailbox (and record it, see
+`emailVerifiedAt`). An account with only an unverified email cannot enroll silently either: it
+passes the email code through the same step-up.
+
+**Authenticator enrollment.** `GET /api/login/totp/enroll` keeps the issued secret as the account's
+pending secret for 10 minutes (`pendingTotpSecret`, encrypted, with `pendingTotpExpiresAt`) and
+returns it once. `POST /api/login/totp/confirm` verifies `code` against that pending secret and
+stores it; a `secret` in the body is optional, never used, and refused when it is not the pending
+one. Without a pending enrollment (or after it expired) the answer is `400`.
+
+The hosted `totp/enroll` and `phone/enroll` pages deliver the code and the `totp/confirm` and
+`phone/confirm` forms take it in a `stepUpCode` field, which the page turns into the proof.
 
 ### Deactivation, reactivation and deletion
 
@@ -216,10 +370,23 @@ redirected with a code immediately. This is acceptable only while clients are op
   with another provider, or none, answers `409`.
 - **Rate limits.** Every anonymous endpoint has its own bucket per client IP, taken from proxy
   headers: deploy behind a trusted reverse proxy. Refresh is keyed per token subject when the token
-  is sent in `X-Znx-App-Token`; phone confirmation per account. Tiers and keys are in the
-  [REST API reference](./rest-api.md#conventions).
+  is sent in `X-Znx-App-Token`; phone confirmation and step-up per account. Tiers and keys are in
+  the [REST API reference](./rest-api.md#conventions).
+- **Step-up.** The factor is read from the account at each call, never from the request, and the
+  account is the session's. A TOTP code is accepted once per account within its tolerance window
+  (`totpToleranceSteps`), at sign-in, step-up and enrollment alike, so entering the code that just
+  signed you in as a step-up code is refused until the next code; a one-time code is claimed
+  atomically. A service that must accept an authorization once records the token's `jti`; `iam` does
+  that itself for the `factor-change` proofs it checks. The step-up code message is worded from the
+  `step-up.*` catalog and never contains text taken from the request.
+- **Second-factor replacement.** See
+  [Changing a second factor or a credential](#changing-a-second-factor-or-a-credential): an access
+  token alone cannot enroll, replace or remove a factor, change the login-code channel or the
+  password.
 - **Open redirects.** `redirect_to` is followed only for a same-origin relative path or an origin
-  listed in `TRUSTED_REDIRECT_ORIGINS`.
+  listed in `TRUSTED_REDIRECT_ORIGINS`. A path must start with a single `/`, hold no backslash or
+  control character (browsers read `/\evil.test` and `/<tab>/evil.test` as `//evil.test`) and
+  resolve to the same origin.
 - **CSRF.** Every hosted form page runs `csrfGuard()`; OAuth2 sign-in checks `state` through a
   cookie.
 - **Cookie consent.** `@zanix/auth` delivers session cookies only for a request marked as having
