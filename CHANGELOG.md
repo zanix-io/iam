@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-10-13
+
+### Fixed
+
+- **The `auth` app is announced to the Control Plane when `IAM_PUBLIC_URL` is set.** `2.3.0` added
+  the `resolveAccountEmails` operation, but the `auth` app was never announced, so no other process
+  could call it. With `IAM_PUBLIC_URL` (the instance's public base URL, `/ops` included) and
+  `REDIS_URI` set, the app is served under `/ops` (never `api`, which the main REST surface uses on
+  the same port) and registered, so another service reaches its operations with
+  `ctx.remote('auth')`. Unset, nothing changes. Checked with two processes: a caller signed as
+  `notifications` resolved the addresses of real accounts, and a closed account was left out.
+
 ## [2.3.0] - 2026-10-13
 
 ### Added

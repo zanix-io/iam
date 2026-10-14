@@ -5,6 +5,13 @@ import spaceApp from './space.app.ts'
 import authApp from './src/server/apps/auth.app.ts'
 import grantAccessApp from './src/server/apps/grant-access.app.ts'
 import { getBootstrapSpaceAppConfig } from '@zanix/space'
+import { IAM_PUBLIC_URL_ENV } from 'utils/constants.ts'
+
+const publicUrl = Deno.env.get(IAM_PUBLIC_URL_ENV)
+
+// The side-effect import wires the Redis-backed Control Plane provider this instance announces
+// itself through; it is needed only when announcing.
+if (publicUrl) await import('@zanix/app/core')
 
 /**
  * iam's entrypoint — bootstraps this project's own REST/GraphQL/socket handlers (auto-discovered
@@ -27,7 +34,8 @@ import { getBootstrapSpaceAppConfig } from '@zanix/space'
  *
  * `codeTemplatesDiscovery: true` exposes this project's own in-code notification-template catalog
  * under `/.well-known/zanix/code-templates`, so a central console can pull/seed its aggregated
- * template catalog from this service. `admin: true` (an embedded admin server) stays off — this
+ * template catalog from this service. With `IAM_PUBLIC_URL` set, the `auth` app is also served under
+ * `/ops` and announced to the Control Plane, so other services reach its operations. `admin: true` (an embedded admin server) stays off — this
  * deployment serves `auth`/`grant-access` themselves, not an admin console for other services.
  */
 await Zanix.start({
@@ -49,6 +57,12 @@ await Zanix.start({
     },
     [authApp.definition.name]: {
       definition: authApp,
+      // Announced to the Control Plane so other services can call its operations. They are served
+      // under `ops`, never the default `api`, which `main`'s own REST surface uses on this port.
+      ...(publicUrl && {
+        server: { rest: { globalPrefix: 'ops' } },
+        remoteInstances: { endpoint: publicUrl },
+      }),
     },
     [grantAccessApp.definition.name]: {
       definition: grantAccessApp,

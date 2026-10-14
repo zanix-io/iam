@@ -233,6 +233,11 @@ At most 100 ids per call. An unknown account and one that cannot sign in (`INACT
 are absent from `emails`; treat absence as "nothing to deliver". The operation declares
 `allowedCallers: ['notifications']`, so only that app may call it, and it has no HTTP route.
 
+The caller can reach it only if this instance is announced to the Control Plane: set `REDIS_URI` and
+`IAM_PUBLIC_URL` (the instance's public base URL with the `/ops` prefix, `http://host:port/ops`),
+and the caller's public key as `JWK_PUB_<caller>` (`JWK_PUB_notifications`). Without
+`IAM_PUBLIC_URL` the operation exists but answers only inside this process.
+
 ### Backend-only composition (auth/grant-access logic, no UI at all)
 
 Orthogonal to the three levels above: `@zanix/iam/auth-app` and `@zanix/iam/grant-access-app` export

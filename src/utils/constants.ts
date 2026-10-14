@@ -25,6 +25,15 @@ export const LOGIN_ACTIONS = ['login', 'refresh'] as const
 export const ACCESS_TOKEN_EXPIRATION_ENV = 'ACCESS_TOKEN_EXPIRATION'
 
 /**
+ * The literal env var name of this instance's publicly reachable base URL for `ctx.remote()` calls
+ * from other services, `/ops` prefix included (`http://host:port/ops`). Set only in a deployment
+ * that has a Control Plane Redis (`REDIS_URI`): the `auth` app is then announced there, which is
+ * what lets another service call its operations (such as `resolveAccountEmails`). Unset, the
+ * operations stay reachable only from this process.
+ */
+export const IAM_PUBLIC_URL_ENV = 'IAM_PUBLIC_URL'
+
+/**
  * Env var name for the refresh token's lifetime issued on login — same format as
  * {@linkcode ACCESS_TOKEN_EXPIRATION_ENV}. Unset falls back to `@zanix/auth`'s own `'1y'`
  * default. `@zanix/auth`'s `generateSessionTokens` requires this to resolve to at least
