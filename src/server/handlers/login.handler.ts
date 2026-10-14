@@ -256,7 +256,8 @@ export class LoginController extends ZanixController<AuthService> {
    * Confirms a TOTP enrollment by verifying `code` against the secret `totp/enroll` issued, then
    * persists it and enables TOTP as the account's 2FA method on login. Requires a valid access
    * token and a `factor-change` step-up token for `totp-confirm` in the `X-Znx-Step-Up-Token`
-   * header. A body `secret` is not used; one that is not the issued secret is refused.
+   * header. A body `secret` is not used; one that is not the issued secret is refused. The answer
+   * carries the account's backup codes (`backupCodes`), shown only here.
    */
   @Post('totp/confirm', { Body: TotpConfirmRTO })
   @Guard(messageLangGuard())
@@ -276,6 +277,19 @@ export class LoginController extends ZanixController<AuthService> {
   @AuthTokenValidation()
   public totpDisable(_ctx: HandlerContext) {
     return this.interactor.disableTotp()
+  }
+
+  /**
+   * Replaces the backup codes of the caller's own account with a new set and returns it once
+   * (`{ backupCodes }`). Requires a valid access token and a `factor-change` step-up token for
+   * `totp-backup-codes` in the `X-Znx-Step-Up-Token` header; answers `409` (`TOTP_NOT_ENABLED`)
+   * when the account has no authenticator app.
+   */
+  @Post('totp/backup-codes')
+  @Guard(stepUpTokenGuard())
+  @AuthTokenValidation()
+  public totpBackupCodes(_ctx: HandlerContext) {
+    return this.interactor.regenerateBackupCodes()
   }
 
   /**

@@ -1,7 +1,7 @@
 import type { MessageCatalog } from '@zanix/notifications'
 import type { NOTIFIERS } from './shared-enums.ts'
 
-import { findText, interpolate, langChain } from '@zanix/notifications'
+import { findText, langChain } from '@zanix/notifications'
 import { resolveMessageOverrides } from './constants.ts'
 import { STEP_UP_PURPOSE_REGEX } from './shared-enums.ts'
 
@@ -17,10 +17,10 @@ export const STEP_UP_DEFAULT_PURPOSE_KEY = `${STEP_UP_PURPOSE_KEY_PREFIX}default
  * as it needs to:
  *
  * - `step-up.subject`, `step-up.title`: the subject and heading of the email.
- * - `step-up.intro`: the email sentence that says what the code confirms; `{purpose}` is the phrase
- *   of the purpose (`step-up.purpose.<purpose>`, else `step-up.purpose.default`), written to
- *   complete "confirm that you want to ...".
- * - `step-up.validity`: how long the code lasts; `{minutes}`.
+ * - `step-up.intro`: the email sentence that says what the code confirms (the email `content`);
+ *   `{purpose}` is the phrase of the purpose (`step-up.purpose.<purpose>`, else
+ *   `step-up.purpose.default`), written to complete "confirm that you want to ...".
+ * - `step-up.validity`: how long the code lasts, as plain text (the email `message`); `{minutes}`.
  * - `step-up.footer`: the email closing line.
  * - `step-up.text`: the whole SMS or WhatsApp message; `{code}`, `{purpose}`, `{minutes}`.
  *
@@ -53,7 +53,13 @@ export const STEP_UP_MESSAGES: Readonly<MessageCatalog> = {
 }
 
 /** What {@linkcode buildStepUpMessage} answers: the template and data of a `NotifierProvider`
- * message, to spread into it. */
+ * message, to spread into it.
+ *
+ * For email, `data` carries the fields the `generic` template renders: `html`, `title`, `content`
+ * (the intro sentence, as markup), `buttonText` (the one-time code, with no `buttonLink`, so the
+ * template shows it as a code), `message` (the validity sentence, plain text) and `footer`. The
+ * login and recovery code emails use the same fields. For SMS and WhatsApp, `data` is `content`
+ * alone. */
 export type StepUpMessage = {
   /** Always the built-in `generic` template of the channel. */
   zanixTemplate: 'generic'
@@ -85,7 +91,13 @@ function catalogFor(chain: string[]): MessageCatalog {
  * `purpose` only selects the key `step-up.purpose.<purpose>`; its text never reaches the message.
  * A purpose that is malformed, or has no such key in any language of the chain, takes
  * `step-up.purpose.default`. The only values placed in a message are the code, the minutes and the
- * resolved phrase, and in the email they are HTML-escaped.
+ * resolved phrase.
+ *
+ * In the email, the code travels in `buttonText` (without a `buttonLink`) and the validity sentence
+ * in `message`, the fields the login and recovery emails use, so a `generic` template that styles
+ * the one-time code styles this one too. The template escapes both when it renders them, so they
+ * are passed as raw text; `content` and `footer` are rendered as markup, so the intro sentence and
+ * the footer are HTML-escaped here.
  *
  * @param lang The language of the request, as a BCP 47 tag; `undefined` uses the notifications
  *   default.
@@ -116,19 +128,17 @@ export function buildStepUpMessage(
   }
 
   const values = { purpose: phrase, minutes }
-  const content = [
-    `<p>${text('step-up.intro', values, true)}</p>`,
-    `<p><strong>${interpolate('{code}', { code }, true)}</strong></p>`,
-    `<p>${text('step-up.validity', values, true)}</p>`,
-  ].join('')
   return {
     zanixTemplate: 'generic',
     subject: text('step-up.subject'),
     data: {
       html: { lang: chain[0], title: text('step-up.title') },
-      // The template escapes the title; the content and footer are markup built here from escaped values.
+      // The template escapes the title, the button text and the message; the content and footer are
+      // rendered as markup, so they are escaped here.
       title: text('step-up.title'),
-      content,
+      content: `<p>${text('step-up.intro', values, true)}</p>`,
+      buttonText: code,
+      message: text('step-up.validity', values),
       footer: text('step-up.footer', {}, true),
     },
   }

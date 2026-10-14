@@ -56,6 +56,10 @@ const OPERATIONS: Record<
     auth: () => ({ ...account(), password: undefined }),
   },
   'password-remove': { service: 'password', call: (s: PasswordService) => s.removePassword() },
+  'totp-backup-codes': {
+    service: 'auth',
+    call: (s: AuthService) => s.regenerateBackupCodes(),
+  },
 } as never
 
 function build(operation: FactorChangeOperation) {
@@ -64,6 +68,8 @@ function build(operation: FactorChangeOperation) {
   const authRepo = {
     findById: fn((..._args: unknown[]): unknown => (scenario.auth ?? account)()),
     updateAuth: fn((..._args: unknown[]) => ({})),
+    // Regenerating backup codes is a write of its own; it counts as the operation's write.
+    replaceBackupCodes: fn((..._args: unknown[]) => authRepo.updateAuth()),
   }
   const authProvider = {
     totp: { verify: fn((..._args: unknown[]) => true) },

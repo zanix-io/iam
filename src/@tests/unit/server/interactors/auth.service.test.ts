@@ -70,6 +70,9 @@ const defaultAuthRepo = () => ({
   registerAuth: fn((..._args: unknown[]) => ({})),
   updateAuth: fn((..._args: unknown[]) => ({})),
   markEmailVerified: fn((..._args: unknown[]) => true),
+  countBackupCodes: fn((..._args: unknown[]) => 0),
+  consumeBackupCode: fn((..._args: unknown[]): number | undefined => undefined),
+  replaceBackupCodes: fn((..._args: unknown[]) => ({})),
 })
 
 const defaultAuthProvider = () => ({
@@ -952,7 +955,7 @@ Deno.test('totpConfirm: a wrong code costs no proof, so the same proof still wor
     await assertRejects(() => service.totpConfirm('000000'), HttpError, 'Invalid TOTP code')
     assertEquals(claims.held.size, 0)
     authProvider.totp.verify = fn(() => true)
-    assertEquals(await service.totpConfirm('123456'), { response: 'TOTP enabled' })
+    assertEquals((await service.totpConfirm('123456')).response, 'TOTP enabled')
   })
   assertEquals(claims.held.size, 2) // the spent proof and the used code
 })
@@ -963,7 +966,8 @@ Deno.test('totpConfirm: on success persists the PENDING secret, clears it and se
       authRepo: { findById: fn(() => pendingAuth()) },
     })
     const result = await service.totpConfirm('123456')
-    assertEquals(result, { response: 'TOTP enabled' })
+    assertEquals(result.response, 'TOTP enabled')
+    assertEquals(result.backupCodes.length, 10)
     const [update, options] = authRepo.updateAuth.calls[0] as [
       Record<string, unknown>,
       Record<string, unknown>,
@@ -991,7 +995,7 @@ Deno.test('totpConfirm: the code is checked against the pending secret, never a 
   assertEquals(authProvider.totp.verify.calls.length, 0)
   assertEquals(authRepo.updateAuth.calls.length, 0)
 
-  assertEquals(await service.totpConfirm('123456', 'SECRET'), { response: 'TOTP enabled' })
+  assertEquals((await service.totpConfirm('123456', 'SECRET')).response, 'TOTP enabled')
   assertEquals(authProvider.totp.verify.calls[0]?.[0], 'SECRET')
 })
 
@@ -1032,7 +1036,7 @@ Deno.test('totpConfirm: without TEMPLATES_BACKEND=local the secret is persisted 
     const { service, authRepo, notifier } = buildService({
       authRepo: { findById: fn(() => pendingAuth()) },
     })
-    assertEquals(await service.totpConfirm('123456'), { response: 'TOTP enabled' })
+    assertEquals((await service.totpConfirm('123456')).response, 'TOTP enabled')
     assertEquals(authRepo.updateAuth.calls.length, 1)
     assertEquals(notifier.email.calls.length, 0)
   })
@@ -1060,7 +1064,16 @@ Deno.test('disableTotp: clears totpSecret/twoFactorAuthConfig when TOTP is the c
   assertEquals(result, { response: 'TOTP disabled' })
   assertEquals(authRepo.updateAuth.calls[0], [
     { id: 'auth-1' },
-    { unset: ['totpSecret', 'twoFactorAuthConfig', 'pendingTotpSecret', 'pendingTotpExpiresAt'] },
+    {
+      unset: [
+        'totpSecret',
+        'twoFactorAuthConfig',
+        'pendingTotpSecret',
+        'pendingTotpExpiresAt',
+        'backupCodeHashes',
+        'backupCodesGeneratedAt',
+      ],
+    },
   ])
 })
 
@@ -1623,6 +1636,7 @@ Deno.test('getOwnAuthMethods: returns a plain sanitized summary, never the raw p
     hasPassword: true,
     oauthProvider: 'google',
     totpEnabled: true,
+    backupCodesRemaining: 0,
     emailVerified: false,
     phone: null,
     otpNotifier: null,
@@ -1639,6 +1653,7 @@ Deno.test('getOwnAuthMethods: no password/oauth/totp reports the falsy shape', a
     hasPassword: false,
     oauthProvider: null,
     totpEnabled: false,
+    backupCodesRemaining: 0,
     emailVerified: false,
     phone: null,
     otpNotifier: null,

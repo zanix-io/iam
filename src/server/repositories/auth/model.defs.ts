@@ -81,6 +81,15 @@ export type AuthenticationAttrs = {
   pendingTotpSecret?: string
   /** When {@linkcode pendingTotpSecret} stops being confirmable. */
   pendingTotpExpiresAt?: Date
+  /**
+   * Digests of the unused TOTP backup codes (`utils/backup-codes.ts`), never the codes. The field
+   * is `select: false`: no read returns it unless it asks (`AuthRepository.countBackupCodes`,
+   * `consumeBackupCode`), so a serialized account never carries it. Unset when the account has no
+   * codes.
+   */
+  backupCodeHashes?: string[]
+  /** When the current set of backup codes was issued. Unset with {@linkcode backupCodeHashes}. */
+  backupCodesGeneratedAt?: Date
   oauthProvider?: typeof OAUTH_PROVIDERS[number]
   oauthRefreshToken?: string
   /** The assigned `roles` documents, in assignment order — see `RolesService`. A session carries
@@ -167,6 +176,8 @@ registerModel<AuthenticationAttrs>({
       get: dataPoliciesGetter({ access: 'internal', protection: 'encrypt' }),
     },
     pendingTotpExpiresAt: Date,
+    backupCodeHashes: { type: [String], select: false, default: undefined },
+    backupCodesGeneratedAt: Date,
     oauthProvider: {
       type: String,
       enum: OAUTH_PROVIDERS,

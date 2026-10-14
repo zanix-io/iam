@@ -38,7 +38,8 @@ valid 5 minutes; a hosted-provider authorization code is valid 60 seconds and si
    (set for an account an administrator registered with a password).
 4. With a second factor (`twoFactorAuthConfig.triggerOn` includes `login`): `iam` answers a
    challenge, `{ message, email, method }`, and the client branches on `method`:
-   - `'totp'`: the client posts the authenticator code to `POST /api/login/totp/callback`.
+   - `'totp'`: the client posts the authenticator code, or one of the account's backup codes, to
+     `POST /api/login/totp/callback`.
    - a notifier (`email`, `sms`, `whatsapp`): `iam` has sent a one-time code on that channel; the
      client posts it to `POST /api/login/otp/callback`.
 5. The callback answers session tokens.
@@ -183,8 +184,58 @@ Requires a session (the hosted `totp/enroll` and `totp/confirm` pages use `pageS
    stored.
 2. `POST /api/login/totp/confirm` with `{ secret, code }` stores the secret only when the code
    verifies, makes TOTP the second factor on sign-in and refresh, and emails a `totp-enabled`
-   notice.
-3. `DELETE /api/login/totp` removes it.
+   notice. The answer also carries the account's [backup codes](#backup-codes), shown only there.
+3. `DELETE /api/login/totp` removes it, and the backup codes with it.
+
+### Backup codes
+
+An account that loses its authenticator app would be locked out: the sign-in challenge and every
+step-up check ask for a code only that app makes. Enabling TOTP therefore issues **10 backup
+codes**, each of 10 characters from a 32-character alphabet without look-alikes (`0`, `1`, `I`,
+`O`), 50 bits of entropy drawn from the platform CSPRNG, shown as `XXXXX-XXXXX`.
+
+- **Shown once.** `POST /api/login/totp/confirm` answers `{ response, backupCodes }`; so does
+  `POST /api/login/totp/backup-codes`. They are never returned again: `GET /api/login/methods` only
+  reports `backupCodesRemaining`. The UI must make the person save them before leaving the screen.
+- **Stored as digests.** The database holds one `@zanix/helpers` `generateHash` digest per code
+  (`medium` level, salted with the account id), never the code. The salt is deterministic per
+  account on purpose: a use finds its digest with an equality filter, which makes spending a code a
+  single atomic write. The field is `select: false`, so no read or serialization carries it.
+- **Accepted instead of an authenticator code**, wherever one is checked: the sign-in challenge
+  (`POST /api/login/totp/callback`) and `POST /api/step-up/verify` for an account whose factor is
+  TOTP, which mints a token for the same purpose and `bind` as with an authenticator code. Case,
+  dashes and spaces are ignored. A 6-digit code is never read as a backup code, so the shape of the
+  input decides which factor is checked.
+- **Spent once, atomically.** The digest is pulled from the account in the write that finds it
+  (`findOneAndUpdate` with `$pull`): of any number of concurrent uses of one code, exactly one
+  succeeds.
+- **One generic failure.** A wrong or already used backup code answers the same `403` as a wrong
+  authenticator code, and counts against the same rate limits (`login:totp-callback`,
+  `step-up:verify`), so neither the answer nor the budget tells which kind of code was tried.
+- **The owner is told.** Using a code emails the `totp-backup-code-used` notice with how many remain
+  (see [Customization](./customization.md#account-security-emails)); at zero it says none are left.
+  Like the other notices it is sent only with a database-backed templates mode.
+- **Regeneration.** `POST /api/login/totp/backup-codes` (session and a `factor-change` proof bound
+  to `totp-backup-codes`) replaces all codes with a new set at once and answers `{ backupCodes }`.
+  It answers `409` `TOTP_NOT_ENABLED` for an account without an authenticator app, before the proof
+  is spent. An account that enabled TOTP before backup codes existed reports
+  `backupCodesRemaining: 0` and gets its first set the same way; nothing is backfilled.
+- **Cleared** by `DELETE /api/login/totp` and by the operator reset below; enabling TOTP again
+  issues a fresh set.
+
+### Operator reset of an authenticator app
+
+When the person has no backup code left either, support removes the app:
+`POST /api/admin/totp/reset` with `{ authId, reason }` (permission `totp-reset`). It clears the
+secret, the second-factor setting when it is TOTP, a pending enrollment and every backup code; the
+person signs in with their remaining methods and enables the app again, and is emailed the
+`totp-reset-by-operator` notice. `reason` is 1 to 200 characters once trimmed and never goes in a
+URL. Like every administration operation it needs an account (a service credential is refused), is
+checked against the database, is rate limited per operator with the administration mutations, and is
+recorded in the [audit trail](./authorization.md#audit-trail) as `totp.reset`. An operator cannot
+reset their own account (`403` `TOTP_RESET_SELF`), and an account without an authenticator app
+answers `409` `TOTP_NOT_ENABLED`. Sessions already issued stay valid: `@zanix/auth` session tokens
+are stateless and are revoked one token at a time, so there is nothing to revoke by account.
 
 ### Phone verification and code channel
 
@@ -217,11 +268,12 @@ performing the action checks.
    message; a purpose with no key takes the neutral `step-up.purpose.default`. A consumer words its
    own purposes with `IAM_MESSAGES` ([Customization](./customization.md#messages)).
 2. `POST /api/step-up/verify` with `{ purpose, code, bind? }` checks the code with the factor the
-   account's settings require when the request arrives (the authenticator code for a TOTP account,
-   the one-time code otherwise) and answers `{ stepUpToken, expiresAt }`. A one-time code works
-   once; five wrong guesses burn it. A TOTP code is accepted once per account within its window (a
-   replay is a `403`), and two concurrent verifications of one code let exactly one through. A TOTP
-   account is limited to `freeRateLimit` attempts per window. Every failure answers the same `403`.
+   account's settings require when the request arrives (the authenticator code, or a
+   [backup code](#backup-codes), for a TOTP account, the one-time code otherwise) and answers
+   `{ stepUpToken, expiresAt }`. A one-time code works once; five wrong guesses burn it. A TOTP code
+   is accepted once per account within its window (a replay is a `403`), and two concurrent
+   verifications of one code let exactly one through. A TOTP account is limited to `freeRateLimit`
+   attempts per window. Every failure answers the same `403`.
 3. The service performing the action receives `stepUpToken` and checks it before acting.
 
 The token is a JWT signed RS256 with `iam`'s `JWK_PRI`, the key `api` tokens use; a service verifies
@@ -276,16 +328,17 @@ factor and then pass step-up with its own.
 
 The proof is a step-up token with purpose `factor-change` and a `bind` naming the operation:
 
-| Operation                       | `bind`            |
-| ------------------------------- | ----------------- |
-| `POST /api/login/totp/confirm`  | `totp-confirm`    |
-| `DELETE /api/login/totp`        | `totp-disable`    |
-| `POST /api/login/phone/confirm` | `phone-confirm`   |
-| `DELETE /api/login/phone`       | `phone-disable`   |
-| `POST /api/login/otp-notifier`  | `otp-notifier`    |
-| `POST /api/pwd/change`          | `password-change` |
-| `POST /api/pwd/add`             | `password-add`    |
-| `DELETE /api/pwd/remove`        | `password-remove` |
+| Operation                           | `bind`              |
+| ----------------------------------- | ------------------- |
+| `POST /api/login/totp/confirm`      | `totp-confirm`      |
+| `DELETE /api/login/totp`            | `totp-disable`      |
+| `POST /api/login/phone/confirm`     | `phone-confirm`     |
+| `DELETE /api/login/phone`           | `phone-disable`     |
+| `POST /api/login/otp-notifier`      | `otp-notifier`      |
+| `POST /api/pwd/change`              | `password-change`   |
+| `POST /api/pwd/add`                 | `password-add`      |
+| `DELETE /api/pwd/remove`            | `password-remove`   |
+| `POST /api/login/totp/backup-codes` | `totp-backup-codes` |
 
 1. `POST /api/step-up/request` with `{ purpose: 'factor-change' }`, then `POST /api/step-up/verify`
    with `{ purpose: 'factor-change', code, bind: '<operation>' }`, exactly as above. The factor is

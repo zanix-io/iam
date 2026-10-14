@@ -74,3 +74,50 @@ Deno.test('TotpClient.disable: no session surfaces a 401 RestClientError', async
     assertEquals(error.realHttpStatus, 401)
   })
 })
+
+Deno.test('TotpClient.confirmEnrollment: the answer carries the backup codes, shown once', async () => {
+  const backupCodes = ['ABCDE-FGHJK', 'LMNPQ-RSTUV']
+  await withMockFetch(
+    [{ status: 200, body: { response: 'TOTP enabled', backupCodes } }],
+    async () => {
+      const client = new TotpClient({ baseUrl: BASE_URL })
+      const result = await client.confirmEnrollment('access-token-value', 'SECRET', '654321')
+      assertEquals(result.backupCodes, backupCodes)
+    },
+  )
+})
+
+Deno.test('TotpClient.verifyLogin: a backup code travels as the code', async () => {
+  await withMockFetch(
+    [{ status: 200, body: { accessToken: 'a', refreshToken: 'r', expiresAt: 1 } }],
+    async (calls) => {
+      const client = new TotpClient({ baseUrl: BASE_URL })
+      await client.verifyLogin('user@example.com', 'ABCDE-FGHJK')
+      assertEquals(bodyJson(calls[0]), { email: 'user@example.com', code: 'ABCDE-FGHJK' })
+    },
+  )
+})
+
+Deno.test('TotpClient.regenerateBackupCodes: posts login/totp/backup-codes with the bearer and the step-up token', async () => {
+  const backupCodes = ['ABCDE-FGHJK']
+  await withMockFetch([{ status: 200, body: { backupCodes } }], async (calls) => {
+    const client = new TotpClient({ baseUrl: BASE_URL })
+    const result = await client.regenerateBackupCodes('access-token-value', 'step-up-token')
+    assertEquals([calls[0].method, calls[0].url], ['POST', `${BASE_URL}/login/totp/backup-codes`])
+    assertEquals(calls[0].headers.get('Authorization'), 'Bearer access-token-value')
+    assertEquals(calls[0].headers.get('X-Znx-Step-Up-Token'), 'step-up-token')
+    assertEquals(result.backupCodes, backupCodes)
+  })
+})
+
+Deno.test('TotpClient.regenerateBackupCodes: without a step-up token only the bearer header is sent', async () => {
+  await withMockFetch([{ status: 403 }], async (calls) => {
+    const client = new TotpClient({ baseUrl: BASE_URL })
+    const error = await assertRejects(
+      () => client.regenerateBackupCodes('access-token-value'),
+      RestClientError,
+    )
+    assertEquals(error.realHttpStatus, 403)
+    assertEquals(calls[0].headers.get('X-Znx-Step-Up-Token'), null)
+  })
+})

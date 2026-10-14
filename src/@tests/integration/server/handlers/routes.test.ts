@@ -6,6 +6,7 @@ import 'server/handlers/password.handler.ts'
 import 'server/handlers/users.handler.ts'
 import 'server/handlers/roles.handler.ts'
 import 'server/handlers/audit.handler.ts'
+import 'server/handlers/totp-admin.handler.ts'
 import 'server/handlers/permissions.handler.ts'
 import 'server/handlers/grant-access.handler.ts'
 import 'server/handlers/oauth-provider.handler.ts'
@@ -110,6 +111,7 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'GET /login/totp/enroll': ['totpEnroll', {}],
     'POST /login/totp/confirm': ['totpConfirm', { Body: 'TotpConfirmRTO' }],
     'DELETE /login/totp': ['totpDisable', {}],
+    'POST /login/totp/backup-codes': ['totpBackupCodes', {}],
     'POST /login/phone/enroll': ['phoneEnroll', { Body: 'PhoneEnrollRTO' }],
     'POST /login/phone/confirm': ['phoneConfirm', { Body: 'PhoneConfirmRTO' }],
     'DELETE /login/phone': ['phoneDisable', {}],
@@ -155,6 +157,8 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
       { Params: 'AuthIdParamsRTO', Body: 'SetRolesRTO' },
     ],
     'GET /audit': ['search', { Search: 'SearchAuditRTO' }],
+    'POST /admin/totp/reset': ['reset', { Body: 'TotpResetRTO' }],
+    'GET /admin/totp/resets': ['resets', { Search: 'SearchTotpResetsRTO' }],
     'POST /permissions': ['create', { Body: 'CreatePermissionRTO' }],
     'GET /permissions': ['search', { Search: 'SearchPermissionsRTO' }],
     'GET /permissions/:id': ['getById', { Params: 'PermissionIdParamsRTO' }],
@@ -220,6 +224,7 @@ Deno.test('REST routes: phone/confirm authenticates, then overrides the rate lim
 const FACTOR_CHANGE_ROUTES = [
   'POST /login/totp/confirm',
   'DELETE /login/totp',
+  'POST /login/totp/backup-codes',
   'POST /login/phone/confirm',
   'DELETE /login/phone',
   'POST /login/otp-notifier',
@@ -257,6 +262,7 @@ const ADMIN_MUTATION_ROUTES = [
   'POST /permissions',
   'PATCH /permissions/:id',
   'PATCH /users/:id',
+  'POST /admin/totp/reset',
 ]
 
 Deno.test('REST routes: administration mutations authenticate, then override the limit, then rate-limit', () => {
@@ -361,6 +367,7 @@ Deno.test('REST routes: reads and self-service routes carry no administration li
       'GET /roles',
       'GET /roles/:id/holders',
       'GET /audit',
+      'GET /admin/totp/resets',
       'GET /users/search',
       'GET /users/:id',
       'PATCH /users/deactivate',
@@ -378,6 +385,7 @@ const SELF_SCOPED_ROUTES = [
   'GET /login/totp/enroll',
   'POST /login/totp/confirm',
   'DELETE /login/totp',
+  'POST /login/totp/backup-codes',
   'POST /login/phone/enroll',
   'DELETE /login/phone',
   'POST /login/otp-notifier',
@@ -421,6 +429,8 @@ const ADMIN_ROUTE_PERMISSIONS: Record<string, string[]> = {
   'GET /roles/accounts/:authId': [P.roleRead, P.roleWrite],
   'GET /roles/accounts/:authId/permissions': [P.roleRead, P.roleWrite],
   'GET /audit': [P.auditRead],
+  'POST /admin/totp/reset': [P.totpReset],
+  'GET /admin/totp/resets': [P.totpReset],
   'PUT /roles/accounts/:authId': [P.roleWrite],
   'POST /permissions': [P.permissionWrite],
   'GET /permissions': [P.permissionRead, P.permissionWrite],
@@ -602,6 +612,7 @@ Deno.test('REST routes: no administration route accepts a service credential (`a
       'permissions.handler.ts',
       'users.handler.ts',
       'audit.handler.ts',
+      'totp-admin.handler.ts',
     ]
   ) {
     // deno-lint-ignore no-await-in-loop

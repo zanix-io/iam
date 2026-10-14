@@ -40,9 +40,27 @@ Deno.test('buildStepUpMessage: the email uses the neutral generic wording, with 
     assertEquals((message.data.html as { lang: string }).lang, 'en')
     assertStringIncludes(content(message), 'Use this code to confirm that you want to')
     assertStringIncludes(content(message), 'carry out an action on your account')
-    assertStringIncludes(content(message), '<strong>123456</strong>')
-    assertStringIncludes(content(message), 'valid for 5 minutes')
+    assertStringIncludes(message.data.message as string, 'valid for 5 minutes')
     assertEquals(content(message).includes('confirm-transfer'), false)
+  })
+})
+
+Deno.test('buildStepUpMessage: the email carries the code in buttonText and the validity in message', () => {
+  withMessages(undefined, () => {
+    const message = buildStepUpMessage('email', 'en', 'confirm-transfer', '123456', 7)
+    assertEquals(message.data, {
+      html: { lang: 'en', title: 'Confirm an action' },
+      title: 'Confirm an action',
+      content:
+        '<p>Use this code to confirm that you want to carry out an action on your account.</p>',
+      buttonText: '123456',
+      message: 'The code is valid for 7 minutes.',
+      footer: 'If you did not request this code, you can ignore this message.',
+    })
+    assertEquals('buttonLink' in message.data, false)
+    // The code is not part of the markup, and the validity sentence is not either.
+    assertEquals(content(message).includes('123456'), false)
+    assertEquals(content(message).includes('valid for'), false)
   })
 })
 
@@ -141,9 +159,12 @@ Deno.test('buildStepUpMessage: a purpose that looks like markup or a sentence ne
 
 Deno.test('buildStepUpMessage: the email escapes an operator phrase and keeps the markup its own', () => {
   withMessages({ 'step-up.purpose.pay': 'pay <b>"now"</b> & go' }, () => {
-    const html = content(buildStepUpMessage('email', 'en', 'pay', '123456', 5))
+    const mail = buildStepUpMessage('email', 'en', 'pay', '123456', 5)
+    const html = content(mail)
     assertStringIncludes(html, 'pay &lt;b&gt;&quot;now&quot;&lt;/b&gt; &amp; go')
     assertEquals(html.includes('<b>'), false)
+    // The code and the validity are raw text: the template escapes them when it renders them.
+    assertEquals(mail.data.buttonText, '123456')
     // A SMS is plain text: the phrase is not escaped there.
     assertStringIncludes(
       content(buildStepUpMessage('sms', 'en', 'pay', '123456', 5)),
@@ -209,5 +230,23 @@ Deno.test('buildStepUpMessage: a language block never shadows a flat key it does
       content(buildStepUpMessage('sms', 'es', 'other', '123456', 5)),
       'hacer algo en tu cuenta',
     )
+  })
+})
+
+Deno.test('buildStepUpMessage: interpolated values are escaped in the markup fields and raw in the text fields', () => {
+  withMessages({
+    'step-up.intro': '<em>Confirm</em>: {purpose}',
+    'step-up.validity': 'Valid <b>{minutes}</b> min',
+    'step-up.purpose.pay': '<img src=x onerror=alert(1)> & "go"',
+  }, () => {
+    const { data } = buildStepUpMessage('email', 'en', 'pay', '123456', 5)
+    // The operator's own sentence is their markup; the phrase placed in it is escaped.
+    assertEquals(
+      data.content,
+      '<p><em>Confirm</em>: &lt;img src=x onerror=alert(1)&gt; &amp; &quot;go&quot;</p>',
+    )
+    // `message` and `buttonText` are escaped by the template when it renders them, so they stay raw here.
+    assertEquals(data.message, 'Valid <b>5</b> min')
+    assertEquals(data.buttonText, '123456')
   })
 })

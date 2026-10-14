@@ -18,6 +18,7 @@ For typed clients over these endpoints, see the
 - [Login and sessions (`/api/login`)](#login-and-sessions-apilogin)
 - [One-time codes (`/api/login/otp`)](#one-time-codes-apiloginotp)
 - [Authenticator app (`/api/login/totp`)](#authenticator-app-apilogintotp)
+- [Authenticator reset by an operator (`/api/admin/totp`)](#authenticator-reset-by-an-operator-apiadmintotp)
 - [OAuth2 sign-in (`/api/login/:oauth`)](#oauth2-sign-in-apiloginoauth)
 - [Phone and login-code channel (`/api/login/phone`)](#phone-and-login-code-channel-apiloginphone)
 - [Step-up (`/api/step-up`)](#step-up-apistep-up)
@@ -100,8 +101,8 @@ seconds). A primary-credential sign-in adds `mustChangePassword`.
   account (valid 5 minutes) for a finished sign-in, reactivating the profile. Answers what
   `POST /api/login/login` answers. `403` for an invalid or expired token or a deleted account.
 - **`GET /api/login/methods`** answers the caller's own methods:
-  `{ email, hasPassword, oauthProvider, totpEnabled, emailVerified, emailVerifiedAt?, phone,
-  otpNotifier }`,
+  `{ email, hasPassword, oauthProvider, totpEnabled, backupCodesRemaining, emailVerified,
+  emailVerifiedAt?, phone, otpNotifier }`,
   with `phone` masked to its last four digits. `emailVerified` is `true` once the account has proven
   control of its mailbox (`emailVerifiedAt` is then that moment as an ISO 8601 string, absent
   otherwise); see [Email verification](./authentication-flows.md#email-verification). `401` without
@@ -131,31 +132,59 @@ seconds). A primary-credential sign-in adds `mustChangePassword`.
 
 ### Authenticator app (`/api/login/totp`)
 
-| Method and path                 | Auth            | Rate limit (`app`, tier)               | Request                  |
-| ------------------------------- | --------------- | -------------------------------------- | ------------------------ |
-| `POST /api/login/totp/callback` | None            | `login:totp-callback`, `freeRateLimit` | Body `{ email, code }`   |
-| `GET /api/login/totp/enroll`    | Session         | —                                      | —                        |
-| `POST /api/login/totp/confirm`  | Session + proof | —                                      | Body `{ code, secret? }` |
-| `DELETE /api/login/totp`        | Session + proof | —                                      | —                        |
+| Method and path                     | Auth            | Rate limit (`app`, tier)               | Request                  |
+| ----------------------------------- | --------------- | -------------------------------------- | ------------------------ |
+| `POST /api/login/totp/callback`     | None            | `login:totp-callback`, `freeRateLimit` | Body `{ email, code }`   |
+| `GET /api/login/totp/enroll`        | Session         | —                                      | —                        |
+| `POST /api/login/totp/confirm`      | Session + proof | —                                      | Body `{ code, secret? }` |
+| `DELETE /api/login/totp`            | Session + proof | —                                      | —                        |
+| `POST /api/login/totp/backup-codes` | Session + proof | —                                      | —                        |
 
-- **`POST /api/login/totp/callback`** answers session tokens. `403` when the account has no TOTP
-  secret, the code is wrong, or the profile is inactive. Codes are accepted within
-  `totpToleranceSteps` 30-second steps of the current one (default 1).
+- **`POST /api/login/totp/callback`** answers session tokens. `code` is an authenticator code or one
+  of the account's [backup codes](./authentication-flows.md#backup-codes) (`XXXXX-XXXXX`, any case,
+  dashes and spaces ignored). `403` when the account has no TOTP secret, the code is wrong or
+  already used, or the profile is inactive; a wrong backup code and a wrong authenticator code get
+  the same answer. Authenticator codes are accepted within `totpToleranceSteps` 30-second steps of
+  the current one (default 1).
 - **`GET /api/login/totp/enroll`** answers `{ secret, uri }` (an `otpauth://` provisioning URI whose
   issuer is `SERVICE_ID`). The secret is kept as the account's pending secret for 10 minutes; the
   active second factor is untouched.
 - **`POST /api/login/totp/confirm`** verifies `code` against the pending secret, stores it, makes
   TOTP the account's second factor on login and refresh, emails a `totp-enabled` notice, and answers
-  `{ response: 'TOTP enabled' }`. `secret` is optional and never used; one that is not the pending
-  secret is a `403`. `403` for a wrong or already used code; `400` when no enrollment is pending or
-  it expired. Needs a `factor-change` proof bound to `totp-confirm`.
+  `{ response: 'TOTP enabled', backupCodes }`, the 10 backup codes of the account, shown only in
+  this answer. `secret` is optional and never used; one that is not the pending secret is a `403`.
+  `403` for a wrong or already used code; `400` when no enrollment is pending or it expired. Needs a
+  `factor-change` proof bound to `totp-confirm`.
 - **`DELETE /api/login/totp`** removes the secret and the second-factor setting when TOTP is the
-  configured method: `{ response: 'TOTP disabled' }`. Needs a proof bound to `totp-disable`.
+  configured method, and the backup codes: `{ response: 'TOTP disabled' }`. Needs a proof bound to
+  `totp-disable`.
+- **`POST /api/login/totp/backup-codes`** replaces the backup codes with a new set and answers
+  `{ backupCodes }`, shown only there. Needs a proof bound to `totp-backup-codes`. `409`
+  `TOTP_NOT_ENABLED` when the account has no authenticator app.
 
 Routes marked **proof** need the header `X-Znx-Step-Up-Token` with a step-up token for purpose
 `factor-change` and the `bind` shown for the route in
 [Changing a second factor or a credential](./authentication-flows.md#changing-a-second-factor-or-a-credential);
 without it they answer `403` `FACTOR_CHANGE_PROOF_REQUIRED`.
+
+### Authenticator reset by an operator (`/api/admin/totp`)
+
+| Method and path              | Permission   | Rate limit                              | Request                          |
+| ---------------------------- | ------------ | --------------------------------------- | -------------------------------- |
+| `POST /api/admin/totp/reset` | `totp-reset` | Administration mutations (per operator) | Body `{ authId, reason }`        |
+| `GET /api/admin/totp/resets` | `totp-reset` | —                                       | Query `authId?`, `page`, `limit` |
+
+- **`POST /api/admin/totp/reset`** removes the authenticator app and the backup codes of the account
+  `authId` and emails its owner (`totp-reset-by-operator`): `{ response: 'TOTP reset' }`. `reason`
+  is 1 to 200 characters after trimming, with no control characters. `400` for an invalid body,
+  `403` without `totp-reset`, from a service credential, or for the operator's own account
+  (`TOTP_RESET_SELF`), `404` for an unknown account, `409` (`TOTP_NOT_ENABLED`) when the account has
+  no authenticator app. Every attempt is recorded in the audit trail as `totp.reset`. See
+  [Operator reset](./authentication-flows.md#operator-reset-of-an-authenticator-app).
+- **`GET /api/admin/totp/resets`** lists those audit events, newest first, as `GET /api/audit` does
+  (`{ total, page, limit, docs }`), optionally for one account. It exists for holders of
+  `totp-reset` who do not hold `audit-read`; `GET /api/audit?action=totp.reset` lists the same
+  events.
 
 ### OAuth2 sign-in (`/api/login/:oauth`)
 

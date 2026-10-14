@@ -159,10 +159,11 @@ are sent through `@zanix/notifications`. Each channel registers only when its va
 
 **Rendering from a central catalog.** With `TEMPLATES_BACKEND=remote`, `iam` reads its templates and
 texts from a central service (`TEMPLATES_SERVICE_URL`, `_PATH_PREFIX`, `_ID`, `_AUTH_ID`) and signs
-the calls with its own `JWK_PRI_<id>`; the central catalog must carry `totp-enabled` and
-`totp-disabled`, which `iam` registers only for a `local` catalog. When `iam` is not listed in that
-service's registry, set `TEMPLATES_SERVICE_SYNC=false`: otherwise every message asks the central
-service to pull `iam`'s code templates and is told it does not know `iam`.
+the calls with its own `JWK_PRI_<id>`; the central catalog must carry `totp-enabled`,
+`totp-disabled`, `totp-backup-code-used` and `totp-reset-by-operator`, which `iam` registers only
+for a `local` catalog (see [Customization](./customization.md#account-security-emails)). When `iam`
+is not listed in that service's registry, set `TEMPLATES_SERVICE_SYNC=false`: otherwise every
+message asks the central service to pull `iam`'s code templates and is told it does not know `iam`.
 
 **Language of the messages.** Every message carries the language of the request that triggers it:
 `?lang=` (a BCP 47 tag such as `es`), else `Accept-Language`, else `NOTIFICATIONS_DEFAULT_LANG` of

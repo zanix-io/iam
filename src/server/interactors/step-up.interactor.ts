@@ -13,6 +13,9 @@ import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
 import { recordEmailProof } from './email-proof.ts'
 import { claimOnce } from './step-up-proof.ts'
+import { sendAccountNotice } from './account-notice.ts'
+import { spendBackupCode } from './backup-codes.ts'
+import { normalizeBackupCode } from 'utils/backup-codes.ts'
 
 /** What `StepUpService.request` answers: which factor the user must complete. */
 export type StepUpRequestResult = {
@@ -102,7 +105,8 @@ export class StepUpService extends ZanixInteractor {
    * Verifies `code` with the account's own factor and, on success, signs a step-up token for
    * `purpose` (and `bind`, when given). A one-time code is consumed by the check, atomically: of two
    * concurrent verifications of the same code exactly one succeeds. An authenticator code is
-   * accepted once per account within its window. Both factors are checked against the account's
+   * accepted once per account within its window; for a TOTP account a backup code is accepted in its
+   * place and is spent. Both factors are checked against the account's
    * settings at this moment, not against whatever `request` answered.
    *
    * @throws {HttpError} `UNAUTHORIZED` with no session. `FORBIDDEN`, with one message for every
@@ -166,11 +170,23 @@ export class StepUpService extends ZanixInteractor {
   /**
    * Checks an authenticator code against the account's enrolled secret; `false` without one. A
    * matching code is claimed, so it verifies once per account within the span of steps the
-   * verification tolerates.
+   * verification tolerates. A code with the shape of a backup code is checked as one instead and is
+   * spent by it (its owner is emailed); a failure is the same `false` either way.
    */
   private async verifyTotp(auth: HydratedAuth, code: string): Promise<boolean> {
     const secret = await auth.totpSecret?.decrypt()
     if (!secret) return false
+    if (normalizeBackupCode(code)) {
+      return await spendBackupCode(
+        this.providers,
+        auth,
+        code,
+        (to, remaining) =>
+          sendAccountNotice(this.providers, this.context, to, 'totp-backup-code-used', {
+            remaining,
+          }),
+      )
+    }
     const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
     const verified = await this.providers.get(ZanixAuthProvider).totp.verify(secret, code, {
       window,

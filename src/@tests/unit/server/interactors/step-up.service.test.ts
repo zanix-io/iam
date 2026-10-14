@@ -104,13 +104,15 @@ function buildService(opts: {
   return { service, cache, authRepo, usersRepo, notifier, authProvider, claims }
 }
 
-/** The one-time code inside a sent message (the generic template's `content`). */
+/** The one-time code of a sent message: the email's `buttonText`, or inside the SMS and WhatsApp `content`. */
 const sentCode = (
   notifier: { sendMessage: { calls: unknown[][] } },
   index = 0,
 ): string => {
-  const { content } = (notifier.sendMessage.calls[index][1] as { data: { content: string } }).data
-  const code = content.match(/\b(\d{6})\b/)?.[1]
+  const { content, buttonText } = (notifier.sendMessage.calls[index][1] as {
+    data: { content: string; buttonText?: string }
+  }).data
+  const code = buttonText ?? content.match(/\b(\d{6})\b/)?.[1]
   if (!code) throw new Error(`no code in: ${content}`)
   return code
 }
@@ -149,9 +151,10 @@ Deno.test('request: an account without TOTP gets an email code by default and th
   assertEquals(message.lang, 'es')
   assertEquals(message.subject, 'Confirma una acción')
   // The code and its validity reach the message; the purpose selects wording only.
-  const { content } = message.data as { content: string }
-  assertEquals(content.includes(sentCode(notifier)), true)
-  assertEquals(content.includes('5 minutos'), true)
+  const data = message.data as { content: string; buttonText: string; message: string }
+  assertEquals(data.buttonText, sentCode(notifier))
+  assertEquals(data.content.includes(data.buttonText), false)
+  assertEquals(data.message.includes('5 minutos'), true)
   assertEquals(JSON.stringify(message).includes('wallet-transfer'), false)
   assertEquals(sendOptions, { useWorker: 'one-time' })
   // The code is generated for the purpose-scoped target, with the step-up lifetime.

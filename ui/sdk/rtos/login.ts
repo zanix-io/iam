@@ -1,5 +1,10 @@
 import { BaseRTO, IsEmail, IsEnum, IsString } from '@zanix/validator'
-import { OAUTH_PROVIDERS, type OauthProvider, type SessionTokens } from './common.ts'
+import {
+  type MessageResponse,
+  OAUTH_PROVIDERS,
+  type OauthProvider,
+  type SessionTokens,
+} from './common.ts'
 import type { TWO_FACTOR_METHODS } from 'utils/shared-enums.ts'
 
 /**
@@ -10,7 +15,7 @@ import type { TWO_FACTOR_METHODS } from 'utils/shared-enums.ts'
  * `GET /login/:oauth`, `POST /login/:oauth/callback`, `POST /login/:oauth/link`,
  * `DELETE /login/:oauth`, `GET /login/methods`, `GET /login/methods/:email`,
  * `POST /login/refresh`, `POST /login/logout`, `GET /login/totp/enroll`,
- * `POST /login/totp/confirm`) — endpoint paths as they appear in `iam`'s own generated OpenAPI
+ * `POST /login/totp/confirm`, `POST /login/totp/backup-codes`) — endpoint paths as they appear in `iam`'s own generated OpenAPI
  * spec (`zanix generate openapi`).
  *
  * Every request class here mirrors `iam/src/server/handlers/rtos/login.ts` field-for-field —
@@ -195,6 +200,23 @@ export interface TotpEnrollResult {
   uri: string
 }
 
+/**
+ * `POST /login/totp/confirm`'s real response: the usual confirmation plus the account's backup
+ * codes. They are shown only here (the server keeps digests): the UI must make the person save
+ * them before leaving the screen.
+ */
+export interface TotpConfirmResult extends MessageResponse {
+  /** 10 single-use codes formatted `XXXXX-XXXXX`, each usable once in place of an authenticator
+   * code when signing in and when confirming a step-up. */
+  backupCodes: string[]
+}
+
+/** `POST /login/totp/backup-codes`'s real response: a new set that replaced every earlier code. */
+export interface TotpBackupCodesResult {
+  /** 10 single-use codes formatted `XXXXX-XXXXX`, shown only in this response. */
+  backupCodes: string[]
+}
+
 /** `GET /login/methods`'s real response — a plain, already-sanitized summary of the caller's own
  * sign-in methods (never the raw `password`/`totpSecret` fields, which are `access: 'internal'` on
  * the real `auth` model and never serialized as-is). `phone` gets the same treatment, one step
@@ -208,6 +230,10 @@ export interface AuthMethodsResult {
   oauthProvider: OauthProvider | null
   /** Whether TOTP (authenticator app) is the account's configured second factor. */
   totpEnabled: boolean
+  /** How many unused backup codes the account holds; `0` when it has none or TOTP is off. The
+   * codes themselves are never returned after enrollment. An account that enabled TOTP before
+   * backup codes existed reports `0` until it generates a set. */
+  backupCodesRemaining: number
   /** Whether the account has proven it controls its email mailbox: an email one-time code, or an
    * OAuth2 sign-in whose provider reports the address as verified. An account an administrator
    * created, and that has not signed in through one of those, stays `false`. */

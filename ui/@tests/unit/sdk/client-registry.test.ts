@@ -3,6 +3,7 @@ import { createIamClientRegistry } from '../../../sdk/client-registry.ts'
 import { LoginClient } from '../../../sdk/client/login.client.ts'
 import { OtpClient } from '../../../sdk/client/otp.client.ts'
 import { StepUpClient } from '../../../sdk/client/step-up.client.ts'
+import { TotpAdminClient } from '../../../sdk/client/totp-admin.client.ts'
 
 Deno.test('createIamClientRegistry: builds real clients lazily, from the app-chosen base URL', () => {
   let resolved = 0
@@ -16,7 +17,8 @@ Deno.test('createIamClientRegistry: builds real clients lazily, from the app-cho
   assertInstanceOf(registry.getLoginClient(), LoginClient)
   assertInstanceOf(registry.getOtpClient(), OtpClient)
   assertInstanceOf(registry.getStepUpClient(), StepUpClient)
-  assertEquals(resolved, 3)
+  assertInstanceOf(registry.getTotpAdminClient(), TotpAdminClient)
+  assertEquals(resolved, 4)
 })
 
 Deno.test("createIamClientRegistry: a missing configuration fails at first use with the app's own error", () => {

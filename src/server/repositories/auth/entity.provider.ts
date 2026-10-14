@@ -170,6 +170,49 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
   }
 
   /**
+   * Replaces ALL the backup-code digests of the account with `hashes` in one write, so the codes
+   * issued before stop working at the same instant the new ones start.
+   * ⚠️ Validate that the account exists before calling.
+   */
+  public replaceBackupCodes(authId: string, hashes: string[], at: Date = new Date()) {
+    return this.Model.updateOne({ _id: authId }, {
+      $set: { backupCodeHashes: hashes, backupCodesGeneratedAt: at },
+    }).exec()
+  }
+
+  /** Removes every backup code of the account. */
+  public clearBackupCodes(authId: string) {
+    return this.Model.updateOne({ _id: authId }, {
+      $unset: { backupCodeHashes: '', backupCodesGeneratedAt: '' },
+    }).exec()
+  }
+
+  /** How many unused backup codes the account holds. */
+  public async countBackupCodes(authId: string): Promise<number> {
+    const account = await this.Model.findById(authId).select('+backupCodeHashes').lean().exec() as
+      | { backupCodeHashes?: string[] }
+      | null
+    return account?.backupCodeHashes?.length ?? 0
+  }
+
+  /**
+   * Spends the backup code whose digest is `hash`, atomically: the digest is pulled from the
+   * account in the same write that finds it, so of any number of concurrent uses of one code
+   * exactly one matches.
+   *
+   * @returns How many codes remain when this call spent the code, `undefined` when the account
+   *   holds no such code (wrong, already spent, or no account).
+   */
+  public async consumeBackupCode(authId: string, hash: string): Promise<number | undefined> {
+    const account = await this.Model.findOneAndUpdate(
+      { _id: authId, backupCodeHashes: hash },
+      { $pull: { backupCodeHashes: hash } },
+      { new: true, projection: { backupCodeHashes: 1 } },
+    ).lean().exec() as { backupCodeHashes?: string[] } | null
+    return account ? (account.backupCodeHashes?.length ?? 0) : undefined
+  }
+
+  /**
    * Records that the account proved control of its mailbox, once: the write only matches an
    * account whose `emailVerifiedAt` is still unset, so a repeated proof keeps the first timestamp
    * and concurrent proofs write a single value.

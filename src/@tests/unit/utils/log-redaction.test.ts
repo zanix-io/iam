@@ -19,3 +19,9 @@ Deno.test('IAM_LOGGER_SETUP: extends, never replaces, the default redaction', ()
   assertEquals((redact as { pattern?: RegExp }).pattern, undefined)
   assertEquals((redact as { extend?: unknown[] }).extend, [...IAM_REDACTED_KEYS])
 })
+
+Deno.test('IAM_REDACTED_KEYS: lists the backup-code keys', () => {
+  for (const key of ['backupCodes', 'backupCode', 'backupCodeHashes']) {
+    assertEquals(IAM_REDACTED_KEYS.includes(key), true, key)
+  }
+})

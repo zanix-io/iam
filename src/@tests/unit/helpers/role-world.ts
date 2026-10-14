@@ -2,6 +2,8 @@ import { AuditService } from 'server/interactors/audit.interactor.ts'
 import { PermissionsService } from 'server/interactors/permissions.interactor.ts'
 import { RolesService } from 'server/interactors/roles.interactor.ts'
 import { UsersService } from 'server/interactors/users.interactor.ts'
+import { TotpAdminService } from 'server/interactors/totp-admin.interactor.ts'
+import { NotifierProvider } from '@zanix/notifications'
 import { AuditRepository } from 'server/repositories/audit/entity.provider.ts'
 import { AuthRepository } from 'server/repositories/auth/entity.provider.ts'
 import { PermissionsRepository } from 'server/repositories/permissions/entity.provider.ts'
@@ -31,7 +33,18 @@ export type FakeRole = {
   updatedAt?: Date
   permissions: FakePermission[]
 }
-export type FakeAccount = { id: string; userId?: string; roleIds?: string[]; email?: string }
+export type FakeAccount = {
+  id: string
+  userId?: string
+  roleIds?: string[]
+  email?: string
+  /** Authenticator-app state: the second-factor setting, a stored secret, a pending enrollment and
+   * the number of unused backup codes. */
+  twoFactorAuthConfig?: { method: string; triggerOn: string[] }
+  totpSecret?: boolean
+  pendingTotpSecret?: boolean
+  backupCodes?: number
+}
 
 /** A permission with a stable id derived from its code. */
 export const perm = (code: string, isActive = true): FakePermission => ({
@@ -101,6 +114,10 @@ export function buildWorld(init: WorldInit = {}) {
     restoredRoles: [] as unknown[],
     updatedPermissions: [] as unknown[],
     updatedUsers: [] as unknown[],
+    /** The `updateAuth` calls, as `[data, options]`. */
+    authUpdates: [] as unknown[][],
+    /** The emails sent through the notifier. */
+    emails: [] as Record<string, unknown>[],
     /** The audit trail, in the order events were opened. */
     audit: [] as Record<string, unknown>[],
     /** Runs right before a conditional write checks the account, to simulate a concurrent change. */
@@ -149,7 +166,27 @@ export function buildWorld(init: WorldInit = {}) {
         )
       }
       const found = account(id)
-      return found ? { ...found, roleIds: found.roleIds && [...found.roleIds] } : undefined
+      return found
+        ? {
+          ...found,
+          roleIds: found.roleIds && [...found.roleIds],
+          email: found.email ? { unmask: () => found.email } : undefined,
+          totpSecret: found.totpSecret ? { decrypt: () => 'SECRET' } : undefined,
+        }
+        : undefined
+    },
+    countBackupCodes: (id: string) => account(id)?.backupCodes ?? 0,
+    /** Applies `$unset` the way the real update does, and records the call. */
+    updateAuth: (data: { id: string }, options: { unset?: string[] } = {}) => {
+      state.authUpdates.push([data, options])
+      const found = account(data.id) as Record<string, unknown> | undefined
+      if (found) {
+        for (const field of options.unset ?? []) {
+          delete found[field]
+          if (field === 'backupCodeHashes') delete found.backupCodes
+        }
+      }
+      return {}
     },
     /** Exact match on the stored address, over the same spellings the real lookup tries. */
     findByEmailForLookup: (email: string) => {
@@ -361,7 +398,14 @@ export function buildWorld(init: WorldInit = {}) {
     searchEvents: (options: Record<string, unknown>) => ({ docs: state.audit, total: 0, options }),
   }
 
+  const notifier = {
+    email: (message: Record<string, unknown>) => {
+      state.emails.push(message)
+    },
+  }
+
   const providers = mapGetter([
+    [NotifierProvider, notifier],
     [AuthRepository, authRepo],
     [RolesRepository, rolesRepo],
     [PermissionsRepository, permissionsRepo],
@@ -385,6 +429,7 @@ export function buildWorld(init: WorldInit = {}) {
     users: mount(new UsersService('ctx')),
     permissions: mount(new PermissionsService('ctx')),
     audit: mount(new AuditService('ctx')),
+    totp: mount(new TotpAdminService('ctx')),
     account,
     providers,
     /** A role as the world holds it now. */

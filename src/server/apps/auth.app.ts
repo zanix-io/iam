@@ -62,7 +62,8 @@ registerResourceType('captcha-provider', () => {
 })
 
 /**
- * The `totp-enabled` and `totp-disabled` emails — genuinely project-specific events none of
+ * The `totp-enabled`, `totp-disabled`, `totp-backup-code-used` and `totp-reset-by-operator` emails
+ * — genuinely project-specific events none of
  * `@zanix/notifications`' built-in templates cover — and their words, in English and Spanish.
  * Registered with the library, which syncs them into the templates collection like its own built-ins
  * (`TEMPLATES_BACKEND=local`; with any other mode there is no collection and this has no effect): added
@@ -81,6 +82,21 @@ registerTemplateSeeds({
     name: 'totp-disabled',
     description: 'Sent when an account turns TOTP (authenticator-app) 2FA off.',
     hbs: "<h1>{{t 'totp-disabled.title'}}</h1>\n<p>{{t 'totp-disabled.content'}}</p>",
+  }, {
+    channel: 'email',
+    name: 'totp-backup-code-used',
+    description:
+      'Sent when a backup code was used instead of an authenticator code. Variable: remaining (how many backup codes are left).',
+    availableVariables: ['remaining'],
+    hbs:
+      "<h1>{{t 'totp-backup-code-used.title'}}</h1>\n{{#if remaining}}<p>{{t 'totp-backup-code-used.content' remaining=remaining}}</p>{{else}}<p>{{t 'totp-backup-code-used.content-none'}}</p>{{/if}}",
+  }, {
+    channel: 'email',
+    name: 'totp-reset-by-operator',
+    description:
+      'Sent when support removes the authenticator app of an account because the person lost it.',
+    hbs:
+      "<h1>{{t 'totp-reset-by-operator.title'}}</h1>\n<p>{{t 'totp-reset-by-operator.content'}}</p>",
   }],
   messages: {
     en: {
@@ -92,6 +108,16 @@ registerTemplateSeeds({
       'totp-disabled.title': 'Two-factor authentication turned off',
       'totp-disabled.content':
         `Two-factor authentication (authenticator app) has been turned off on your ${SERVICE_ID} account. If you did not perform this action, change your password and contact support immediately.`,
+      'totp-backup-code-used.subject': 'A backup code was used to sign in',
+      'totp-backup-code-used.title': 'A backup code was used',
+      'totp-backup-code-used.content':
+        `A backup code was used to confirm your identity on your ${SERVICE_ID} account. You have {remaining} backup codes left. If you did not do this, change your password and contact support immediately.`,
+      'totp-backup-code-used.content-none':
+        `A backup code was used to confirm your identity on your ${SERVICE_ID} account. You have no backup codes left: generate a new set from your security settings. If you did not do this, change your password and contact support immediately.`,
+      'totp-reset-by-operator.subject': 'Two-factor authentication removed by support',
+      'totp-reset-by-operator.title': 'Two-factor authentication removed by support',
+      'totp-reset-by-operator.content':
+        `Support removed the second step (authenticator app) from your ${SERVICE_ID} account. Sign in and enable it again. If you did not ask for this, contact support immediately.`,
     },
     es: {
       'totp-enabled.subject': 'Verificación en dos pasos activada',
@@ -102,6 +128,16 @@ registerTemplateSeeds({
       'totp-disabled.title': 'Verificación en dos pasos desactivada',
       'totp-disabled.content':
         `Se desactivó la verificación en dos pasos (app de autenticación) en tu cuenta de ${SERVICE_ID}. Si no fuiste tú, cambia tu contraseña y contacta a soporte de inmediato.`,
+      'totp-backup-code-used.subject': 'Se usó un código de respaldo para iniciar sesión',
+      'totp-backup-code-used.title': 'Se usó un código de respaldo',
+      'totp-backup-code-used.content':
+        `Se usó un código de respaldo para confirmar tu identidad en tu cuenta de ${SERVICE_ID}. Te quedan {remaining} códigos de respaldo. Si no fuiste tú, cambia tu contraseña y contacta a soporte de inmediato.`,
+      'totp-backup-code-used.content-none':
+        `Se usó un código de respaldo para confirmar tu identidad en tu cuenta de ${SERVICE_ID}. Ya no te quedan códigos de respaldo: genera un juego nuevo desde la seguridad de tu cuenta. Si no fuiste tú, cambia tu contraseña y contacta a soporte de inmediato.`,
+      'totp-reset-by-operator.subject': 'Soporte quitó la verificación en dos pasos',
+      'totp-reset-by-operator.title': 'Soporte quitó la verificación en dos pasos',
+      'totp-reset-by-operator.content':
+        `Soporte quitó el segundo paso (app de autenticación) de tu cuenta de ${SERVICE_ID}. Inicia sesión y actívalo de nuevo. Si no lo pediste, contacta a soporte de inmediato.`,
     },
   },
 })

@@ -70,11 +70,13 @@ Described in [Authorization](./authorization.md).
 
 ### Notification templates
 
-| Concern                                   | Source                                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------------------------- |
-| `/api/templates` controller and its guard | [`server/handlers/templates.handler.ts`](../src/server/handlers/templates.handler.ts) |
-| `totp-enabled` template seeding           | [`server/apps/auth.app.ts`](../src/server/apps/auth.app.ts) (`setup`)                 |
-| Discovery (`codeTemplatesDiscovery`)      | [`mod.ts`](../mod.ts)                                                                 |
+| Concern                                   | Source                                                                                                                                     |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/api/templates` controller and its guard | [`server/handlers/templates.handler.ts`](../src/server/handlers/templates.handler.ts)                                                      |
+| Authenticator notice templates seeding    | [`server/apps/auth.app.ts`](../src/server/apps/auth.app.ts) (`registerTemplateSeeds`)                                                      |
+| TOTP backup codes                         | [`utils/backup-codes.ts`](../src/utils/backup-codes.ts), [`server/interactors/backup-codes.ts`](../src/server/interactors/backup-codes.ts) |
+| Operator reset of an authenticator app    | [`server/interactors/totp-admin.interactor.ts`](../src/server/interactors/totp-admin.interactor.ts)                                        |
+| Discovery (`codeTemplatesDiscovery`)      | [`mod.ts`](../mod.ts)                                                                                                                      |
 
 ### See also
 

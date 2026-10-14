@@ -2,7 +2,7 @@
  * @module
  *
  * Everything a consumer needs to complete `iam`'s authenticator-app (TOTP) login verification,
- * enrollment, and disabling flows — the `./sdk/totp` subpath, mirroring `LoginController`'s own
+ * enrollment, backup-code and disabling flows — the `./sdk/totp` subpath, mirroring `LoginController`'s own
  * grouping of all three under one real controller. See `./sdk/otp` for the out-of-band code
  * sibling.
  */
@@ -16,6 +16,11 @@ export type {
   IamApiClientOptions,
 } from './client/base.ts'
 export { TotpLoginRTO } from './rtos/login.ts'
-export type { SecondFactorLoginResult, TotpEnrollResult } from './rtos/login.ts'
+export type {
+  SecondFactorLoginResult,
+  TotpBackupCodesResult,
+  TotpConfirmResult,
+  TotpEnrollResult,
+} from './rtos/login.ts'
 export { TotpConfirmRTO } from './rtos/password.ts'
 export type { MessageResponse, SessionTokens } from './rtos/common.ts'

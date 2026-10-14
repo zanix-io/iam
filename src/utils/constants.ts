@@ -262,6 +262,10 @@ export const STEP_UP_TOKEN_TTL_SECONDS = 300
  * with `POST /login/totp/confirm`. */
 export const TOTP_ENROLLMENT_TTL_SECONDS = 600
 
+/** How many backup codes an account receives when it enables an authenticator app or regenerates
+ * them. */
+export const BACKUP_CODE_COUNT = 10
+
 /** Seconds a spent-claim record outlives the code or token it guards, to absorb clock skew between
  * the instance and the database. */
 export const CLAIM_MARGIN_SECONDS = 60
@@ -554,6 +558,9 @@ export const RBAC_PERMISSIONS = {
   /** Gates `templates.handler.ts`'s own `/templates` CRUD API — one permission for the whole
    * controller (no read/write split, matching that guard's own single-permission shape). */
   templatesAccess: `${PERMISSIONS_PREFIX}:templates-access`,
+  /** Gates `POST /admin/totp/reset`, the operator removal of an account's authenticator app. It is
+   * separate from `userWrite` and `roleWrite` so that it can be granted to support staff alone. */
+  totpReset: `${PERMISSIONS_PREFIX}:totp-reset`,
 } as const
 
 /**
@@ -680,6 +687,10 @@ export const IAM_ERROR_CODES = {
   factorChangeProofRequired: 'FACTOR_CHANGE_PROOF_REQUIRED',
   /** The step-up token sent with a factor or credential change does not prove that change. */
   factorChangeProofInvalid: 'FACTOR_CHANGE_PROOF_INVALID',
+  /** An operator tried to reset the authenticator app of their own account. */
+  totpResetSelf: 'TOTP_RESET_SELF',
+  /** The account has no authenticator app to reset (or to issue backup codes for). */
+  totpNotEnabled: 'TOTP_NOT_ENABLED',
 } as const
 
 /**

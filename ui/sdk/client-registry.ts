@@ -3,6 +3,7 @@ import { OtpClient } from './client/otp.client.ts'
 import { PasswordClient } from './client/password.client.ts'
 import { PhoneClient } from './client/phone.client.ts'
 import { StepUpClient } from './client/step-up.client.ts'
+import { TotpAdminClient } from './client/totp-admin.client.ts'
 import { TotpClient } from './client/totp.client.ts'
 import { UsersClient } from './client/users.client.ts'
 
@@ -22,6 +23,7 @@ export type IamClientRegistry =
   & ClientSeams<'Password', PasswordClient>
   & ClientSeams<'Users', UsersClient>
   & ClientSeams<'StepUp', StepUpClient>
+  & ClientSeams<'TotpAdmin', TotpAdminClient>
 
 /** A swappable factory: `get` builds (or returns the swapped-in) client, `set` replaces the
  * factory, `reset` restores the default one. */
@@ -62,6 +64,7 @@ export function createIamClientRegistry(options: { baseUrl: () => string }): Iam
   const password = seam(build(PasswordClient))
   const users = seam(build(UsersClient))
   const stepUp = seam(build(StepUpClient))
+  const totpAdmin = seam(build(TotpAdminClient))
 
   return {
     getLoginClient: login.get,
@@ -85,5 +88,8 @@ export function createIamClientRegistry(options: { baseUrl: () => string }): Iam
     getStepUpClient: stepUp.get,
     setStepUpClientFactory: stepUp.set,
     resetStepUpClientFactory: stepUp.reset,
+    getTotpAdminClient: totpAdmin.get,
+    setTotpAdminClientFactory: totpAdmin.set,
+    resetTotpAdminClientFactory: totpAdmin.reset,
   }
 }

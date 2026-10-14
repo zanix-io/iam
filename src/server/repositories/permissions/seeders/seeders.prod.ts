@@ -33,6 +33,9 @@ export const RBAC_PERMISSION_TEMPLATES_ACCESS_ID = '693000000000000000000109'
 /** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
 export const RBAC_PERMISSION_AUDIT_READ_ID = '693000000000000000000110'
 
+/** See {@linkcode RBAC_PERMISSION_ROLE_READ_ID}'s own doc. */
+export const RBAC_PERMISSION_TOTP_RESET_ID = '693000000000000000000111'
+
 /** Every seeded permission: the wildcard plus one entry per `RBAC_PERMISSIONS` code. */
 export const SEEDED_PERMISSIONS = [
   {
@@ -114,6 +117,14 @@ export const SEEDED_PERMISSIONS = [
     description: 'List the recorded changes to roles, permissions and account status.',
     isActive: true,
   },
+  {
+    id: RBAC_PERMISSION_TOTP_RESET_ID,
+    code: RBAC_PERMISSIONS.totpReset,
+    name: 'Reset an authenticator app',
+    description:
+      "Remove an account's authenticator app (TOTP) and its backup codes when the person lost it.",
+    isActive: true,
+  },
 ]
 
 /** The part of the `permissions` model the seeder uses. */
@@ -153,10 +164,11 @@ export async function seedMissingPermissions(Model: PermissionsSeedModel): Promi
 
 /** This project's production-always permission catalog: the wildcard permission plus every
  * `RBAC_PERMISSIONS` entry, inserted on boot when missing (see {@linkcode seedMissingPermissions}).
- * Version `1.2.0` is the one that adds `audit-read` to databases created by 1.x. */
+ * Version `1.2.0` is the one that adds `audit-read` to databases created by 1.x; `1.3.0` adds
+ * `totp-reset`. */
 export default [
   {
     handler: seedMissingPermissions as never,
-    options: { name: 'seedMissingPermissions', version: '1.2.0' },
+    options: { name: 'seedMissingPermissions', version: '1.3.0' },
   } as const,
 ] as never[]

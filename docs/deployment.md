@@ -90,14 +90,14 @@ overrides are described in [Customization](./customization.md#behaviors).
 
 ### Infrastructure
 
-| Dependency               | Required                     | Used for                                                                                                                                                             |
-| ------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MongoDB (`MONGO_URI`)    | Yes                          | Collections `auth`, `users`, `roles`, `permissions`, `grant_accesses`, and templates with `TEMPLATES_BACKEND=local`.                                                 |
-| Redis (`REDIS_URI`)      | For more than one replica    | Refresh-token reuse detection, one-time codes, rate-limit counters and the hosted-provider code blocklist shared across replicas. Without it the cache is in memory. |
-| SMTP (`SMTP_*`)          | For email codes and messages | One-time codes, recovery codes, `welcome`, `password-changed` and `totp-enabled` emails.                                                                             |
-| SMS / WhatsApp providers | Optional                     | Phone verification (SMS) and the `sms`/`whatsapp` login-code channels.                                                                                               |
-| Captcha provider         | Optional                     | `POST /api/login/login` and `GET /api/pwd/recovery/:email`.                                                                                                          |
-| Signing and data keys    | Yes                          | `JWT_KEY`, `JWK_PRI`, `JWK_PUB` for tokens; `DATA_SECRET_KEY`, `DATA_AES_KEY` for protected fields.                                                                  |
+| Dependency               | Required                     | Used for                                                                                                                                                                                 |
+| ------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MongoDB (`MONGO_URI`)    | Yes                          | Collections `auth`, `users`, `roles`, `permissions`, `grant_accesses`, and templates with `TEMPLATES_BACKEND=local`.                                                                     |
+| Redis (`REDIS_URI`)      | For more than one replica    | Refresh-token reuse detection, one-time codes, rate-limit counters and the hosted-provider code blocklist shared across replicas. Without it the cache is in memory.                     |
+| SMTP (`SMTP_*`)          | For email codes and messages | One-time codes, recovery codes, `welcome`, `password-changed` and the authenticator notices (`totp-enabled`, `totp-disabled`, `totp-backup-code-used`, `totp-reset-by-operator`) emails. |
+| SMS / WhatsApp providers | Optional                     | Phone verification (SMS) and the `sms`/`whatsapp` login-code channels.                                                                                                                   |
+| Captcha provider         | Optional                     | `POST /api/login/login` and `GET /api/pwd/recovery/:email`.                                                                                                                              |
+| Signing and data keys    | Yes                          | `JWT_KEY`, `JWK_PRI`, `JWK_PUB` for tokens; `DATA_SECRET_KEY`, `DATA_AES_KEY` for protected fields.                                                                                      |
 
 Every service that verifies an `iam` token needs the same signing keys.
 

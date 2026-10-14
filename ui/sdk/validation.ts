@@ -8,4 +8,4 @@
  */
 export { validateEmail } from './validation/email.ts'
 export { validatePassword } from './validation/password.ts'
-export { validateVerificationCode } from './validation/code.ts'
+export { validateTotpOrBackupCode, validateVerificationCode } from './validation/code.ts'

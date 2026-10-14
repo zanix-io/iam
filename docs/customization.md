@@ -6,6 +6,7 @@ it. Each lever applies to the hosted pages and to an app that renders `iam`'s vi
 ### Contents
 
 - [Messages](#messages)
+- [Account-security emails](#account-security-emails)
 - [Styles](#styles)
 - [Behaviors](#behaviors)
 - [See also](#see-also)
@@ -63,6 +64,11 @@ key, on every send. The keys, with the placeholders each fills:
 | `step-up.purpose.<purpose>`     | `{purpose}`      | none: a purpose without its key takes `step-up.purpose.default`                                                                                  |                                    |
 
 `<purpose>` is the `purpose` of `POST /api/step-up/request` (lowercase letters, digits and hyphens).
+
+In the email, the code is the template's `buttonText` (no `buttonLink`), `step-up.validity` is its
+`message` and `step-up.intro` its `content`: the fields the login and recovery code emails use, so a
+`generic` template that styles the one-time code styles this one too.
+
 The purpose only selects the key; it is never placed in the message, so a client cannot write text
 into it. The phrase completes the sentence ("confirm that you want to ..."), and each message is a
 whole sentence, so a language reorders the words in its own copy of the key. A key with a string
@@ -104,6 +110,28 @@ from its own catalog.
 **Password heading.** The heading of `LoginView` in password mode is not a catalog key: it is the
 `heading` prop, else the `iam` space app's `loginHeading` behavior (see [Behaviors](#behaviors)),
 else `'Sign in'`. Passwordless mode reads `login/heading` from the catalog.
+
+### Account-security emails
+
+`iam` sends four account-security notices about the authenticator app. Each is a database-only
+template that the `iam` app registers with `@zanix/notifications` (`registerTemplateSeeds`, channel
+`email`) when `TEMPLATES_BACKEND=local`, with its words in English and Spanish in the message
+catalog (`{{t 'key'}}`, the language of the request). They are added when missing, kept current
+while nobody edits them, and an edit made through `/api/templates` is never overwritten. A product
+brands them by registering a template with the same `{channel, name}` (or by editing the record).
+With `TEMPLATES_BACKEND=remote` the central catalog must carry them; with the templates unset
+nothing is sent.
+
+| Template                 | Sent when                                            | `data`                                    | Catalog keys (`en` and `es`)                                                                                |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `totp-enabled`           | An account enables the authenticator app             | none                                      | `totp-enabled.subject`, `.title`, `.content`                                                                |
+| `totp-disabled`          | An account turns it off                              | none                                      | `totp-disabled.subject`, `.title`, `.content`                                                               |
+| `totp-backup-code-used`  | A backup code signs in or confirms a step-up         | `remaining`: the backup codes left (`0+`) | `totp-backup-code-used.subject`, `.title`, `.content` (uses `{remaining}`), `.content-none` (when `0` left) |
+| `totp-reset-by-operator` | Support removes the authenticator app (`totp-reset`) | none                                      | `totp-reset-by-operator.subject`, `.title`, `.content`                                                      |
+
+These keys belong to the templates catalog, not to `IAM_MESSAGES` (which words the hosted pages and
+the step-up code message): `iam` adds no `IAM_MESSAGES` key for backup codes or the operator reset.
+The recipient is the account's login email; the operator's reason is never put in an email.
 
 ### Styles
 

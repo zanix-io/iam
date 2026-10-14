@@ -65,6 +65,7 @@ export const FACTOR_CHANGE_PURPOSE = 'factor-change'
  * - `password-change`: `POST /pwd/change`.
  * - `password-add`: `POST /pwd/add`.
  * - `password-remove`: `DELETE /pwd/remove`.
+ * - `totp-backup-codes`: `POST /login/totp/backup-codes`.
  */
 export const FACTOR_CHANGE_OPERATIONS = [
   'totp-confirm',
@@ -75,6 +76,7 @@ export const FACTOR_CHANGE_OPERATIONS = [
   'password-change',
   'password-add',
   'password-remove',
+  'totp-backup-codes',
 ] as const
 
 /** One of {@linkcode FACTOR_CHANGE_OPERATIONS}. */

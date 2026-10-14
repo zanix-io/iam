@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-10-14
+
+### Added
+
+- **TOTP backup codes.** An account whose authenticator app is lost used to be locked out: the
+  sign-in challenge and every `factor-change` step-up checked only an authenticator code. Enabling
+  TOTP now issues 10 single-use backup codes (10 characters of a 32-character alphabet without
+  look-alikes, 50 bits each, from the platform CSPRNG, shown as `XXXXX-XXXXX`).
+  `POST /api/login/totp/confirm` answers `{ response, backupCodes }`, once. They are stored only as
+  `@zanix/helpers` `generateHash` digests (salted with the account id) in `backupCodeHashes`, a
+  `select: false` field no read or serialization carries. A backup code is accepted in place of the
+  authenticator code by `POST /api/login/totp/callback` and by `POST /api/step-up/verify` for a TOTP
+  account (same purpose and `bind`, case, dashes and spaces ignored), is spent by one atomic write
+  (`$pull` in the `findOneAndUpdate` that finds it, so of concurrent uses exactly one wins), counts
+  against the same rate limits as an authenticator code, and a wrong or spent one answers the same
+  `403` as a wrong authenticator code. Using one emails the owner the new database-only
+  `totp-backup-code-used` template, with `data.remaining`.
+- **`POST /api/login/totp/backup-codes`** replaces all the codes with a new set and answers
+  `{ backupCodes }`, once. It needs a `factor-change` proof bound to the new operation
+  `totp-backup-codes` (added to `FACTOR_CHANGE_OPERATIONS`) and answers `409` `TOTP_NOT_ENABLED` for
+  an account without an authenticator app. An account that enabled TOTP before this release reports
+  no codes and gets its first set the same way; nothing is backfilled.
+- **Operator reset of an authenticator app.** `POST /api/admin/totp/reset` with `{ authId, reason }`
+  (`reason` 1 to 200 characters once trimmed) clears the secret, the TOTP second-factor setting, a
+  pending enrollment and the backup codes of the account, and emails its owner the new
+  `totp-reset-by-operator` template. It needs the new permission **`<SERVICE_ID>:totp-reset`**
+  (`RBAC_PERMISSIONS.totpReset`, seeded by permissions seeder version `1.3.0`; the `*` wildcard
+  includes it), follows the role-administration rules (an active account that holds the permission
+  now, never a service credential, the per-operator administration rate limit) and is audited as
+  `totp.reset` with the operator, the account, the reason and the before and after. Resetting your
+  own account answers `403` `TOTP_RESET_SELF`; an account without an authenticator app, `409`
+  `TOTP_NOT_ENABLED`. `GET /api/admin/totp/resets` lists those audit events newest first for holders
+  of `totp-reset`. Sessions already issued are not revoked: `@zanix/auth` has no revocation by
+  account.
+- **SDK.** `TotpClient.regenerateBackupCodes(accessToken, stepUpToken)`; the new
+  `@zanix/iam/ui/sdk/totp-admin` subpath with `TotpAdminClient` (`resetTotp`, `listResets`),
+  `TotpResetRTO`, `TotpResetResult`, `TotpResetsPage` and `TotpResetEvent`; `TotpAdminClient` in
+  `createIamClientRegistry` (`getTotpAdminClient`, ...); `validateTotpOrBackupCode`.
+
+### Changed
+
+- **The step-up email carries the code in the template's `buttonText` and the validity in
+  `message`.** These are the fields the login and recovery emails use, so a `generic` template that
+  styles the one-time code styles the step-up code too. Before, the code sat inside `content` as
+  `<strong>`, and the validity sentence after it, so such a template could not tell it was a code.
+  `content` now holds the intro sentence alone. SMS and WhatsApp are unchanged.
+- `POST /api/login/totp/confirm` also answers `backupCodes` (`TotpConfirmResult`;
+  `TotpClient.confirmEnrollment` returns it instead of `MessageResponse`, a compatible extension)
+  and `GET /api/login/methods` also answers `backupCodesRemaining` (`AuthMethodsResult`; `0` without
+  TOTP or without codes). `DELETE /api/login/totp` also clears the backup codes.
+- The hosted `totp/enroll` and `totp/confirm` pages issue the codes but do not show them: an app
+  that wants its people to save them renders the `backupCodes` answer of `confirmEnrollment`, or
+  sends the person to regenerate them.
+
+### Security
+
+- `backupCodes`, `backupCode` and `backupCodeHashes` are redacted from logs and error bodies, next
+  to `stepUpToken` and `totpSecret`.
+
 ## [2.4.0] - 2026-10-14
 
 ### Security

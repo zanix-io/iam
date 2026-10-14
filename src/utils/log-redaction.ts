@@ -8,6 +8,8 @@ import type Zanix from '@zanix/core'
  * - `stepUpToken`, `x-znx-step-up-token`: the `factor-change` proof, in a body or as the header.
  * - `stepUpCode`: the confirmation code of the hosted forms.
  * - `pendingTotpSecret`, `totpSecret`: an authenticator secret.
+ * - `backupCodes`, `backupCode`, `backupCodeHashes`: the TOTP backup codes of an enrollment or a
+ *   regeneration (the answer), one typed at sign-in, and their stored digests.
  *
  * A bare `code` is deliberately not listed: the logger's pattern is also applied to error
  * responses, where `code` is the stable error code a client reads (`FACTOR_CHANGE_PROOF_REQUIRED`),
@@ -20,6 +22,9 @@ export const IAM_REDACTED_KEYS: readonly string[] = [
   'stepUpCode',
   'pendingTotpSecret',
   'totpSecret',
+  'backupCodes',
+  'backupCode',
+  'backupCodeHashes',
 ]
 
 /** The `Zanix.setup()` options that register {@linkcode IAM_REDACTED_KEYS}. */

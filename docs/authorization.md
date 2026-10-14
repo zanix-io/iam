@@ -195,6 +195,18 @@ action, result and date range; `sortBy` may only name `createdAt`, `actor`, `act
 (`400` otherwise). Events expire after `AUDIT_RETENTION_DAYS` (default 365); see
 [Configuration](./configuration.md#audit-and-administration-limits).
 
+#### Resetting an authenticator app
+
+`POST /api/admin/totp/reset` (permission `totp-reset`, a permission of its own so that support staff
+can hold it without managing roles or users; `*` includes it) follows the rules of the other
+administration operations: the caller must be an active account that holds the permission now
+(`ACTOR_LACKS_PERMISSION`), a service credential is refused (`ACTOR_NOT_ACCOUNT`), the call counts
+against the per-operator administration limit, and it is [audited](#audit-trail) as `totp.reset`
+with the operator as `actor`, the account as `target` (`kind: 'account'`), `{ reason }` as `request`
+and `{ totpEnabled, backupCodesRemaining }` as `before` and `after`. It fails closed: if the event
+cannot be written, nothing is reset. Resetting your own account is refused (`TOTP_RESET_SELF`). See
+[Operator reset](./authentication-flows.md#operator-reset-of-an-authenticator-app).
+
 #### Lookup of an account by email
 
 `GET /api/users/lookup?email=` (permission `user-read` or `user-write`) answers the one person whose
@@ -265,18 +277,19 @@ The permissions that gate `iam`'s own admin endpoints
 (`zanix-iam` by default). Every read route accepts the read or the write permission; every mutation
 requires the write permission.
 
-| Key                | Code                              | Gates                                                            |
-| ------------------ | --------------------------------- | ---------------------------------------------------------------- |
-| `roleRead`         | `<SERVICE_ID>:role-read`          | Listing and reading roles                                        |
-| `roleWrite`        | `<SERVICE_ID>:role-write`         | Creating, editing, deleting and assigning roles                  |
-| `permissionRead`   | `<SERVICE_ID>:permission-read`    | Listing and reading permissions                                  |
-| `permissionWrite`  | `<SERVICE_ID>:permission-write`   | Creating and editing permissions                                 |
-| `userRead`         | `<SERVICE_ID>:user-read`          | Searching and reading any profile                                |
-| `userWrite`        | `<SERVICE_ID>:user-write`         | Registering accounts and editing any profile, including `status` |
-| `grantAccessRead`  | `<SERVICE_ID>:grant-access-read`  | Listing, reading and checking grants                             |
-| `grantAccessWrite` | `<SERVICE_ID>:grant-access-write` | Creating, editing and revoking grants                            |
-| `auditRead`        | `<SERVICE_ID>:audit-read`         | Reading the audit trail (`GET /api/audit`)                       |
-| `templatesAccess`  | `<SERVICE_ID>:templates-access`   | The whole `/api/templates` API                                   |
+| Key                | Code                              | Gates                                                                                           |
+| ------------------ | --------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `roleRead`         | `<SERVICE_ID>:role-read`          | Listing and reading roles                                                                       |
+| `roleWrite`        | `<SERVICE_ID>:role-write`         | Creating, editing, deleting and assigning roles                                                 |
+| `permissionRead`   | `<SERVICE_ID>:permission-read`    | Listing and reading permissions                                                                 |
+| `permissionWrite`  | `<SERVICE_ID>:permission-write`   | Creating and editing permissions                                                                |
+| `userRead`         | `<SERVICE_ID>:user-read`          | Searching and reading any profile                                                               |
+| `userWrite`        | `<SERVICE_ID>:user-write`         | Registering accounts and editing any profile, including `status`                                |
+| `grantAccessRead`  | `<SERVICE_ID>:grant-access-read`  | Listing, reading and checking grants                                                            |
+| `grantAccessWrite` | `<SERVICE_ID>:grant-access-write` | Creating, editing and revoking grants                                                           |
+| `auditRead`        | `<SERVICE_ID>:audit-read`         | Reading the audit trail (`GET /api/audit`)                                                      |
+| `templatesAccess`  | `<SERVICE_ID>:templates-access`   | The whole `/api/templates` API                                                                  |
+| `totpReset`        | `<SERVICE_ID>:totp-reset`         | Removing an account's authenticator app (`POST /api/admin/totp/reset`) and listing those resets |
 
 Self-service routes (own profile, own sign-in methods, own account deactivation) need only a
 session.
@@ -286,8 +299,8 @@ session.
 Production seeders (always run, idempotent by fixed id):
 
 - permissions: `*` and every code in the table above. Existing databases receive the ones they are
-  missing at startup (for example `audit-read`); a permission that already exists under the same
-  code but another id is kept, and the seeded one is skipped with a warning;
+  missing at startup (for example `audit-read` and `totp-reset`); a permission that already exists
+  under the same code but another id is kept, and the seeded one is skipped with a warning;
 - roles: `superadmin`, a system role holding only `*`. An existing `superadmin` without `isSystem`
   is marked at startup;
 - the first administrator, when `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` are both set: a

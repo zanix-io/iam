@@ -6,12 +6,13 @@ import { Interactor, SESSION_HEADERS, ZanixInteractor } from '@zanix/server'
 import { contextMessageLang } from 'utils/message-lang.ts'
 import { HttpError } from '@zanix/errors'
 import { createJWT, decodeJWT, JWT_KEY_ENV, verifyJWT, ZanixAuthProvider } from '@zanix/auth'
-import { NotifierProvider, templatesBackendMode } from '@zanix/notifications'
+import { NotifierProvider } from '@zanix/notifications'
 import { resolveBehavior, resolveConfig, resolveResource } from '@zanix/app/runtime'
 import { AuthRepository } from '../repositories/auth/entity.provider.ts'
 import { UsersRepository } from '../repositories/users/entity.provider.ts'
 import { PasswordService } from './password.interactor.ts'
 import {
+  IAM_ERROR_CODES,
   LOGIN_ACTIONS,
   NOTIFIERS,
   REACTIVATION_TOKEN_EXPIRATION,
@@ -29,6 +30,22 @@ import { permissionsForAccount } from './session-permissions.ts'
 import { authenticateAccountOtp, emailVerifiedPayload, recordEmailProof } from './email-proof.ts'
 import { claimOnce, requireFactorChangeProof } from './step-up-proof.ts'
 import { StepUpService } from './step-up.interactor.ts'
+import { type AccountNoticeTemplate, sendAccountNotice } from './account-notice.ts'
+import { createBackupCodeSet, replaceBackupCodes, spendBackupCode } from './backup-codes.ts'
+import { normalizeBackupCode } from 'utils/backup-codes.ts'
+
+/**
+ * The refusal of a sign-in code that does not match. It is the error `@zanix/auth`'s
+ * `totp.authenticate` raises for a wrong authenticator code, so a wrong backup code is
+ * indistinguishable from it.
+ */
+function invalidTotpCode(): HttpError {
+  return new HttpError('FORBIDDEN', {
+    code: 'INVALID_TOTP',
+    cause: 'The provided TOTP code does not match the expected value.',
+    meta: { source: 'zanix' },
+  })
+}
 
 /** Resolves this service's own signing key for a fresh, self-issued token (never derived from an
  * existing token's `kid`, unlike `@zanix/auth`'s internal `getSecretByToken` — there is no existing
@@ -443,6 +460,9 @@ export class AuthService extends ZanixInteractor {
    * matched, so a mistyped code costs no proof. A code is accepted once per account within its
    * window.
    *
+   * Enabling TOTP also issues the account's backup codes (a fresh set, replacing any earlier one):
+   * `backupCodes` in the answer is the only time they are shown; the database keeps their digests.
+   *
    * @param secret The secret a client says it enrolled. Never used as the secret: when present it
    *   must equal the pending one, so a body that carries another secret is refused.
    * @throws {HttpError} `UNAUTHORIZED` with no authenticated session; `FORBIDDEN` for a missing,
@@ -486,15 +506,19 @@ export class AuthService extends ZanixInteractor {
 
     await proof.spend()
 
+    // The backup codes are stored in the write that enables TOTP, so there is no moment with TOTP
+    // on and a half-written set.
+    const { codes, fields } = await createBackupCodeSet(subject)
     await this.providers.get(AuthRepository).updateAuth({
       id: subject,
       totpSecret: pending,
       twoFactorAuthConfig: { method: 'totp', triggerOn: [...LOGIN_ACTIONS] },
+      ...fields,
     }, { applyProtection: true, unset: ['pendingTotpSecret', 'pendingTotpExpiresAt'] })
 
     await this.notifyTotpChange(auth.email?.unmask(), 'totp-enabled')
 
-    return { response: 'TOTP enabled' }
+    return { response: 'TOTP enabled', backupCodes: codes }
   }
 
   /**
@@ -536,7 +560,7 @@ export class AuthService extends ZanixInteractor {
   /**
    * Disables TOTP (authenticator-app) 2FA for the caller's OWN account — the counterpart to
    * `totpConfirm`, clearing both the persisted `totpSecret` and the `twoFactorAuthConfig` that
-   * enables it on login. Only writes when TOTP is actually the account's configured method — same
+   * enables it on login, and the backup codes with them. Only writes when TOTP is actually the account's configured method — same
    * conditional-unset shape as `unlinkOauth`'s own `oauthProvider` check — since
    * `twoFactorAuthConfig.method` can also be an OTP notifier (`TWO_FACTOR_METHODS`), which this
    * must never clear.
@@ -569,7 +593,14 @@ export class AuthService extends ZanixInteractor {
       await this.providers.get(AuthRepository).updateAuth(
         { id: authId },
         {
-          unset: ['totpSecret', 'twoFactorAuthConfig', 'pendingTotpSecret', 'pendingTotpExpiresAt'],
+          unset: [
+            'totpSecret',
+            'twoFactorAuthConfig',
+            'pendingTotpSecret',
+            'pendingTotpExpiresAt',
+            'backupCodeHashes',
+            'backupCodesGeneratedAt',
+          ],
         },
       )
       await this.notifyTotpChange(auth.email?.unmask(), 'totp-disabled')
@@ -578,29 +609,54 @@ export class AuthService extends ZanixInteractor {
   }
 
   /**
-   * Tells the account's owner by email that the second factor was turned on or off, so a session
-   * that is not theirs cannot weaken the account unnoticed. The notice is a database-only template:
-   * without a database-backed templates mode (`local`, or `remote` from a central catalog that carries
-   * it) it does not exist (the worker would fail to render it), and without an email there is nobody
-   * to tell, so nothing is sent.
+   * Tells the account's owner by email that the second factor was turned on or off (see
+   * {@linkcode sendAccountNotice} for when nothing is sent).
    *
    * @param to The account's email, unmasked; `undefined` when it has none.
    * @param template Which notice to send.
    */
-  private async notifyTotpChange(
+  private notifyTotpChange(
     to: string | undefined,
-    template: 'totp-enabled' | 'totp-disabled',
+    template: Extract<AccountNoticeTemplate, 'totp-enabled' | 'totp-disabled'>,
   ): Promise<void> {
-    if (!to || !templatesBackendMode()) return
-    // `zanixTemplate` is typed against `@zanix/notifications`' own BUILT-IN registry only — these are
-    // real, database-only templates this project registers itself (`auth.app.ts`), genuinely unknown to
-    // that static type. Cast, not a mistake.
-    await this.providers.get(NotifierProvider).email({
-      to,
-      zanixTemplate: template,
-      lang: contextMessageLang(this.context),
-      data: {},
-    } as never, { useWorker: 'one-time' })
+    return sendAccountNotice(this.providers, this.context, to, template)
+  }
+
+  /**
+   * Replaces the backup codes of the signed-in account with a new set and answers it. The old codes
+   * stop working at the same instant. Needs a fresh `factor-change` step-up proof for
+   * `totp-backup-codes`; the proof is checked before the account and spent only once the account is
+   * known to have an authenticator app, so a refused request costs no proof. This is also how an
+   * account that enabled TOTP before backup codes existed gets its first set.
+   *
+   * @returns `{ backupCodes }`: the only time the codes are shown.
+   * @throws {HttpError} `UNAUTHORIZED` with no session; `FORBIDDEN` for a missing, invalid or
+   *   spent proof or an account that no longer exists; `CONFLICT` (`TOTP_NOT_ENABLED`) when the
+   *   account has no authenticator app.
+   */
+  public async regenerateBackupCodes() {
+    const subject = this.context.session?.subject
+    if (!subject) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
+    const proof = await requireFactorChangeProof(
+      this.providers,
+      this.context,
+      subject,
+      'totp-backup-codes',
+    )
+
+    const auth = await this.providers.get(AuthRepository).findById(subject) as
+      | HydratedAuth
+      | undefined
+    if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    if (auth.twoFactorAuthConfig?.method !== 'totp') {
+      throw new HttpError('CONFLICT', {
+        message: 'Backup codes need an authenticator app. Enable one first.',
+        code: IAM_ERROR_CODES.totpNotEnabled,
+      })
+    }
+    await proof.spend()
+
+    return { backupCodes: await replaceBackupCodes(this.providers, subject) }
   }
 
   /**
@@ -772,9 +828,12 @@ export class AuthService extends ZanixInteractor {
    * issues session tokens — the same configured `accessExpiration`/`refreshExpiration` as
    * `finishLogin` (see its own doc for why).
    *
+   * `code` is an authenticator code or one of the account's backup codes (see
+   * {@linkcode spendBackupCode}); a backup code is spent by signing in and its owner is emailed.
+   *
    * @throws {HttpError} `FORBIDDEN` when the account has no TOTP secret enrolled, when the linked
    *   `users` profile is deactivated/deleted (`UsersRepository.assertActive`), or when `code`
-   *   doesn't match.
+   *   doesn't match: the same refusal for a wrong authenticator code and a wrong backup code.
    */
   public async loginWithTOTPCallback(email: string, code: string) {
     const auth = await this.providers.get(AuthRepository).findByEmail(
@@ -786,12 +845,6 @@ export class AuthService extends ZanixInteractor {
     }
     await this.providers.get(UsersRepository).assertActive(auth.userId)
 
-    const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
-    // A code signs in once within its window: the claim comes first, so a replay (also a
-    // concurrent one) is refused before it can mint a session.
-    if (!await this.claimTotpCode(auth.id, code, window)) {
-      throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
-    }
     const permissions = await permissionsForAccount(this.providers, auth)
     // Same cast as `finishLogin` — see its own doc for why.
     const accessExpiration = resolveConfiguredAccessExpiration() as
@@ -800,16 +853,48 @@ export class AuthService extends ZanixInteractor {
     const refreshExpiration = resolveConfiguredRefreshExpiration() as
       | AuthSessionOptions['refreshExpiration']
       | undefined
-    const tokens = await this.providers.get(ZanixAuthProvider).totp.authenticate(secret, code, {
+    const sessionOptions = {
       subject: auth.id,
       permissions,
       ...emailVerifiedPayload(Boolean(auth.emailVerifiedAt)),
       ...(accessExpiration !== undefined ? { accessExpiration } : {}),
       ...(refreshExpiration !== undefined ? { refreshExpiration } : {}),
-    }, { window })
+    }
+
+    let tokens
+    if (normalizeBackupCode(code)) {
+      // A backup code takes the place of the authenticator code. A refusal is the one a wrong
+      // authenticator code gets, so the answer does not tell which kind of code was tried.
+      if (!await this.spendBackupCode(auth, code)) throw invalidTotpCode()
+      tokens = await this.providers.get(ZanixAuthProvider).session.generateTokens(sessionOptions)
+    } else {
+      const window = resolveConfig<number>('auth', 'totpToleranceSteps') ?? 1
+      // A code signs in once within its window: the claim comes first, so a replay (also a
+      // concurrent one) is refused before it can mint a session.
+      if (!await this.claimTotpCode(auth.id, code, window)) {
+        throw new HttpError('FORBIDDEN', { message: 'Invalid TOTP code.' })
+      }
+      tokens = await this.providers.get(ZanixAuthProvider).totp.authenticate(
+        secret,
+        code,
+        sessionOptions,
+        { window },
+      )
+    }
 
     await this.persistSession(auth.id)
     return { ...tokens, expiresAt: TOKEN_EXPIRATION }
+  }
+
+  /** Spends a backup code of `auth` and tells its owner; see {@linkcode spendBackupCode}. */
+  private spendBackupCode(auth: HydratedAuth, code: string): Promise<boolean> {
+    return spendBackupCode(
+      this.providers,
+      auth,
+      code,
+      (to, remaining) =>
+        sendAccountNotice(this.providers, this.context, to, 'totp-backup-code-used', { remaining }),
+    )
   }
 
   /**
@@ -999,12 +1084,17 @@ export class AuthService extends ZanixInteractor {
       | HydratedAuth
       | undefined
     if (!auth) throw new HttpError('FORBIDDEN', { message: 'Account not found.' })
+    const totpEnabled = auth.twoFactorAuthConfig?.method === 'totp'
 
     return {
       email: auth.email.unmask(),
       hasPassword: Boolean(auth.password),
       oauthProvider: auth.oauthProvider ?? null,
-      totpEnabled: auth.twoFactorAuthConfig?.method === 'totp',
+      totpEnabled,
+      // Only how many are left, never the codes.
+      backupCodesRemaining: totpEnabled
+        ? await this.providers.get(AuthRepository).countBackupCodes(authId)
+        : 0,
       emailVerified: Boolean(auth.emailVerifiedAt),
       ...(auth.emailVerifiedAt ? { emailVerifiedAt: auth.emailVerifiedAt.toISOString() } : {}),
       // Last 4 digits only — same "never echo a secret/PII-shaped value in full" discipline this

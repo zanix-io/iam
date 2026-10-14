@@ -36,10 +36,10 @@ function fakeModel(existing: { _id: string; code: string }[], inserted: Seeded[]
   }
 }
 
-Deno.test('permissions seeder: has its own version so databases that ran 1.1.0 receive new codes', () => {
+Deno.test('permissions seeder: has its own version so databases that ran 1.1.0 receive new codes (1.3.0 adds totp-reset)', () => {
   const [seeder] = seeders as unknown as { options: { name: string; version: string } }[]
   assertEquals(seeder.options.name, 'seedMissingPermissions')
-  assertEquals(seeder.options.version, '1.2.0')
+  assertEquals(seeder.options.version, '1.3.0')
 })
 
 Deno.test('permissions seeder: inserts only what is missing', async () => {

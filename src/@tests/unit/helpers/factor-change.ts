@@ -51,6 +51,7 @@ const OPERATION_OF_METHOD: Record<string, FactorChangeOperation> = {
   changePwd: 'password-change',
   addPassword: 'password-add',
   removePassword: 'password-remove',
+  regenerateBackupCodes: 'totp-backup-codes',
 }
 
 /**

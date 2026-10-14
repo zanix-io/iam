@@ -64,6 +64,11 @@ levels.
   [Authentication flows](./docs/authentication-flows.md#email-verification).
 - **Account self-service**: sign-in methods (OAuth2 link/unlink, password add/remove, TOTP, phone
   and code channel), password recovery, deactivation with confirmed reactivation, and deletion.
+- **Authenticator backup codes and operator reset**: enabling TOTP issues 10 single-use backup
+  codes, stored as digests and accepted in place of an authenticator code at sign-in and step-up; an
+  operator holding `totp-reset` removes the app of a person who lost it
+  (`POST /api/admin/totp/reset`, audited). See
+  [Authentication flows](./docs/authentication-flows.md#backup-codes).
 - **Step-up**: a signed-in user re-verifies their own second factor (authenticator app, or a code
   through their configured channel) and receives a short-lived signed token that a service checks
   before a sensitive action. See [Authentication flows](./docs/authentication-flows.md#step-up).
