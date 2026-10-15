@@ -90,6 +90,15 @@ Tiers per endpoint are listed in the [REST API reference](./rest-api.md#conventi
 | `ADMIN_LOOKUP_RATELIMIT`                  | `20`    | Requests per window one operator may make to the exact account lookup by email (`GET /api/users/lookup`), counted in a bucket of its own (`iam:admin-lookups`). Stricter than the mutations on purpose.      | `src/utils/constants.ts` (boot) |
 | `ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS`   | `60`    | The window of `ADMIN_LOOKUP_RATELIMIT`.                                                                                                                                                                      | `src/utils/constants.ts` (boot) |
 
+### Services that reset authenticator apps for an operator
+
+| Variable                  | Default | Effect                                                                                                                                                                                                                                                  | Read by                                                       |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `IAM_TOTP_RESET_SERVICES` | unset   | Comma-separated ids of the services allowed to call `/api/admin/service/*` (exchange their credential, look an account up by email, reset its authenticator app for an operator, list the resets). Unset or empty: every call is refused (fail closed). | `src/server/interactors/totp-admin.interactor.ts` (each call) |
+| `JWK_PUB_<serviceId>`     | none    | The listed service's public key (base64 SPKI): it proves the identity of the assertion it signs with its own `JWK_PRI_<serviceId>`. A listed service without it cannot be exchanged.                                                                    | `@zanix/auth`                                                 |
+
+See [Authorization](./authorization.md#resetting-an-authenticator-app-by-a-trusted-service).
+
 `ADMIN_MUTATION_RATELIMIT`, `ADMIN_LOOKUP_RATELIMIT` and their windows must be positive integers: a
 value that is set and is not (`-5`, `0`, `1.5`, `abc`) stops the boot
 (`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead of being absorbed; unset or empty is the default. An

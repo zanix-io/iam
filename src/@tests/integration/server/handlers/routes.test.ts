@@ -7,6 +7,7 @@ import 'server/handlers/users.handler.ts'
 import 'server/handlers/roles.handler.ts'
 import 'server/handlers/audit.handler.ts'
 import 'server/handlers/totp-admin.handler.ts'
+import 'server/handlers/totp-service.handler.ts'
 import 'server/handlers/permissions.handler.ts'
 import 'server/handlers/grant-access.handler.ts'
 import 'server/handlers/oauth-provider.handler.ts'
@@ -159,6 +160,10 @@ Deno.test('REST routes: every controller endpoint is registered at its expected 
     'GET /audit': ['search', { Search: 'SearchAuditRTO' }],
     'POST /admin/totp/reset': ['reset', { Body: 'TotpResetRTO' }],
     'GET /admin/totp/resets': ['resets', { Search: 'SearchTotpResetsRTO' }],
+    'POST /admin/service/token': ['token', { Body: 'ServiceTokenRTO' }],
+    'POST /admin/service/accounts/lookup': ['lookup', { Body: 'ServiceLookupAccountRTO' }],
+    'POST /admin/service/totp/reset': ['reset', { Body: 'ServiceTotpResetRTO' }],
+    'GET /admin/service/totp/resets': ['resets', { Search: 'SearchTotpResetsRTO' }],
     'POST /permissions': ['create', { Body: 'CreatePermissionRTO' }],
     'GET /permissions': ['search', { Search: 'SearchPermissionsRTO' }],
     'GET /permissions/:id': ['getById', { Params: 'PermissionIdParamsRTO' }],
@@ -477,11 +482,42 @@ Deno.test('REST routes: every admin route rejects a valid token that lacks its o
   })
 })
 
+/** The routes for a trusted service (`/admin/service/*`): they take a service credential, and refuse
+ * a user token in the interactor, so they carry no RBAC permission. */
+const SERVICE_ROUTES = [
+  'POST /admin/service/token',
+  'POST /admin/service/accounts/lookup',
+  'POST /admin/service/totp/reset',
+  'GET /admin/service/totp/resets',
+]
+
+Deno.test('REST routes: the service routes authenticate, then carry the administration limit that fits', () => {
+  assertEquals(routes['POST /admin/service/accounts/lookup'].guards.map(guardKind).slice(1), [
+    'jwt',
+    'rateLimit',
+  ])
+  assertEquals(routes['POST /admin/service/totp/reset'].guards.map(guardKind).slice(1), [
+    'jwt',
+    'rateLimit',
+  ])
+  assertEquals(routes['GET /admin/service/totp/resets'].guards.map(guardKind).slice(1), ['jwt'])
+  // The credential exchange is anonymous by design and rate-limited by client in a bucket of its own.
+  assertEquals(routes['POST /admin/service/token'].guards.map(guardKind).slice(1), ['rateLimit'])
+})
+
+Deno.test('REST routes: the service routes accept a user or an api token at the guard, so a user token is a 403 and not a 401', async () => {
+  const source = await Deno.readTextFile(
+    new URL('../../../../server/handlers/totp-service.handler.ts', import.meta.url),
+  )
+  assertEquals(source.match(/type: \['user', 'api'\]/g)?.length, 3)
+})
+
 Deno.test('REST routes: the route tables above account for every registered route', () => {
   const anonymous = Object.keys(ANONYMOUS_ROUTE_LIMITS)
   const covered = new Set([
     ...SELF_SCOPED_ROUTES,
     ...Object.keys(ADMIN_ROUTE_PERMISSIONS),
+    ...SERVICE_ROUTES,
     ...anonymous,
     'POST /login/phone/confirm',
   ])

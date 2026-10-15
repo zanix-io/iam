@@ -237,6 +237,20 @@ reset their own account (`403` `TOTP_RESET_SELF`), and an account without an aut
 answers `409` `TOTP_NOT_ENABLED`. Sessions already issued stay valid: `@zanix/auth` session tokens
 are stateless and are revoked one token at a time, so there is nothing to revoke by account.
 
+#### Reset by a trusted service
+
+When the operators live in another identity directory than the accounts (a staff `iam` next to the
+main one), the operator's console cannot call the reset above: its operators are not accounts of the
+instance that holds the person. A trusted service does it instead. The service is registered with
+its public key (`JWK_PUB_<serviceId>`) and named in `IAM_TOTP_RESET_SERVICES`; it signs an
+assertion, exchanges it at `POST /api/admin/service/token` for a short-lived token, finds the
+account with `POST /api/admin/service/accounts/lookup` (exact email in the body) and resets it with
+`POST /api/admin/service/totp/reset` `{ authId, reason, operator: { id } }`. The effect, the notice
+to the owner and the errors are those of the operator reset; the audit event names the service as
+`actor` and carries `{ reason, operatorId }`. The service is responsible for checking that its
+operator may ask for this before it calls. See
+[REST API](./rest-api.md#authenticator-reset-by-a-trusted-service-apiadminservice).
+
 ### Phone verification and code channel
 
 Requires a session (hosted `phone/enroll` and `phone/confirm` pages).

@@ -195,6 +195,16 @@ action, result and date range; `sortBy` may only name `createdAt`, `actor`, `act
 (`400` otherwise). Events expire after `AUDIT_RETENTION_DAYS` (default 365); see
 [Configuration](./configuration.md#audit-and-administration-limits).
 
+#### Resetting an authenticator app by a trusted service
+
+`/api/admin/service/*` is the one administration surface that takes a service credential, and only
+that: the person asking is an operator of another identity directory, vouched for by the calling
+service. The service must be listed in `IAM_TOTP_RESET_SERVICES` (comma-separated ids; unset or
+empty lists nobody and every call is refused, `SERVICE_NOT_AUTHORIZED`) and have its public key
+registered as `JWK_PUB_<serviceId>`. It holds no RBAC permission here: the allowlist is the grant,
+and a user token, whatever it holds, is refused (`SERVICE_CREDENTIAL_REQUIRED`). Every call is
+[audited](#audit-trail) with the service as `actor`; the reset records `{ reason, operatorId }`.
+
 #### Resetting an authenticator app
 
 `POST /api/admin/totp/reset` (permission `totp-reset`, a permission of its own so that support staff

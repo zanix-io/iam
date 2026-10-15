@@ -39,14 +39,16 @@ export interface TotpResetResult {
 export interface TotpResetEvent {
   /** The audit event id. */
   id: string
-  /** The `auth` id of the operator who made the reset. */
+  /** The `auth` id of the operator who made the reset, or the id of the service that made it for
+   * an operator (`actorType` `api`). */
   actor?: string
   /** Always `'totp.reset'`. */
   action: string
   /** The account that was reset: `target.kind` is `'account'`. */
   target: { kind: string; id?: string }
-  /** What the operator asked for: `{ reason }`. */
-  request?: { reason?: string }
+  /** What the operator asked for: `{ reason }`, plus the `operatorId` the service vouched for when
+   * a service made the reset. */
+  request?: { reason?: string; operatorId?: string }
   /** The account before the reset: `{ totpEnabled, backupCodesRemaining }`. */
   before?: unknown
   /** The account after it. */

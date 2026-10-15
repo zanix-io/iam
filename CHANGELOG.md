@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-10-14
+
+### Added
+
+- **Service endpoints for resetting an authenticator app on behalf of an operator**
+  (`/api/admin/service/*`). For a deployment whose operators live in another identity directory than
+  the accounts they help (a staff `iam` next to the one holding people's accounts), a trusted
+  service acts for the operator it authenticated itself:
+  - `POST /api/admin/service/token` `{ assertion }` exchanges the signed assertion of a service
+    (`@zanix/auth` `createServiceAssertion`, verified against its `JWK_PUB_<serviceId>`) for a
+    short-lived `api` access token, which the other routes take in `X-Znx-Authorization`. Only a
+    service listed in `IAM_TOTP_RESET_SERVICES` is exchanged.
+  - `POST /api/admin/service/accounts/lookup` `{ email }` finds the account with exactly that email
+    (the mechanism of `GET /api/users/lookup`; the address travels in the body) and answers
+    `{ authId, userId, status, hasTotp, backupCodesRemaining }`, never the email or any secret.
+    Unknown, profile-less and `DELETED` accounts answer the same `404` `USER_NOT_FOUND`.
+  - `POST /api/admin/service/totp/reset` `{ authId, reason, operator: { id } }` has exactly the
+    effect of `POST /api/admin/totp/reset` (same code path: secret, TOTP setting, pending enrollment
+    and backup codes cleared, the owner emailed `totp-reset-by-operator`; `404`, `409`
+    `TOTP_NOT_ENABLED`). `operator.id` is the operator's opaque id in the service's own directory (1
+    to 128 of `A-Za-z0-9_.:@-`); equal to the target's `authId` it is refused `403`
+    `TOTP_RESET_SELF`. The audit event is `totp.reset` with the service as `actor` (`actorType`
+    `api`) and `{ reason, operatorId }` as `request`, and fails closed.
+  - `GET /api/admin/service/totp/resets` lists those events for the service.
+  - **`IAM_TOTP_RESET_SERVICES`** (comma-separated service ids) names the services that may call.
+    Unset or empty, every call is refused (`403` `SERVICE_NOT_AUTHORIZED`). A user token on these
+    routes is `403` `SERVICE_CREDENTIAL_REQUIRED`. The lookup counts against
+    `ADMIN_LOOKUP_RATELIMIT` and the reset against `ADMIN_MUTATION_RATELIMIT`, per calling service.
+- **`@zanix/iam/ui/sdk/totp-service`**: `TotpServiceClient` (`lookupAccount`, `resetTotp`,
+  `listResets`), which signs its calls with a service credential given as `serviceAuth`
+  (`createServiceAuthClient` fits), and the `getTotpServiceClient` / `setTotpServiceClientFactory` /
+  `resetTotpServiceClientFactory` accessors of `createIamClientRegistry` (new option `serviceAuth`).
+  `TotpResetEvent.request` gains `operatorId`.
+
+### Fixed
+
+- **Two concurrent operator resets of one account both succeeded.** The reset read the account and
+  then wrote unconditionally, so two simultaneous requests each found an authenticator app, each
+  emailed the owner and each recorded `ok`. The write now applies only while the account still has
+  an authenticator app (`AuthRepository.updateAuth` takes `onlyIf`), so exactly one wins and the
+  other answers `409` `TOTP_NOT_ENABLED`.
+
 ## [2.5.0] - 2026-10-14
 
 ### Added

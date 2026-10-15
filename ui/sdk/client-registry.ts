@@ -5,6 +5,7 @@ import { PhoneClient } from './client/phone.client.ts'
 import { StepUpClient } from './client/step-up.client.ts'
 import { TotpAdminClient } from './client/totp-admin.client.ts'
 import { TotpClient } from './client/totp.client.ts'
+import { TotpServiceClient, type TotpServiceClientOptions } from './client/totp-service.client.ts'
 import { UsersClient } from './client/users.client.ts'
 
 /** The get/set/reset accessors of one client, named after it: `getLoginClient`,
@@ -24,6 +25,7 @@ export type IamClientRegistry =
   & ClientSeams<'Users', UsersClient>
   & ClientSeams<'StepUp', StepUpClient>
   & ClientSeams<'TotpAdmin', TotpAdminClient>
+  & ClientSeams<'TotpService', TotpServiceClient>
 
 /** A swappable factory: `get` builds (or returns the swapped-in) client, `set` replaces the
  * factory, `reset` restores the default one. */
@@ -53,8 +55,12 @@ function seam<T>(build: () => T) {
  *   createIamClientRegistry({ baseUrl: requireIamServiceBaseUrl })
  * ```
  * @param options.baseUrl - Resolves `iam`'s REST API base URL (its `globalPrefix` included).
+ * @param options.serviceAuth - The service credential `getTotpServiceClient` signs its calls with
+ *   (see `TotpServiceClientOptions.serviceAuth`). Omitted, that accessor throws when called.
  */
-export function createIamClientRegistry(options: { baseUrl: () => string }): IamClientRegistry {
+export function createIamClientRegistry(
+  options: { baseUrl: () => string; serviceAuth?: TotpServiceClientOptions['serviceAuth'] },
+): IamClientRegistry {
   const build = <T>(Client: new (options: { baseUrl: string }) => T) => () =>
     new Client({ baseUrl: options.baseUrl() })
   const login = seam(build(LoginClient))
@@ -65,6 +71,13 @@ export function createIamClientRegistry(options: { baseUrl: () => string }): Iam
   const users = seam(build(UsersClient))
   const stepUp = seam(build(StepUpClient))
   const totpAdmin = seam(build(TotpAdminClient))
+  const totpService = seam(() => {
+    const { serviceAuth } = options
+    if (!serviceAuth) {
+      throw new Error('createIamClientRegistry() was given no serviceAuth for the service client.')
+    }
+    return new TotpServiceClient({ baseUrl: options.baseUrl(), serviceAuth })
+  })
 
   return {
     getLoginClient: login.get,
@@ -91,5 +104,8 @@ export function createIamClientRegistry(options: { baseUrl: () => string }): Iam
     getTotpAdminClient: totpAdmin.get,
     setTotpAdminClientFactory: totpAdmin.set,
     resetTotpAdminClientFactory: totpAdmin.reset,
+    getTotpServiceClient: totpService.get,
+    setTotpServiceClientFactory: totpService.set,
+    resetTotpServiceClientFactory: totpService.reset,
   }
 }

@@ -647,6 +647,23 @@ export const adminLookupRateLimitWindowSeconds: number = positiveIntegerEnv(
   60,
 )
 
+/** Env var name for {@linkcode totpResetServices}. */
+export const IAM_TOTP_RESET_SERVICES_ENV = 'IAM_TOTP_RESET_SERVICES'
+
+/**
+ * The ids of the services allowed to look accounts up and reset authenticator apps on behalf of an
+ * operator (`/admin/service/*`): the comma-separated `IAM_TOTP_RESET_SERVICES`, trimmed, without
+ * empty entries. Read at each call. Unset or empty means no service is allowed, so the service
+ * endpoints refuse everyone (fail closed). Each id also needs its public key registered as
+ * `JWK_PUB_<id>`, which is what lets it prove its identity.
+ */
+export function totpResetServices(): string[] {
+  return (Deno.env.get(IAM_TOTP_RESET_SERVICES_ENV) ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+}
+
 /** Longest email address accepted by the lookup (RFC 5321's limit for a path is 254 octets). */
 export const MAX_LOOKUP_EMAIL_LENGTH = 254
 
@@ -691,6 +708,10 @@ export const IAM_ERROR_CODES = {
   totpResetSelf: 'TOTP_RESET_SELF',
   /** The account has no authenticator app to reset (or to issue backup codes for). */
   totpNotEnabled: 'TOTP_NOT_ENABLED',
+  /** A service endpoint was called with a session that is not a service credential. */
+  serviceCredentialRequired: 'SERVICE_CREDENTIAL_REQUIRED',
+  /** The calling service is not listed in `IAM_TOTP_RESET_SERVICES`. */
+  serviceNotAuthorized: 'SERVICE_NOT_AUTHORIZED',
 } as const
 
 /**

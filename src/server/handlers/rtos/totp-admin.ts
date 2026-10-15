@@ -1,5 +1,7 @@
 import { BaseRTO, IsObjectID, IsString, Match } from '@zanix/validator'
 import { SearchPaginationRTO } from '@zanix/datamaster'
+import { IsLookupEmail } from './validations/is-lookup-email.ts'
+import { IsOperatorRef } from './validations/is-operator-ref.ts'
 
 /** The longest reason an operator may give for a reset, after trimming. */
 export const TOTP_RESET_REASON_MAX = 200
@@ -31,4 +33,26 @@ export class TotpResetRTO extends BaseRTO {
 export class SearchTotpResetsRTO extends SearchPaginationRTO {
   @IsObjectID({ expose: true, optional: true })
   accessor authId: string | undefined
+}
+
+/** `POST /admin/service/token` body: the signed assertion of a service (see `@zanix/auth`'s
+ * `createServiceAssertion`). */
+export class ServiceTokenRTO extends BaseRTO {
+  @IsString({ expose: true })
+  accessor assertion!: string
+}
+
+/** `POST /admin/service/accounts/lookup` body: the exact email of the account, never in a URL. */
+export class ServiceLookupAccountRTO extends BaseRTO {
+  @IsLookupEmail({ expose: true, transform: (value) => value?.trim() })
+  accessor email!: string
+}
+
+/**
+ * `POST /admin/service/totp/reset` body: the account, why, and the operator the calling service
+ * vouches for. `operator.id` is opaque to `iam` and lands in the audit event next to the service.
+ */
+export class ServiceTotpResetRTO extends TotpResetRTO {
+  @IsOperatorRef({ expose: true })
+  accessor operator!: { id: string }
 }

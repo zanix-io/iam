@@ -147,15 +147,19 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
    * @param options.applyProtection Whether to apply this model's own data policies (hash/encrypt
    *   getters) to the fields being written, e.g. hashing a plain-text `password`.
    * @param options.unset Field names to remove entirely (e.g. clearing `mustChangePassword`).
+   * @param options.onlyIf Extra conditions the stored document must still meet for the update to
+   *   apply, checked in the same write; the result's `matchedCount` is `0` when it no longer does
+   *   (a concurrent change got there first).
    */
   public updateAuth(
     authData: Partial<AuthenticationAttrs> & { id: string },
     options: {
       applyProtection?: boolean
       unset?: (keyof AuthenticationAttrs)[]
+      onlyIf?: Record<string, unknown>
     } = {},
   ) {
-    const { applyProtection, unset } = options
+    const { applyProtection, unset, onlyIf } = options
     const { id, ...data } = authData
 
     const opts: Record<string, unknown> = { $set: data }
@@ -166,7 +170,8 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
       }, {} as Record<string, unknown>)
     }
 
-    return this.Model.updateOne({ _id: id }, opts, { useDataPolicies: applyProtection }).exec()
+    return this.Model.updateOne({ ...onlyIf, _id: id }, opts, { useDataPolicies: applyProtection })
+      .exec()
   }
 
   /**

@@ -1,6 +1,6 @@
 {
   "name": "@zanix/iam",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "zanix": {
     "project": "space-server"
   },
@@ -179,6 +179,7 @@
     "./ui/sdk/otp": "./ui/sdk/otp.ts",
     "./ui/sdk/totp": "./ui/sdk/totp.ts",
     "./ui/sdk/totp-admin": "./ui/sdk/totp-admin.ts",
+    "./ui/sdk/totp-service": "./ui/sdk/totp-service.ts",
     "./ui/sdk/step-up": "./ui/sdk/step-up.ts",
     "./ui/sdk/phone": "./ui/sdk/phone.ts",
     "./ui/sdk/password-recovery": "./ui/sdk/password-recovery.ts",

@@ -19,6 +19,7 @@ For typed clients over these endpoints, see the
 - [One-time codes (`/api/login/otp`)](#one-time-codes-apiloginotp)
 - [Authenticator app (`/api/login/totp`)](#authenticator-app-apilogintotp)
 - [Authenticator reset by an operator (`/api/admin/totp`)](#authenticator-reset-by-an-operator-apiadmintotp)
+- [Authenticator reset by a trusted service (`/api/admin/service`)](#authenticator-reset-by-a-trusted-service-apiadminservice)
 - [OAuth2 sign-in (`/api/login/:oauth`)](#oauth2-sign-in-apiloginoauth)
 - [Phone and login-code channel (`/api/login/phone`)](#phone-and-login-code-channel-apiloginphone)
 - [Step-up (`/api/step-up`)](#step-up-apistep-up)
@@ -185,6 +186,39 @@ without it they answer `403` `FACTOR_CHANGE_PROOF_REQUIRED`.
   (`{ total, page, limit, docs }`), optionally for one account. It exists for holders of
   `totp-reset` who do not hold `audit-read`; `GET /api/audit?action=totp.reset` lists the same
   events.
+
+### Authenticator reset by a trusted service (`/api/admin/service`)
+
+For a deployment whose operators live in another identity directory than the accounts they help, a
+trusted service acts for an operator it authenticated. The caller is a service credential, never a
+user token: it signs an assertion with its own key (registered here as `JWK_PUB_<serviceId>`),
+exchanges it at `token` and sends the result in `X-Znx-Authorization`. Only the services listed in
+`IAM_TOTP_RESET_SERVICES` are served; unset or empty, every call is refused with `403`
+`SERVICE_NOT_AUTHORIZED`, and a user token is `403` `SERVICE_CREDENTIAL_REQUIRED`.
+
+| Method and path                           | Auth               | Rate limit                                        | Request                                     |
+| ----------------------------------------- | ------------------ | ------------------------------------------------- | ------------------------------------------- |
+| `POST /api/admin/service/token`           | Signed assertion   | `service:token`, `criticalRateLimit` (per client) | Body `{ assertion }`                        |
+| `POST /api/admin/service/accounts/lookup` | Service credential | `ADMIN_LOOKUP_RATELIMIT` (per service)            | Body `{ email }`                            |
+| `POST /api/admin/service/totp/reset`      | Service credential | `ADMIN_MUTATION_RATELIMIT` (per service)          | Body `{ authId, reason, operator: { id } }` |
+| `GET /api/admin/service/totp/resets`      | Service credential | —                                                 | Query `authId?`, `page`, `limit`            |
+
+- **`POST /api/admin/service/token`** answers `{ accessToken, expiresIn, serviceId }`. `403`
+  (`SERVICE_NOT_AUTHORIZED`) for a service that is not listed; `400` for an assertion that does not
+  verify (wrong key, expired, malformed).
+- **`POST /api/admin/service/accounts/lookup`** answers
+  `{ authId, userId, status, hasTotp,
+  backupCodesRemaining }` for the account with exactly that
+  email (the address is in the body, never a URL, and is not in the answer). `404` `USER_NOT_FOUND`
+  whether the address has no account, the account has no profile or the person is `DELETED`.
+- **`POST /api/admin/service/totp/reset`** has the effect of `POST /api/admin/totp/reset` (same code
+  path): `{ response: 'TOTP reset' }`, `404`, `409` `TOTP_NOT_ENABLED`, `400` for an invalid body.
+  `operator.id` is required: the operator's opaque id in the service's own directory, 1 to 128 of
+  `A-Za-z0-9_.:@-`. Equal to the target's `authId` it is `403` `TOTP_RESET_SELF`. The audit event is
+  `totp.reset` with the service as `actor` (`actorType` `api`) and `{ reason, operatorId }` as
+  `request`; it fails closed.
+- **`GET /api/admin/service/totp/resets`** lists those audit events, newest first
+  (`{ total, page, limit, docs }`), optionally for one account.
 
 ### OAuth2 sign-in (`/api/login/:oauth`)
 

@@ -76,6 +76,7 @@ Described in [Authorization](./authorization.md).
 | Authenticator notice templates seeding    | [`server/apps/auth.app.ts`](../src/server/apps/auth.app.ts) (`registerTemplateSeeds`)                                                      |
 | TOTP backup codes                         | [`utils/backup-codes.ts`](../src/utils/backup-codes.ts), [`server/interactors/backup-codes.ts`](../src/server/interactors/backup-codes.ts) |
 | Operator reset of an authenticator app    | [`server/interactors/totp-admin.interactor.ts`](../src/server/interactors/totp-admin.interactor.ts)                                        |
+| Reset by a trusted service                | [`server/handlers/totp-service.handler.ts`](../src/server/handlers/totp-service.handler.ts)                                                |
 | Discovery (`codeTemplatesDiscovery`)      | [`mod.ts`](../mod.ts)                                                                                                                      |
 
 ### See also
