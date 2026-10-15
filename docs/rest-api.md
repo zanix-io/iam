@@ -255,11 +255,13 @@ exchanges it at `token` and sends the result in `X-Znx-Authorization`. Only the 
 - `phone` is E.164-shaped (`+` optional, spaces, parentheses and hyphens are stripped before the
   check).
 - **`POST /api/login/phone/enroll`** sends an SMS code valid 5 minutes; the number is not stored
-  yet.
-- **`POST /api/login/phone/confirm`** stores the number when the code matches (`403` otherwise); the
-  code is consumed atomically and the route needs a proof bound to `phone-confirm`. The
-  `phoneConfirmRateLimitIdentityGuard` applies the `freeRateLimit` ceiling to the authenticated
-  caller, which the token's own account-wide limit would otherwise replace.
+  yet. The code is bound to that number. Limited per account (`429` from the rate limiter) and per
+  number: a number that was sent a code in the last `PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS` answers
+  `429` `PHONE_ENROLL_TOO_SOON` with `meta.retryAfterSeconds`, and no SMS is sent.
+- **`POST /api/login/phone/confirm`** stores the number when the code matches the one sent to that
+  same number (`403` otherwise); the code is consumed atomically and the route needs a proof bound
+  to `phone-confirm`. The `phoneConfirmRateLimitIdentityGuard` applies the `freeRateLimit` ceiling
+  to the authenticated caller, which the token's own account-wide limit would otherwise replace.
 - **`DELETE /api/login/phone`** forgets the phone and any `sms`/`whatsapp` channel preference (proof
   bound to `phone-disable`).
 - **`POST /api/login/otp-notifier`** sets the channel for passwordless login codes: `sms` or

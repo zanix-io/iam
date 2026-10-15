@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-10-15
+
+### Security
+
+- **A phone number could be confirmed without receiving anything at it.** The verification code was
+  kept under `phone-enroll:<account>`, with no number in it, so a code sent to number A confirmed
+  number B: any signed-in account could store a number it never proved as its verified phone, and
+  the SMS login codes and recovery codes sent to it would go to whoever owns that number. The code
+  is now kept under `phone-enroll:<account>:<phone>` and `phone/confirm` verifies against the number
+  it is given, so confirming another number fails with the same `403` as a wrong code. A code
+  requested before the update stops working (it lasts 5 minutes).
+- **`POST /api/login/phone/enroll` sent a paid SMS to any number, as often as asked.** Any signed-in
+  account could flood a number or run up the SMS bill. The route now has a limit per account
+  (`PHONE_ENROLL_RATELIMIT`, default 5 per `PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS`, default 3600, in
+  its own bucket `iam:phone-enroll`) and a cooldown per number for every account
+  (`PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS`, default 60): a second request for the same number inside
+  it answers `429` `PHONE_ENROLL_TOO_SOON` with `meta.retryAfterSeconds` and sends nothing.
+
 ## [2.5.1] - 2026-10-14
 
 ### Added

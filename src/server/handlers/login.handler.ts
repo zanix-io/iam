@@ -30,6 +30,7 @@ import {
 import { criticalRateLimit, freeRateLimit, loginMethodsRateLimit } from 'utils/constants.ts'
 import { refreshRateLimitIdentityGuard } from 'utils/refresh-rate-limit-guard.ts'
 import { phoneConfirmRateLimitIdentityGuard } from 'utils/phone-confirm-rate-limit-guard.ts'
+import { PhoneEnrollRateLimit } from 'utils/phone-enroll-rate-limit.ts'
 import { messageLangGuard } from 'utils/message-lang.ts'
 import { stepUpTokenGuard } from 'utils/step-up-token-guard.ts'
 
@@ -295,10 +296,13 @@ export class LoginController extends ZanixController<AuthService> {
   /**
    * Begins phone verification for the caller's own account — sends a one-time SMS code to `phone`,
    * not yet persisted. Requires a valid access token; confirm with `phoneConfirm` before the
-   * number is actually stored.
+   * number is actually stored. Limited per account (`PHONE_ENROLL_RATELIMIT` per
+   * `PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS`) and per number (`PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS`),
+   * since each request sends a paid SMS to a number the caller names.
    */
   @Post('phone/enroll', { Body: PhoneEnrollRTO })
   @Guard(messageLangGuard())
+  @PhoneEnrollRateLimit()
   @AuthTokenValidation()
   public phoneEnroll(ctx: HandlerContext<{ body: PhoneEnrollRTO }>) {
     return this.interactor.phoneEnroll(ctx.payload.body.phone)

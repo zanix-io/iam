@@ -11,6 +11,8 @@ import { UsersRepository } from 'server/repositories/users/entity.provider.ts'
 import { RolesRepository } from 'server/repositories/roles/entity.provider.ts'
 import {
   ACCESS_TOKEN_EXPIRATION_ENV,
+  IAM_ERROR_CODES,
+  phoneEnrollNumberCooldownSeconds,
   REACTIVATION_TOKEN_PURPOSE,
   REFRESH_TOKEN_EXPIRATION_ENV,
 } from 'utils/constants.ts'
@@ -1144,7 +1146,10 @@ Deno.test('phoneEnroll: generates an OTP against a namespaced target and sends i
   const { service, authProvider, notifier } = buildService()
   const result = await service.phoneEnroll('+15551234567')
   assertEquals(result, { response: 'notification sent' })
-  assertEquals(authProvider.otp.generate.calls[0]?.[0], { target: 'phone-enroll:auth-1', exp: 300 })
+  assertEquals(authProvider.otp.generate.calls[0]?.[0], {
+    target: 'phone-enroll:auth-1:+15551234567',
+    exp: 300,
+  })
   const [channel, message] = notifier.sendMessage.calls[0] as [
     string,
     { zanixTemplate: string; to: string; data: { code: string; ttl: number } },
@@ -1153,6 +1158,63 @@ Deno.test('phoneEnroll: generates an OTP against a namespaced target and sends i
   assertEquals(message.to, '+15551234567')
   assertEquals(message.zanixTemplate, 'otp')
   assertEquals(message.data, { code: '123456', ttl: 5 })
+})
+
+Deno.test('phoneEnroll: a number that was just sent a code is refused, and the second request sends no SMS', async () => {
+  const { service, notifier } = buildService()
+  await service.phoneEnroll('+15551234567')
+  const refused = await assertRejects(() => service.phoneEnroll('+15551234567'), HttpError)
+  assertEquals(refused.status.code, 'TOO_MANY_REQUESTS')
+  assertEquals(refused.code, IAM_ERROR_CODES.phoneEnrollTooSoon)
+  assertEquals(refused.meta?.retryAfterSeconds, phoneEnrollNumberCooldownSeconds)
+  assertEquals(notifier.sendMessage.calls.length, 1)
+})
+
+Deno.test('phoneEnroll: the cooldown is per number, not per account', async () => {
+  const { service, notifier } = buildService()
+  await service.phoneEnroll('+15551234567')
+  await service.phoneEnroll('+15557654321')
+  assertEquals(notifier.sendMessage.calls.length, 2)
+})
+
+Deno.test('phoneEnroll: another account is refused for a number that was just sent a code', async () => {
+  const claims = fakeClaimRepo()
+  const first = buildService({ claims })
+  await first.service.phoneEnroll('+15551234567')
+  const other = buildService({ claims, session: { id: 'auth-2', subject: 'auth-2' } })
+  const refused = await assertRejects(() => other.service.phoneEnroll('+15551234567'), HttpError)
+  assertEquals(refused.code, IAM_ERROR_CODES.phoneEnrollTooSoon)
+  assertEquals(other.notifier.sendMessage.calls.length, 0)
+})
+
+Deno.test('phoneConfirm: a code sent to one number never confirms another', async () => {
+  // An OTP provider that holds each code under the target it was generated for, as the real one does.
+  const codes = new Map<string, string>()
+  const otp = {
+    ...defaultAuthProvider().otp,
+    generate: fn((args: unknown) => {
+      const { target } = args as { target: string }
+      codes.set(target, '123456')
+      return '123456'
+    }),
+    verify: fn((target: unknown, code: unknown) => codes.get(target as string) === code),
+  }
+  const { service, authRepo } = buildService({ authProvider: { otp } })
+  await service.phoneEnroll('+15551234567')
+
+  await assertRejects(
+    () => service.phoneConfirm('+15559999999', '123456'),
+    HttpError,
+    'Invalid or expired code',
+  )
+  assertEquals(authRepo.updateAuth.calls.length, 0)
+
+  const result = await service.phoneConfirm('+15551234567', '123456')
+  assertEquals(result, { response: 'Phone verified' })
+  assertEquals(authRepo.updateAuth.calls[0], [
+    { id: 'auth-1', phone: '+15551234567' },
+    { applyProtection: true },
+  ])
 })
 
 Deno.test('phoneConfirm: throws UNAUTHORIZED with no session', async () => {
@@ -1174,7 +1236,7 @@ Deno.test('phoneConfirm: throws FORBIDDEN when the code does not verify — neve
     'Invalid or expired code',
   )
   assertEquals(authRepo.updateAuth.calls.length, 0)
-  assertEquals(authProvider.otp.verify.calls[0], ['phone-enroll:auth-1', 'wrong'])
+  assertEquals(authProvider.otp.verify.calls[0], ['phone-enroll:auth-1:+15551234567', 'wrong'])
 })
 
 Deno.test('phoneConfirm: a verified code persists phone, never otpNotifier', async () => {

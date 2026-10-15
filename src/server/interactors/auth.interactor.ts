@@ -15,6 +15,7 @@ import {
   IAM_ERROR_CODES,
   LOGIN_ACTIONS,
   NOTIFIERS,
+  phoneEnrollNumberCooldownSeconds,
   REACTIVATION_TOKEN_EXPIRATION,
   REACTIVATION_TOKEN_PURPOSE,
   resolveConfiguredAccessExpiration,
@@ -666,20 +667,46 @@ export class AuthService extends ZanixInteractor {
    * Verification is always by SMS regardless of which channel the caller later picks for their own
    * login-OTP preference (`setOtpNotifier`) — this step only proves phone ownership.
    *
-   * Keyed under its OWN namespaced `target` (`phone-enroll:<subject>`), deliberately never the
-   * same target `PasswordService.recovery`/`loginWithOTPCallback` use (the account id/email
+   * Keyed under its OWN namespaced `target` (`phone-enroll:<subject>:<phone>`), deliberately never
+   * the same target `PasswordService.recovery`/`loginWithOTPCallback` use (the account id/email
    * directly) — a login-OTP request in flight for this same account must never verify against (or
-   * invalidate) a phone-enrollment code, or vice versa.
+   * invalidate) a phone-enrollment code, or vice versa. The number is part of the target, so the
+   * code only verifies for the number it was sent to: `phoneConfirm` with another number finds no
+   * code.
    *
-   * @throws {HttpError} `UNAUTHORIZED` when called with no authenticated session.
+   * Each request sends a paid SMS to a number the caller names, so a number that was sent a code
+   * less than `PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS` ago is refused, whichever account asks (the
+   * route's per-account limit cannot see several accounts aiming at one number).
+   *
+   * @throws {HttpError} `UNAUTHORIZED` when called with no authenticated session;
+   *   `TOO_MANY_REQUESTS` (`PHONE_ENROLL_TOO_SOON`, `meta.retryAfterSeconds`) for a number that was
+   *   just sent one.
    */
   public async phoneEnroll(phone: string) {
     const subject = this.context.session?.subject
     if (!subject) throw new HttpError('UNAUTHORIZED', { message: 'Authentication required.' })
 
+    // Claimed before anything is generated or sent: the claim is what keeps a number from being
+    // flooded, so a refused request costs no SMS.
+    if (
+      !await claimOnce(
+        this.providers,
+        'otp',
+        `phone-enroll-to:${phone}`,
+        phoneEnrollNumberCooldownSeconds,
+      )
+    ) {
+      throw new HttpError('TOO_MANY_REQUESTS', {
+        message: 'A code was sent to this number a moment ago.',
+        code: IAM_ERROR_CODES.phoneEnrollTooSoon,
+        meta: { retryAfterSeconds: phoneEnrollNumberCooldownSeconds },
+        exposeMeta: true,
+      })
+    }
+
     const ttl = 300
     const code = await this.providers.get(ZanixAuthProvider).otp.generate({
-      target: `phone-enroll:${subject}`,
+      target: `phone-enroll:${subject}:${phone}`,
       exp: ttl,
     })
 
@@ -695,7 +722,8 @@ export class AuthService extends ZanixInteractor {
 
   /**
    * Confirms phone verification: verifies `code` against the SAME namespaced target
-   * `phoneEnroll` generated it under and, only on success, persists `phone` on the current
+   * `phoneEnroll` generated it under (which includes `phone`, so a code sent to one number never
+   * confirms another) and, only on success, persists `phone` on the current
    * session's account — the first and only place `auth.phone` is ever written in this project.
    * Deliberately does NOT also set `otpNotifier` here — verifying ownership and choosing a login
    * delivery channel are two separate actions (`setOtpNotifier`, below), so confirming a phone
@@ -718,7 +746,7 @@ export class AuthService extends ZanixInteractor {
       'phone-confirm',
     )
 
-    const target = `phone-enroll:${subject}`
+    const target = `phone-enroll:${subject}:${phone}`
     const verified = await this.providers.get(ZanixAuthProvider).otp.verify(target, code)
     // The library's check-then-burn lets two concurrent verifications of one code both pass; the
     // claim lets exactly one through.

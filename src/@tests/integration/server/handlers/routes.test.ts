@@ -224,6 +224,12 @@ Deno.test('REST routes: phone/confirm authenticates, then overrides the rate lim
   ])
 })
 
+Deno.test('REST routes: phone/enroll authenticates before it rate-limits, so the limit counts the account', () => {
+  const kinds = routes['POST /login/phone/enroll'].guards.map(guardKind)
+  assertEquals(kinds.indexOf('jwt') < kinds.indexOf('rateLimit'), true, kinds.join(', '))
+  assertEquals(kinds.includes('rateLimit'), true)
+})
+
 /** Every operation that changes a second factor or a credential, with the guard that records the
  * step-up token for it. */
 const FACTOR_CHANGE_ROUTES = [

@@ -647,6 +647,39 @@ export const adminLookupRateLimitWindowSeconds: number = positiveIntegerEnv(
   60,
 )
 
+/** Env var name for {@linkcode phoneEnrollRateLimit}. */
+export const PHONE_ENROLL_RATELIMIT_ENV = 'PHONE_ENROLL_RATELIMIT'
+
+/** Env var name for {@linkcode phoneEnrollRateLimitWindowSeconds}. */
+export const PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS_ENV = 'PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS'
+
+/** Env var name for {@linkcode phoneEnrollNumberCooldownSeconds}. */
+export const PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS_ENV = 'PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS'
+
+/**
+ * Verification SMS one account may ask for per window (`POST /login/phone/enroll`), in a bucket of
+ * its own. Each request sends a paid message to a number the caller names, so the count is per
+ * account and a new login or refresh does not start a new one. A positive integer; defaults to 5.
+ * Anything else stops the boot (see {@linkcode positiveIntegerEnv}).
+ */
+export const phoneEnrollRateLimit: number = positiveIntegerEnv(PHONE_ENROLL_RATELIMIT_ENV, 5)
+
+/** The window of {@linkcode phoneEnrollRateLimit}, in seconds: a positive integer, default 3600. */
+export const phoneEnrollRateLimitWindowSeconds: number = positiveIntegerEnv(
+  PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS_ENV,
+  3600,
+)
+
+/**
+ * How long a number is left alone after a verification SMS went to it, for every account: a second
+ * request for the same number inside the cooldown is refused. It keeps one number from being flooded
+ * by several accounts, which the per-account limit cannot see. A positive integer; defaults to 60.
+ */
+export const phoneEnrollNumberCooldownSeconds: number = positiveIntegerEnv(
+  PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS_ENV,
+  60,
+)
+
 /** Env var name for {@linkcode totpResetServices}. */
 export const IAM_TOTP_RESET_SERVICES_ENV = 'IAM_TOTP_RESET_SERVICES'
 
@@ -712,6 +745,8 @@ export const IAM_ERROR_CODES = {
   serviceCredentialRequired: 'SERVICE_CREDENTIAL_REQUIRED',
   /** The calling service is not listed in `IAM_TOTP_RESET_SERVICES`. */
   serviceNotAuthorized: 'SERVICE_NOT_AUTHORIZED',
+  /** A code was sent to that phone number a moment ago; `meta.retryAfterSeconds` says how long to wait. */
+  phoneEnrollTooSoon: 'PHONE_ENROLL_TOO_SOON',
 } as const
 
 /**

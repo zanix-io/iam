@@ -255,9 +255,13 @@ operator may ask for this before it calls. See
 
 Requires a session (hosted `phone/enroll` and `phone/confirm` pages).
 
-1. `POST /api/login/phone/enroll` with `{ phone }` sends an SMS code; nothing is stored.
+1. `POST /api/login/phone/enroll` with `{ phone }` sends an SMS code; nothing is stored. It is
+   limited per account (`PHONE_ENROLL_RATELIMIT` per window) and per number
+   (`PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS`, for every account), since each request sends a paid SMS
+   to a number the caller names.
 2. `POST /api/login/phone/confirm` with `{ phone, code }` stores the number when the code verifies,
-   limited to `freeRateLimit` attempts per account.
+   limited to `freeRateLimit` attempts per account. The code belongs to the number it was sent to:
+   confirming another number fails.
 3. `POST /api/login/otp-notifier` with `{ notifier: 'sms' | 'whatsapp' }` makes that channel the
    default for passwordless codes; omitting it returns to email.
 4. `DELETE /api/login/phone` forgets the number and the channel preference.

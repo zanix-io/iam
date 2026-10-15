@@ -89,6 +89,9 @@ Tiers per endpoint are listed in the [REST API reference](./rest-api.md#conventi
 | `ADMIN_MUTATION_RATELIMIT_WINDOW_SECONDS` | `60`    | The window of `ADMIN_MUTATION_RATELIMIT`.                                                                                                                                                                    | `src/utils/constants.ts` (boot) |
 | `ADMIN_LOOKUP_RATELIMIT`                  | `20`    | Requests per window one operator may make to the exact account lookup by email (`GET /api/users/lookup`), counted in a bucket of its own (`iam:admin-lookups`). Stricter than the mutations on purpose.      | `src/utils/constants.ts` (boot) |
 | `ADMIN_LOOKUP_RATELIMIT_WINDOW_SECONDS`   | `60`    | The window of `ADMIN_LOOKUP_RATELIMIT`.                                                                                                                                                                      | `src/utils/constants.ts` (boot) |
+| `PHONE_ENROLL_RATELIMIT`                  | `5`     | Verification SMS one account may ask for per window (`POST /api/login/phone/enroll`), in a bucket of its own (`iam:phone-enroll`) counted per account across all its tokens.                                 |                                 |
+| `PHONE_ENROLL_RATELIMIT_WINDOW_SECONDS`   | `3600`  | The window of `PHONE_ENROLL_RATELIMIT`.                                                                                                                                                                      |                                 |
+| `PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS`    | `60`    | How long a number is left alone after a verification SMS went to it, whichever account asks; a second request inside it is refused with `429` `PHONE_ENROLL_TOO_SOON`.                                       |                                 |
 
 ### Services that reset authenticator apps for an operator
 
@@ -99,13 +102,14 @@ Tiers per endpoint are listed in the [REST API reference](./rest-api.md#conventi
 
 See [Authorization](./authorization.md#resetting-an-authenticator-app-by-a-trusted-service).
 
-`ADMIN_MUTATION_RATELIMIT`, `ADMIN_LOOKUP_RATELIMIT` and their windows must be positive integers: a
-value that is set and is not (`-5`, `0`, `1.5`, `abc`) stops the boot
-(`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead of being absorbed; unset or empty is the default. An
-administration mutation spends from **two** buckets: the session's own (the limit of its plan,
-`session.rateLimit`, counted per access token by the token validation) and the operator's
-(`ADMIN_MUTATION_RATELIMIT`, counted per account). Whichever runs out first answers `429`, so a
-figure above the plan limit of the tokens is in practice capped by that limit, per token.
+`ADMIN_MUTATION_RATELIMIT`, `ADMIN_LOOKUP_RATELIMIT`, `PHONE_ENROLL_RATELIMIT`,
+`PHONE_ENROLL_NUMBER_COOLDOWN_SECONDS` and their windows must be positive integers: a value that is
+set and is not (`-5`, `0`, `1.5`, `abc`) stops the boot (`IAM_INVALID_POSITIVE_INTEGER_ENV`) instead
+of being absorbed; unset or empty is the default. An administration mutation spends from **two**
+buckets: the session's own (the limit of its plan, `session.rateLimit`, counted per access token by
+the token validation) and the operator's (`ADMIN_MUTATION_RATELIMIT`, counted per account).
+Whichever runs out first answers `429`, so a figure above the plan limit of the tokens is in
+practice capped by that limit, per token.
 
 Changing `AUDIT_RETENTION_DAYS` on an existing database does not change the index MongoDB already
 has, and a mismatch makes the index build fail at boot. Update it in place with `collMod`
