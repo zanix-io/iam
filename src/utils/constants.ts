@@ -647,6 +647,18 @@ export const adminLookupRateLimitWindowSeconds: number = positiveIntegerEnv(
   60,
 )
 
+/** Env var name for {@linkcode phoneUniquePerAccount}. */
+export const PHONE_UNIQUE_PER_ACCOUNT_ENV = 'PHONE_UNIQUE_PER_ACCOUNT'
+
+/**
+ * Whether one verified phone number may belong to one account only (`PHONE_UNIQUE_PER_ACCOUNT=true`).
+ * Off by default: `phone/confirm` then accepts a number another account already holds. Read at each
+ * call, so it can be switched without a code change.
+ */
+export function phoneUniquePerAccount(): boolean {
+  return Deno.env.get(PHONE_UNIQUE_PER_ACCOUNT_ENV) === 'true'
+}
+
 /** Env var name for {@linkcode phoneEnrollRateLimit}. */
 export const PHONE_ENROLL_RATELIMIT_ENV = 'PHONE_ENROLL_RATELIMIT'
 
@@ -747,6 +759,8 @@ export const IAM_ERROR_CODES = {
   serviceNotAuthorized: 'SERVICE_NOT_AUTHORIZED',
   /** A code was sent to that phone number a moment ago; `meta.retryAfterSeconds` says how long to wait. */
   phoneEnrollTooSoon: 'PHONE_ENROLL_TOO_SOON',
+  /** The phone number is already the verified number of another account. */
+  phoneAlreadyInUse: 'PHONE_ALREADY_IN_USE',
 } as const
 
 /**

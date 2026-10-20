@@ -56,6 +56,10 @@ export type AuthenticationAttrs = {
    * exclusively by `AuthService.phoneConfirm` — only once a real OTP sent to this exact number has
    * been verified (`AuthService.phoneEnroll`'s own doc), never trusted from a plain settings edit. */
   phone?: string
+  /** Deterministic digest of `phone` (see `phone-key.ts`), set and cleared together with it. It
+   * carries the sparse unique index that lets `PHONE_UNIQUE_PER_ACCOUNT` hold one number to one
+   * account. */
+  phoneKeyId?: string
   /** Which channel a passwordless OTP-login code (`PasswordService.recovery`, `isLogin: true`)
    * gets delivered through, when the caller doesn't already force one (a real 2FA challenge always
    * does — see `AuthService.finishLogin`). `undefined` means "email", the default — never stored
@@ -152,6 +156,11 @@ registerModel<AuthenticationAttrs>({
     phone: {
       type: String,
       get: dataPoliciesGetter({ access: 'internal', protection: 'mask' }),
+    },
+    phoneKeyId: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
     otpNotifier: {
       type: String,

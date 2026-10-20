@@ -1,4 +1,4 @@
-import { generateHash } from '@zanix/helpers'
+import { computeLookupKeyId } from './lookup-key.ts'
 
 /**
  * Computes a deterministic digest of `email` — the real lookup key `AuthRepository.findByEmail`
@@ -23,7 +23,7 @@ import { generateHash } from '@zanix/helpers'
  * upstream — lookups stay exactly as case-sensitive as a plain, unmasked `email` field would be.
  */
 export function computeEmailKeyId(email: string): Promise<string> {
-  return generateHash(email, 'low', false)
+  return computeLookupKeyId(email)
 }
 
 /**

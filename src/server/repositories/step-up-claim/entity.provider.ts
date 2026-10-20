@@ -2,12 +2,7 @@ import type { ZanixMongoConnector } from '@zanix/datamaster'
 import type { StepUpClaimAttrs } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
-
-/** Whether a write was refused by a unique index (MongoDB error 11000). */
-function isDuplicateKeyError(error: unknown): boolean {
-  const candidate = error as { code?: number; message?: string } | undefined
-  return candidate?.code === 11000 || candidate?.message?.includes('E11000') === true
-}
+import { isDuplicateKeyError } from '../duplicate-key.ts'
 
 /**
  * Provider for the `step_up_claim` model: values that may be used once. Registered under the

@@ -3,6 +3,7 @@ import type { AuthenticationAttrs, HydratedAuth } from './model.defs.ts'
 
 import { Provider, ZanixProvider } from '@zanix/server'
 import { computeEmailKeyId, emailLookupCandidates } from './email-key.ts'
+import { computePhoneKeyId } from './phone-key.ts'
 
 /**
  * Provider for the `auth` model — credentials and session-lifecycle state for this project's
@@ -45,6 +46,28 @@ export class AuthRepository extends ZanixProvider<{ database: ZanixMongoConnecto
     const emailKeyId = await computeEmailKeyId(authData.email)
     const authDoc = new this.Model({ ...authData, emailKeyId })
     return authDoc.save()
+  }
+
+  /**
+   * The id of the account that holds the verified `phone`, if any. Looked up through the
+   * deterministic `phoneKeyId` digest, never the masked `phone` field itself.
+   */
+  public async findIdByPhone(phone: string): Promise<string | undefined> {
+    const found = await this.Model.findOne({ phoneKeyId: await computePhoneKeyId(phone) })
+      .select('_id').exec()
+    return found ? String(found.id) : undefined
+  }
+
+  /**
+   * Stores `phone` as the verified number of the account `authId`, with the `phoneKeyId` digest
+   * the unique index runs on.
+   *
+   * @throws {Error} A duplicate-key error (see `isDuplicateKeyError`) when another account holds
+   *   the number and the index is built.
+   */
+  public async setPhone(authId: string, phone: string) {
+    const phoneKeyId = await computePhoneKeyId(phone)
+    return this.updateAuth({ id: authId, phone, phoneKeyId }, { applyProtection: true })
   }
 
   /** Finds an `auth` record by its own `id`. */
