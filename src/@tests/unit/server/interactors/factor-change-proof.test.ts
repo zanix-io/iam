@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { wireAuthServices } from '../../helpers/auth-services.ts'
 import { HttpError } from '@zanix/errors'
 import { ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -68,6 +69,8 @@ function build(operation: FactorChangeOperation) {
   const authRepo = {
     findById: fn((..._args: unknown[]): unknown => (scenario.auth ?? account)()),
     updateAuth: fn((..._args: unknown[]) => ({})),
+    setPhone: fn((..._args: unknown[]) => authRepo.updateAuth()),
+    findIdByPhone: fn((..._args: unknown[]) => undefined),
     // Regenerating backup codes is a write of its own; it counts as the operation's write.
     replaceBackupCodes: fn((..._args: unknown[]) => authRepo.updateAuth()),
   }
@@ -94,6 +97,7 @@ function build(operation: FactorChangeOperation) {
     locals: {},
   }
   mockAccessor(service, 'context', context)
+  if (scenario.service === 'auth') wireAuthServices(service)
   const run = (token?: string) => {
     if (token === undefined) delete context.locals.stepUpToken
     else context.locals.stepUpToken = token

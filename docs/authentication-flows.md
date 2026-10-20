@@ -261,7 +261,8 @@ Requires a session (hosted `phone/enroll` and `phone/confirm` pages).
    to a number the caller names.
 2. `POST /api/login/phone/confirm` with `{ phone, code }` stores the number when the code verifies,
    limited to `freeRateLimit` attempts per account. The code belongs to the number it was sent to:
-   confirming another number fails.
+   confirming another number fails. With `PHONE_UNIQUE_PER_ACCOUNT=true`, a number another account
+   already holds is refused with `409` `PHONE_ALREADY_IN_USE`.
 3. `POST /api/login/otp-notifier` with `{ notifier: 'sms' | 'whatsapp' }` makes that channel the
    default for passwordless codes; omitting it returns to email.
 4. `DELETE /api/login/phone` forgets the number and the channel preference.

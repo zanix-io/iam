@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { wireAuthServices } from '../../../unit/helpers/auth-services.ts'
 import { HttpError } from '@zanix/errors'
 import { ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -88,6 +89,7 @@ Deno.test('auth app wiring: totpEnroll labels the provisioning URI through the r
     ]),
   )
   mockAccessor(service, 'context', { session: { subject: 'auth-1' }, cookies: {} })
+  wireAuthServices(service)
 
   assertEquals(await service.totpEnroll(), { secret: 'SECRET', uri: 'otpauth://totp/x' })
   assertEquals(getProvisioningUri.calls[0][0], 'SECRET')

@@ -430,13 +430,18 @@ export async function startIam(options: StartOptions = {}): Promise<Iam> {
   }
 
   // `/health` answers as soon as the server listens, which can be before the seeders have written
-  // the first administrator: ready means that account can sign in.
+  // the first administrator: ready means that account can sign in with its permissions.
   let admin: Session
   try {
     const started = Date.now()
     for (;;) {
       try {
         admin = await login(FIRST_ADMIN.email, FIRST_ADMIN.password)
+        // Roles and permissions are seeded per collection, so the account can sign in before its
+        // role exists: a token with no audience is not ready yet.
+        if (options.firstAdmin !== false && admin.claims.aud.length === 0) {
+          throw new Error('[e2e] first administrator signed in without permissions yet')
+        }
         break
       } catch (error) {
         if (options.firstAdmin === false || Date.now() - started > 30_000) throw error

@@ -262,6 +262,8 @@ exchanges it at `token` and sends the result in `X-Znx-Authorization`. Only the 
   same number (`403` otherwise); the code is consumed atomically and the route needs a proof bound
   to `phone-confirm`. The `phoneConfirmRateLimitIdentityGuard` applies the `freeRateLimit` ceiling
   to the authenticated caller, which the token's own account-wide limit would otherwise replace.
+  With `PHONE_UNIQUE_PER_ACCOUNT=true` it answers `409` `PHONE_ALREADY_IN_USE` for a number another
+  account holds.
 - **`DELETE /api/login/phone`** forgets the phone and any `sms`/`whatsapp` channel preference (proof
   bound to `phone-disable`).
 - **`POST /api/login/otp-notifier`** sets the channel for passwordless login codes: `sms` or

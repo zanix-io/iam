@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-await-in-loop
+import { oauthServiceOf, wireAuthServices } from '../../helpers/auth-services.ts'
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
 import { HttpError } from '@zanix/errors'
 import { generateOTP, verifyOTP, ZanixAuthProvider } from '@zanix/auth'
@@ -106,6 +107,7 @@ function build<T extends AuthService | PasswordService | StepUpService>(
     ]),
   )
   mockAccessor(service, 'context', { session: { subject: 'auth-1' }, cookies: {} })
+  if (service instanceof AuthService) wireAuthServices(service)
   return { service, cache, authRepo, authProvider, usersRepo }
 }
 
@@ -300,7 +302,7 @@ Deno.test('step-up verify: an email code records the proof, an SMS code does not
 
 function withConnector(service: AuthService, userInfo: Record<string, unknown>) {
   mockAccessor(
-    service,
+    oauthServiceOf(service),
     'getOauthConnector',
     fn(() => ({ validateCode: fn(() => userInfo) })),
   )

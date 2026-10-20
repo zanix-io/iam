@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertNotEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { wireAuthServices } from '../../helpers/auth-services.ts'
 import { HttpError } from '@zanix/errors'
 import { generateTOTP, generateTOTPSecret, verifyTOTP, ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -117,6 +118,7 @@ async function world(opts: { codes?: string[]; totp?: boolean } = {}) {
   const stepUp = new StepUpService('ctx-1')
   mockAccessor(stepUp, 'providers', providers)
   mockAccessor(stepUp, 'context', context)
+  wireAuthServices(authService, [[StepUpService, stepUp]])
   return {
     secret,
     codes,

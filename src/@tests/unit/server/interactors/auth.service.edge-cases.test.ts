@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { oauthServiceOf, wireAuthServices } from '../../helpers/auth-services.ts'
 import { HttpError } from '@zanix/errors'
 import { createJWT, JWT_KEY_ENV, ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -105,11 +106,11 @@ function buildService(opts: {
       claimProviderEntry(),
     ]),
   )
-  mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))
   mockAccessor(service, 'context', {
     session: opts.session ?? { subject: 'auth-1' },
     cookies: opts.cookies ?? {},
   })
+  wireAuthServices(service, [[PasswordService, passwordService]])
   grantFactorChangeProofs(service)
   return { service, authRepo, usersRepo, authProvider, passwordService }
 }
@@ -218,7 +219,7 @@ Deno.test('loginWithOauthCallback: selfRegistrationViaOAuth=false refuses an unk
     const { service, usersRepo, authRepo } = buildService({
       authRepo: { findByEmail: fn(() => undefined) },
     })
-    mockAccessor(service, 'getOauthConnector', () => ({
+    mockAccessor(oauthServiceOf(service), 'getOauthConnector', () => ({
       validateCode: () => ({ email: 'new@example.com', verified_email: true }),
     }))
     await assertRejects(
@@ -247,7 +248,7 @@ Deno.test('getOwnAuthMethods: a verified phone is summarized as its last 4 digit
 Deno.test('linkOauth: a session subject with no auth record is FORBIDDEN before calling the provider', async () => {
   const { service, authRepo } = buildService({ authRepo: { findById: fn(() => undefined) } })
   const validateCode = fn(() => ({ email: 'jane@example.com' }))
-  mockAccessor(service, 'getOauthConnector', () => ({ validateCode }))
+  mockAccessor(oauthServiceOf(service), 'getOauthConnector', () => ({ validateCode }))
   await assertRejects(() => service.linkOauth('code', 'github'), HttpError, 'Account not found.')
   assertEquals(validateCode.calls, [])
   assertEquals(authRepo.updateAuth.calls, [])

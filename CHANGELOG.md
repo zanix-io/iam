@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-10-19
+
+### Added
+
+- **One verified phone per account, opt in.** With `PHONE_UNIQUE_PER_ACCOUNT=true`, `phone/confirm`
+  refuses a number another account already holds (`409`, `PHONE_ALREADY_IN_USE`). The check runs
+  after the code is verified, so it never tells anyone whether a number they do not control is
+  registered. The number is matched through `auth.phoneKeyId`, a deterministic digest with a sparse
+  unique index, written on every confirmation and cleared with the number; a concurrent confirmation
+  of one number ends in the same refusal. The option is off by default and nothing changes for
+  existing deployments until it is switched on.
+
+### Changed
+
+- `AuthService` (1,550 lines) is split by responsibility into `SessionService` (finishing logins,
+  reactivation, tokens), `TotpService` (authenticator app, backup codes, factor-change proofs),
+  `PhoneService` (verified phone, `otpNotifier`) and `OauthService` (OAuth2 sign-in and linking).
+  `AuthService` keeps every public method and delegates, so routes, hosted pages and callers are
+  unchanged.
+
 ## [2.5.2] - 2026-10-15
 
 ### Security

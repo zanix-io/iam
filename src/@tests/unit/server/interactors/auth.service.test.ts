@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@0.224'
+import { oauthServiceOf, wireAuthServices } from '../../helpers/auth-services.ts'
 import { HttpError } from '@zanix/errors'
 import { createJWT, ZanixAuthProvider } from '@zanix/auth'
 import { NotifierProvider } from '@zanix/notifications'
@@ -71,6 +72,8 @@ const defaultAuthRepo = () => ({
   findById: fn((..._args: unknown[]): unknown => baseAuth()),
   registerAuth: fn((..._args: unknown[]) => ({})),
   updateAuth: fn((..._args: unknown[]) => ({})),
+  setPhone: fn((..._args: unknown[]) => ({})),
+  findIdByPhone: fn((..._args: unknown[]): string | undefined => undefined),
   markEmailVerified: fn((..._args: unknown[]) => true),
   countBackupCodes: fn((..._args: unknown[]) => 0),
   consumeBackupCode: fn((..._args: unknown[]): number | undefined => undefined),
@@ -158,11 +161,11 @@ function buildService(opts: {
       claimProviderEntry(claims),
     ]),
   )
-  mockAccessor(service, 'interactors', mapGetter([[PasswordService, passwordService]]))
   mockAccessor(service, 'context', {
     session: opts.session ?? { subject: 'auth-1' },
     cookies: opts.cookies ?? {},
   })
+  wireAuthServices(service, [[PasswordService, passwordService]])
   if (opts.proofs !== false) grantFactorChangeProofs(service)
 
   return {
@@ -1207,14 +1210,11 @@ Deno.test('phoneConfirm: a code sent to one number never confirms another', asyn
     HttpError,
     'Invalid or expired code',
   )
-  assertEquals(authRepo.updateAuth.calls.length, 0)
+  assertEquals(authRepo.setPhone.calls.length, 0)
 
   const result = await service.phoneConfirm('+15551234567', '123456')
   assertEquals(result, { response: 'Phone verified' })
-  assertEquals(authRepo.updateAuth.calls[0], [
-    { id: 'auth-1', phone: '+15551234567' },
-    { applyProtection: true },
-  ])
+  assertEquals(authRepo.setPhone.calls[0], ['auth-1', '+15551234567'])
 })
 
 Deno.test('phoneConfirm: throws UNAUTHORIZED with no session', async () => {
@@ -1235,7 +1235,7 @@ Deno.test('phoneConfirm: throws FORBIDDEN when the code does not verify — neve
     HttpError,
     'Invalid or expired code',
   )
-  assertEquals(authRepo.updateAuth.calls.length, 0)
+  assertEquals(authRepo.setPhone.calls.length, 0)
   assertEquals(authProvider.otp.verify.calls[0], ['phone-enroll:auth-1:+15551234567', 'wrong'])
 })
 
@@ -1243,10 +1243,72 @@ Deno.test('phoneConfirm: a verified code persists phone, never otpNotifier', asy
   const { service, authRepo } = buildService()
   const result = await service.phoneConfirm('+15551234567', '123456')
   assertEquals(result, { response: 'Phone verified' })
-  assertEquals(authRepo.updateAuth.calls[0], [
-    { id: 'auth-1', phone: '+15551234567' },
-    { applyProtection: true },
-  ])
+  assertEquals(authRepo.setPhone.calls[0], ['auth-1', '+15551234567'])
+})
+
+/** Runs `body` with `PHONE_UNIQUE_PER_ACCOUNT` set to `value`, then restores it. */
+async function withPhoneUnique(value: string | undefined, body: () => Promise<void>) {
+  const before = Deno.env.get('PHONE_UNIQUE_PER_ACCOUNT')
+  if (value === undefined) Deno.env.delete('PHONE_UNIQUE_PER_ACCOUNT')
+  else Deno.env.set('PHONE_UNIQUE_PER_ACCOUNT', value)
+  try {
+    await body()
+  } finally {
+    if (before === undefined) Deno.env.delete('PHONE_UNIQUE_PER_ACCOUNT')
+    else Deno.env.set('PHONE_UNIQUE_PER_ACCOUNT', before)
+  }
+}
+
+Deno.test('phoneConfirm: a number another account holds is refused when the option is on', async () => {
+  await withPhoneUnique('true', async () => {
+    const { service, authRepo } = buildService({
+      authRepo: { findIdByPhone: fn(() => 'auth-2') },
+    })
+    const refused = await assertRejects(
+      () => service.phoneConfirm('+15551234567', '123456'),
+      HttpError,
+    )
+    assertEquals(refused.code, IAM_ERROR_CODES.phoneAlreadyInUse)
+    assertEquals(authRepo.setPhone.calls.length, 0)
+  })
+})
+
+Deno.test('phoneConfirm: the account that already holds the number can confirm it again', async () => {
+  await withPhoneUnique('true', async () => {
+    const { service, authRepo } = buildService({
+      authRepo: { findIdByPhone: fn(() => 'auth-1') },
+    })
+    await service.phoneConfirm('+15551234567', '123456')
+    assertEquals(authRepo.setPhone.calls.length, 1)
+  })
+})
+
+Deno.test('phoneConfirm: a duplicate-key error from a concurrent confirmation is the same refusal', async () => {
+  await withPhoneUnique('true', async () => {
+    const { service } = buildService({
+      authRepo: {
+        setPhone: fn(() =>
+          Promise.reject(Object.assign(new Error('E11000 duplicate key'), { code: 11000 }))
+        ),
+      },
+    })
+    const refused = await assertRejects(
+      () => service.phoneConfirm('+15551234567', '123456'),
+      HttpError,
+    )
+    assertEquals(refused.code, IAM_ERROR_CODES.phoneAlreadyInUse)
+  })
+})
+
+Deno.test('phoneConfirm: with the option off a number another account holds is still accepted', async () => {
+  await withPhoneUnique(undefined, async () => {
+    const { service, authRepo } = buildService({
+      authRepo: { findIdByPhone: fn(() => 'auth-2') },
+    })
+    await service.phoneConfirm('+15551234567', '123456')
+    assertEquals(authRepo.setPhone.calls.length, 1)
+    assertEquals(authRepo.findIdByPhone.calls.length, 0)
+  })
 })
 
 Deno.test('disablePhone: throws UNAUTHORIZED with no session', async () => {
@@ -1269,7 +1331,7 @@ Deno.test('disablePhone: clears phone and otpNotifier together, unconditionally'
   assertEquals(result, { response: 'Phone removed' })
   assertEquals(authRepo.updateAuth.calls[0], [
     { id: 'auth-1' },
-    { unset: ['phone', 'otpNotifier'] },
+    { unset: ['phone', 'phoneKeyId', 'otpNotifier'] },
   ])
 })
 
@@ -1351,7 +1413,7 @@ Deno.test('loginWithOauth: forwards an explicit state into generateAuthUrl', () 
   // `activateApps()` populates — see the "not configured" test above) — shadowed here the same
   // way `providers`/`interactors`/`context` are, so `loginWithOauth`'s own forwarding behavior can
   // be exercised without standing up a real app.
-  mockAccessor(service, 'getOauthConnector', fn(() => ({ generateAuthUrl })))
+  mockAccessor(oauthServiceOf(service), 'getOauthConnector', fn(() => ({ generateAuthUrl })))
 
   service.loginWithOauth('google', 'caller-supplied-state')
 
@@ -1364,7 +1426,7 @@ Deno.test('loginWithOauth: forwards undefined when called with no state', () => 
     url: 'https://provider/auth',
     state: 'x',
   }))
-  mockAccessor(service, 'getOauthConnector', fn(() => ({ generateAuthUrl })))
+  mockAccessor(oauthServiceOf(service), 'getOauthConnector', fn(() => ({ generateAuthUrl })))
 
   service.loginWithOauth('google')
 
@@ -1377,7 +1439,7 @@ Deno.test('loginWithOauth: forwards loginHint into generateAuthUrl', () => {
     url: 'https://provider/auth',
     state: 'x',
   }))
-  mockAccessor(service, 'getOauthConnector', fn(() => ({ generateAuthUrl })))
+  mockAccessor(oauthServiceOf(service), 'getOauthConnector', fn(() => ({ generateAuthUrl })))
 
   service.loginWithOauth('google', 'caller-supplied-state', 'jane@example.com')
 
@@ -1389,7 +1451,11 @@ Deno.test('loginWithOauth: forwards loginHint into generateAuthUrl', () => {
 function withOauthConnector(service: AuthService, validateCode: (...args: unknown[]) => unknown) {
   // Same seam `loginWithOauth`'s own tests already shadow — `getOauthConnector` resolves through
   // `resolveResource`, a process-wide overlay only a real `activateApps()` populates.
-  mockAccessor(service, 'getOauthConnector', fn(() => ({ validateCode: fn(validateCode) })))
+  mockAccessor(
+    oauthServiceOf(service),
+    'getOauthConnector',
+    fn(() => ({ validateCode: fn(validateCode) })),
+  )
 }
 
 Deno.test('loginWithOauthCallback: throws BAD_REQUEST when the provider is not configured', async () => {
